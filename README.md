@@ -9,6 +9,8 @@ git clone <your-fork-url> && cd delivery-value-dashboard
 make build && open dist/delivery-value-dashboard.html
 ```
 
+*Working from the delivered zip rather than a clone? It is already a git repository with an initial commit — see [PUSH.md](PUSH.md) to push it to your own remote.*
+
 **[▶ Watch the 2-minute demo](docs/demo.mp4)** ([lighter 2.9 MB version](docs/demo-small.mp4)) · **[Executive summary of the agent](docs/agent-executive-summary.md)**
 
 ---
