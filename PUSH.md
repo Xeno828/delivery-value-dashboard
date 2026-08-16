@@ -77,6 +77,6 @@ Be aware that this also breaks the GitHub Pages workflow's assumption and the "c
 
 CI will run on the next push or pull request. It needs nothing configured — no secrets, no environment. It builds, fails if `dist/` is stale, then runs all four suites and a dependency audit.
 
-The Pages workflow is **not** enabled by default and publishes only the demo dataset. Do not enable it on a repository whose `data/` folder holds real issue titles unless your plan supports private Pages.
+The Pages workflow **never runs on its own** — it is `workflow_dispatch` only, so it publishes when you start it from the Actions tab and at no other time. It copies the whole of `data/` into a public site, so do not run it on a repository where the fetcher has written real issue titles unless your plan supports private Pages.
 
 `.env` is git-ignored, as is `data/dashboard-data.json` — the file the fetcher writes, which contains real issue titles. Both are deliberate; check they survive any `.gitignore` edits you make.

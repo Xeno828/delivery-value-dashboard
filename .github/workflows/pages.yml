@@ -1,12 +1,13 @@
 name: publish to GitHub Pages
 
-# Publishes the built dashboard with its demo dataset. Do NOT enable this on a
+# Publishes the built dashboard with its demo dataset. Do NOT run this on a
 # repository whose data/ folder contains real issue titles — Pages is public
 # unless your plan supports private Pages.
+#
+# Manual only, deliberately. This job copies all of data/ into a public site,
+# so the decision to publish is made per-run by a person, never by a push.
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
