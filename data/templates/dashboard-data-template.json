@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "1.0",
+  "meta": {
+    "organisation": "",
+    "team": "",
+    "sprintName": "",
+    "sprintGoal": "",
+    "startDate": "YYYY-MM-DD",
+    "endDate": "YYYY-MM-DD",
+    "asOfDate": "YYYY-MM-DD",
+    "source": "manual",
+    "sourceLabel": "",
+    "baseUrl": "https://your-domain.atlassian.net",
+    "currency": "USD",
+    "workingDays": []
+  },
+  "issues": [
+    {
+      "key": "ABC-1",
+      "summary": "",
+      "type": "Story",
+      "status": "In Progress",
+      "statusCategory": "In Progress",
+      "assignee": "",
+      "storyPoints": 0,
+      "priority": "Medium",
+      "epic": "",
+      "created": "YYYY-MM-DD",
+      "started": null,
+      "resolved": null,
+      "dueDate": null,
+      "flagged": false,
+      "addedMidSprint": false,
+      "businessValue": 0,
+      "valueBasis": "",
+      "labels": []
+    }
+  ],
+  "burndown": [
+    {
+      "date": "YYYY-MM-DD",
+      "remainingSP": 0,
+      "scopeSP": 0,
+      "idealSP": 0,
+      "remainingItems": 0,
+      "scopeItems": 0,
+      "idealItems": 0
+    }
+  ],
+  "history": [
+    {
+      "sprint": "",
+      "committedSP": 0,
+      "completedSP": 0,
+      "committedItems": 0,
+      "completedItems": 0,
+      "throughput": 0,
+      "wipItems": 0,
+      "unplannedItems": 0,
+      "flowEfficiency": 0,
+      "valueDelivered": 0
+    }
+  ],
+  "releases": [
+    {
+      "name": "",
+      "targetDate": "YYYY-MM-DD",
+      "scopeIssues": 0,
+      "doneIssues": 0,
+      "status": "On Track",
+      "note": ""
+    }
+  ],
+  "dora": {
+    "deploymentFrequencyPerWeek": 0,
+    "deploymentFrequencyTrend": [],
+    "changeFailureRatePct": 0,
+    "changeFailureRateTrend": [],
+    "leadTimeForChangesDays": 0,
+    "leadTimeForChangesTrend": [],
+    "mttrMinutes": 0,
+    "mttrTrend": []
+  }
+}

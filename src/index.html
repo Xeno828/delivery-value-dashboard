@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delivery Value Dashboard</title>
+<style>
+/* @@STYLES@@ */
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="title">
+      <h1 id="t-title">Delivery Value Dashboard</h1>
+      <div class="sub" id="t-sub"></div>
+      <div class="goal" id="t-goal"></div>
+    </div>
+    <div class="topbar-actions">
+      <span class="src-badge" id="t-src"><i class="dot"></i><span></span></span>
+      <span class="health-chip" id="t-health"></span>
+      <button class="btn" id="btn-theme" title="Switch light / dark">Dark</button>
+      <button class="btn" id="btn-print">Print</button>
+      <button class="btn" id="btn-export">Export CSV</button>
+      <button class="btn primary" id="btn-import">Load data</button>
+    </div>
+  </div>
+
+  <div class="filters ctxbar hidden" id="ctxbar"></div>
+
+  <div class="filters">
+    <div class="fgroup"><label for="f-assignee">Person</label><select id="f-assignee"></select></div>
+    <div class="fgroup"><label for="f-epic">Epic</label><select id="f-epic"></select></div>
+    <div class="fgroup"><label for="f-type">Type</label><select id="f-type"></select></div>
+    <div class="fgroup"><label for="f-status">Status</label><select id="f-status"></select></div>
+    <div class="fgroup"><label for="f-q">Find</label><input type="search" id="f-q" placeholder="key or words"></div>
+    <div class="fgroup"><label>Measure</label>
+      <div class="seg" role="group" aria-label="Unit of measure">
+        <button type="button" data-unit="items" aria-pressed="true">Items</button>
+        <button type="button" data-unit="points" aria-pressed="false">Points</button>
+      </div>
+      <span class="info" data-tip="unit">i</span>
+    </div>
+    <div class="active-filters" id="f-chips"></div>
+  </div>
+
+  <div class="grid" id="grid">
+
+    <div class="card span12" id="c-exec">
+      <div class="card-hd">
+        <div><h2>What this sprint means <span class="info" data-tip="exec">i</span></h2>
+        <div class="cap" id="exec-cap">Plain-language read of the numbers below. Every point links to the issues behind it.</div></div>
+      </div>
+      <div class="exec">
+        <div>
+          <div class="verdict" id="exec-verdict"></div>
+          <div class="note" id="exec-basis" style="margin-top:10px"></div>
+        </div>
+        <ul class="narr" id="exec-list"></ul>
+      </div>
+    </div>
+
+    <div class="span12"><div class="kpis" id="kpis"></div></div>
+
+    <div class="card span7" id="c-burn">
+      <div class="card-hd">
+        <div><h2>Burndown, with scope changes shown <span class="info" data-tip="burn">i</span></h2>
+        <div class="cap">Work left to do each day against the plan. The orange line is total scope — when it rises, work was added mid-sprint.</div></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="burn" aria-pressed="false" title="Show as table">▤</button></div>
+      </div>
+      <div id="burn-chart"></div>
+      <div class="tv-wrap hidden" id="burn-table"></div>
+    </div>
+
+    <div class="card span5" id="c-dist">
+      <div class="card-hd">
+        <div><h2>Where each person's work sits <span class="info" data-tip="dist">i</span></h2>
+        <div class="cap">Story points per person, split by stage. Click any bar to see the issues.</div></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="dist" aria-pressed="false" title="Show as table">▤</button></div>
+      </div>
+      <div id="dist-chart"></div>
+      <div class="tv-wrap hidden" id="dist-table"></div>
+    </div>
+
+    <div class="card span7" id="c-flow">
+      <div class="card-hd">
+        <div><h2>How long work takes, and how much of it is waiting <span class="info" data-tip="flowtime">i</span></h2>
+        <div class="cap">Each closed item, from raised to done. The pale part is time spent waiting rather than being worked on.</div></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="flowtime" aria-pressed="false" title="Show as table">▤</button></div>
+      </div>
+      <div id="flowtime-chart"></div>
+      <div class="tv-wrap hidden" id="flowtime-table"></div>
+    </div>
+
+    <div class="card span5" id="c-age">
+      <div class="card-hd">
+        <div><h2>How long open work has been sitting <span class="info" data-tip="age">i</span></h2>
+        <div class="cap">Age of everything not yet done, in bands that match a two-week sprint.</div></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="age" aria-pressed="false" title="Show as table">▤</button></div>
+      </div>
+      <div id="age-chart"></div>
+      <div class="tv-wrap hidden" id="age-table"></div>
+    </div>
+
+    <div class="card span5" id="c-pred">
+      <div class="card-hd">
+        <div><h2>Can we trust the forecast? <span class="info" data-tip="pred">i</span></h2>
+        <div class="cap">Committed against completed, last six sprints. Consistency matters more than volume.</div></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="pred" aria-pressed="false" title="Show as table">▤</button></div>
+      </div>
+      <div id="pred-chart"></div>
+      <div class="tv-wrap hidden" id="pred-table"></div>
+    </div>
+
+    <div class="card span4" id="c-dora">
+      <div class="card-hd">
+        <div><h2>Release quality &amp; speed <span class="info" data-tip="dora">i</span></h2>
+        <div class="cap">Four industry-standard measures of how safely the team ships.</div></div>
+      </div>
+      <div id="dora-body"></div>
+    </div>
+
+    <div class="card span3" id="c-load">
+      <div class="card-hd">
+        <div><h2>Team load <span class="info" data-tip="load">i</span></h2>
+        <div class="cap">Started-but-unfinished work, and how much arrived after planning. Both from issue status &mdash; no hours, no timesheets.</div></div>
+      </div>
+      <div id="load-body"></div>
+    </div>
+
+    <div class="card span8" id="c-value">
+      <div class="card-hd">
+        <div><h2>Business value delivered <span class="info" data-tip="value">i</span></h2>
+        <div class="cap">Estimated, not booked. Only items with a stated basis are counted.</div></div>
+      </div>
+      <div id="value-body"></div>
+    </div>
+
+    <div class="card span4" id="c-rel">
+      <div class="card-hd">
+        <div><h2>Releases &amp; milestones <span class="info" data-tip="rel">i</span></h2>
+        <div class="cap">Scope completion against target dates.</div></div>
+      </div>
+      <div id="rel-body"></div>
+    </div>
+
+    <div class="card span12" id="c-risk">
+      <div class="card-hd">
+        <div><h2>Risks and what to do about them <span class="info" data-tip="risk">i</span></h2>
+        <div class="cap">Generated from the data on this page, not typed by hand. Each links to its issues.</div></div>
+      </div>
+      <div id="risk-body"></div>
+    </div>
+
+  </div>
+
+  <div class="foot" id="foot"></div>
+</div>
+
+<div id="tip" role="tooltip"></div>
+<div id="scrim"></div>
+
+<aside id="panel" role="dialog" aria-modal="true" aria-labelledby="p-title">
+  <div class="p-hd">
+    <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+      <div><h3 id="p-title">Issues</h3><div class="p-sub" id="p-sub"></div></div>
+      <button class="icon-btn" id="p-close" title="Close">✕</button>
+    </div>
+  </div>
+  <div class="p-body" id="p-body"></div>
+  <div class="p-ft">
+    <button class="btn" id="p-csv">Download these as CSV</button>
+    <button class="btn primary" id="p-done">Close</button>
+  </div>
+</aside>
+
+<div id="modal">
+  <div class="mbox">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+      <div><h3>Load your own data</h3>
+      <div class="note">Nothing you load leaves your browser. Files are read locally and held in memory only.</div></div>
+      <button class="icon-btn" id="m-close" title="Close">&#10005;</button>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-tab="file">Upload a file</button>
+      <button role="tab" aria-selected="false" data-tab="jira">Connect Jira / Asana</button>
+      <button role="tab" aria-selected="false" data-tab="schema">Data format</button>
+    </div>
+
+    <div id="tab-file">
+      <!-- ---------- step 1: choose ---------- -->
+      <section id="step-choose">
+        <div class="drop" id="drop">
+          <div style="font-size:22px;line-height:1">&#8681;</div>
+          <div style="margin-top:6px">Drop a file here, or
+            <label class="filelink">browse<input type="file" id="file" accept=".json,.csv,.tsv,.txt,.xlsx" hidden multiple></label>
+          </div>
+          <div class="note" style="margin-top:8px">
+            Accepts <code>.csv</code>, <code>.tsv</code>, <code>.xlsx</code> and <code>.json</code> &mdash;
+            including a raw export straight out of Jira or Asana. Columns are matched by name; you can correct any of them at the next step.
+          </div>
+        </div>
+        <details style="margin-top:12px">
+          <summary class="summ">Or paste JSON / CSV text</summary>
+          <textarea id="paste" placeholder="Paste a JSON dataset, or CSV text with a header row"></textarea>
+          <button class="btn primary" id="m-paste" style="margin-top:8px">Read pasted text</button>
+        </details>
+        <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+          <button class="btn" id="m-template-csv">Download CSV template</button>
+          <button class="btn" id="m-template">Download JSON template</button>
+          <button class="btn" id="m-current">Download current data</button>
+          <button class="btn" id="m-sample">Reload demo data</button>
+        </div>
+      </section>
+
+      <!-- ---------- step 2: map ---------- -->
+      <section id="step-map" class="hidden">
+        <div class="stepbar"><b>Step 2 of 3</b> &middot; check the column mapping</div>
+        <div id="map-src" class="note"></div>
+
+        <div class="tv-wrap" style="max-height:none;margin-top:10px">
+          <table class="tv maptable"><thead><tr>
+            <th style="width:26%">Dashboard field</th><th style="width:30%">Your column</th>
+            <th style="width:26%;text-align:left">Example value</th><th style="width:18%;text-align:left">Status</th>
+          </tr></thead><tbody id="map-body"></tbody></table>
+        </div>
+
+        <h4>Sprint window</h4>
+        <div class="note" style="margin-bottom:8px">Used for the burndown, the pace-vs-clock figure and the age bands. Pre-filled from your data &mdash; correct it if the guess is wrong.</div>
+        <div class="wingrid">
+          <label>Sprint name<input type="text" id="w-name"></label>
+          <label>Start date<input type="date" id="w-start"></label>
+          <label>End date<input type="date" id="w-end"></label>
+          <label>Data as at<input type="date" id="w-asof"></label>
+        </div>
+
+        <h4>How should this be applied?</h4>
+        <div class="radios">
+          <label><input type="radio" name="mergemode" value="replace" checked> <span><b>Replace everything</b><br><span class="note">The uploaded rows become the whole dataset.</span></span></label>
+          <label><input type="radio" name="mergemode" value="merge"> <span><b>Merge into what is loaded</b><br><span class="note">Rows with a matching key are updated; new keys are added. Use this to layer a value-estimate file on top of a Jira export.</span></span></label>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
+          <button class="btn" id="m-back">Back</button>
+          <button class="btn primary" id="m-preview">Preview the result</button>
+        </div>
+      </section>
+
+      <!-- ---------- step 3: preview ---------- -->
+      <section id="step-preview" class="hidden">
+        <div class="stepbar"><b>Step 3 of 3</b> &middot; check before applying</div>
+        <div id="prev-stats" class="statgrid"></div>
+        <div id="prev-warn"></div>
+        <h4>First rows as the dashboard will read them</h4>
+        <div class="tv-wrap" id="prev-table"></div>
+        <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
+          <button class="btn" id="m-back2">Back to mapping</button>
+          <button class="btn primary" id="m-apply">Apply to the dashboard</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="tab-jira" class="hidden"></div>
+    <div id="tab-schema" class="hidden"></div>
+  </div>
+</div>
+
+<script type="application/json" id="seed-data">
+/* @@SEED@@ */
+</script>
+<script>
+/* @@APP@@ */
+</script>
+<script>
+/* @@IMPORT@@ */
+</script>
+</body>
+</html>

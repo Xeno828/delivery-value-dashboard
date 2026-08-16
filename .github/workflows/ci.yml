@@ -1,0 +1,53 @@
+name: build & test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build
+        run: python3 build.py
+
+      - name: Fail if dist/ was not committed after a src/ change
+        run: python3 build.py --check
+
+      - name: Install browser test dependencies
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Agent tool tests (facts, forecast, refusals, backtest)
+        run: python3 tests/test_agent.py
+
+      - name: End-to-end browser tests
+        run: python3 tests/e2e.py
+
+      - name: Accessibility tests (WCAG 2.2 AA)
+        run: python3 tests/a11y.py
+
+      - name: Security tests
+        run: python3 tests/security.py
+
+      - name: Python dependency audit
+        run: |
+          pip install pip-audit
+          pip-audit -r scripts/requirements.txt
+
+      - name: Upload the rendered page
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-dashboard
+          path: |
+            dist/delivery-value-dashboard.html
+            tests/last-run.png

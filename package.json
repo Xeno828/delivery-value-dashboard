@@ -1,0 +1,15 @@
+{
+  "name": "delivery-value-dashboard",
+  "version": "1.7.0",
+  "description": "Single-file, drill-down delivery dashboard for Jira and Asana data. No runtime dependencies.",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "build": "python3 build.py",
+    "check": "python3 build.py --check",
+    "test": "python3 build.py && python3 tests/e2e.py",
+    "serve": "python3 -m http.server 8000"
+  },
+  "keywords": ["jira", "asana", "dashboard", "agile", "delivery-metrics", "dora", "flow-efficiency"],
+  "engines": { "node": ">=18" }
+}

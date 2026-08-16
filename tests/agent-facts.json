@@ -1,0 +1,260 @@
+{
+  "meta": {
+    "sprint": "Sprint 24",
+    "team": "Storefront Team",
+    "organisation": "Highpeak Commerce",
+    "goal": "Ship checkout stability fixes and launch the cart abandonment email so conversion recovers before peak trading.",
+    "start": "2026-08-03",
+    "end": "2026-08-14",
+    "as_of": "2026-08-10",
+    "source": "Demo data (no live connection)",
+    "currency": "USD",
+    "scope": "sprint",
+    "issues_in_scope": 22,
+    "issues_in_file": 22
+  },
+  "delivery": {
+    "items_total": 22,
+    "items_done": 12,
+    "items_done_pct": 0.5455,
+    "points_total": 83,
+    "points_done": 41,
+    "points_open": 42,
+    "points_done_pct": 0.494,
+    "time_elapsed_pct": 0.6,
+    "pace_gap_pts": -0.106
+  },
+  "scope": {
+    "added_items": 4,
+    "added_points": 9,
+    "growth_pct": 0.1216,
+    "added_keys": [
+      "BLC-450",
+      "BLC-451",
+      "BLC-452",
+      "BLC-453"
+    ]
+  },
+  "risk": {
+    "unit": "calendar days",
+    "blocked": [
+      "BLC-421",
+      "BLC-429",
+      "BLC-441"
+    ],
+    "top_priority_open": [
+      "BLC-429",
+      "BLC-451"
+    ],
+    "overdue": [
+      "BLC-429"
+    ],
+    "never_started": [
+      "BLC-424",
+      "BLC-436",
+      "BLC-438",
+      "BLC-443"
+    ],
+    "age_bands": {
+      "0-7": [
+        "BLC-451"
+      ],
+      "8-14": [
+        "BLC-416",
+        "BLC-421",
+        "BLC-424",
+        "BLC-433",
+        "BLC-441",
+        "BLC-443"
+      ],
+      "15-30": [
+        "BLC-429",
+        "BLC-436"
+      ],
+      "30+": [
+        "BLC-438"
+      ]
+    },
+    "oldest_open": {
+      "key": "BLC-438",
+      "days": 41
+    }
+  },
+  "flow": {
+    "unit": "calendar days",
+    "cycle_p50": 2.0,
+    "cycle_p85": 3.0,
+    "lead_p50": 11.0,
+    "lead_p85": 14.35,
+    "flow_efficiency": 0.2185,
+    "samples": 12
+  },
+  "predictability": {
+    "primary_unit": "items",
+    "items": {
+      "committed_items": 18,
+      "completed_items": 12,
+      "trailing_3_sprint_avg_completed_items": 9.0,
+      "commitment_vs_trailing_avg": 1.0,
+      "hit_rates": [
+        {
+          "sprint": "Sprint 19",
+          "completed_items": 11
+        },
+        {
+          "sprint": "Sprint 20",
+          "completed_items": 12
+        },
+        {
+          "sprint": "Sprint 21",
+          "completed_items": 9
+        },
+        {
+          "sprint": "Sprint 22",
+          "completed_items": 10
+        },
+        {
+          "sprint": "Sprint 23",
+          "completed_items": 8
+        },
+        {
+          "sprint": "Sprint 24",
+          "completed_items": 13
+        }
+      ],
+      "note": "For the commitment figure to recommend, use forecast.py's recommend_commitment() \u2014 a distribution over simulated sprints beats a mean of three numbers."
+    },
+    "points": {
+      "committed_points": 77,
+      "trailing_3_sprint_avg_completed": 35.7,
+      "commitment_vs_trailing_avg": 1.159,
+      "hit_rates": [
+        {
+          "sprint": "Sprint 19",
+          "rate": 0.9048
+        },
+        {
+          "sprint": "Sprint 20",
+          "rate": 0.9111
+        },
+        {
+          "sprint": "Sprint 21",
+          "rate": 0.75
+        },
+        {
+          "sprint": "Sprint 22",
+          "rate": 0.8333
+        },
+        {
+          "sprint": "Sprint 23",
+          "rate": 0.7391
+        },
+        {
+          "sprint": "Sprint 24",
+          "rate": 0.5065
+        }
+      ],
+      "status": "reported for continuity; not a forecasting input"
+    }
+  },
+  "value": {
+    "closed_estimate": 87000,
+    "items_with_estimate": 2,
+    "items_without_estimate": 10,
+    "bases": [
+      {
+        "key": "BLC-401",
+        "amount": 52200,
+        "basis": "Retention: 1,340 abandoned checkouts/mo x $39 AOV recovered"
+      },
+      {
+        "key": "BLC-402",
+        "amount": 34800,
+        "basis": "Conversion uplift: 2.1% of 41k monthly sessions x $40 AOV"
+      }
+    ]
+  },
+  "people": {
+    "Alex Rivera": {
+      "done": 3,
+      "open": 2,
+      "donePts": 14.0,
+      "openPts": 13.0
+    },
+    "Priya Nair": {
+      "done": 3,
+      "open": 3,
+      "donePts": 9.0,
+      "openPts": 10.0
+    },
+    "Jordan Lee": {
+      "done": 3,
+      "open": 2,
+      "donePts": 8.0,
+      "openPts": 8.0
+    },
+    "Sam Okafor": {
+      "done": 3,
+      "open": 3,
+      "donePts": 10.0,
+      "openPts": 11.0
+    }
+  },
+  "dora": {
+    "deploymentFrequencyPerWeek": 11,
+    "deploymentFrequencyTrend": [
+      8,
+      9,
+      9,
+      10,
+      10,
+      11
+    ],
+    "changeFailureRatePct": 7,
+    "changeFailureRateTrend": [
+      11,
+      10,
+      12,
+      9,
+      8,
+      7
+    ],
+    "leadTimeForChangesDays": 1.1,
+    "leadTimeForChangesTrend": [
+      1.9,
+      1.8,
+      1.6,
+      1.4,
+      1.2,
+      1.1
+    ],
+    "mttrMinutes": 38,
+    "mttrTrend": [
+      66,
+      58,
+      61,
+      47,
+      42,
+      38
+    ]
+  },
+  "releases": [
+    {
+      "name": "v2.2.0",
+      "targetDate": "2026-08-14",
+      "scopeIssues": 14,
+      "doneIssues": 9,
+      "status": "At Risk",
+      "note": "Blocked by BLC-429 and BLC-441"
+    },
+    {
+      "name": "v2.3.0",
+      "targetDate": "2026-08-28",
+      "scopeIssues": 8,
+      "doneIssues": 1,
+      "status": "On Track",
+      "note": ""
+    }
+  ],
+  "changes": null
+}

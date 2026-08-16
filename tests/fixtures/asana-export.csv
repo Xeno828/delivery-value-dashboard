@@ -1,0 +1,23 @@
+Task ID,Created At,Completed At,Last Modified,Name,Section/Column,Assignee,Assignee Email,Start Date,Due Date,Tags,Notes,Projects,Story Points,Business Value,Value Basis
+1200000000000,2026-07-22,2026-08-05,2026-07-22,Checkout crash on Safari 17 when applying a promo code,Done,Alex Rivera,alex@co.com,2026-08-03,2026-08-07,customer-impact,,Checkout Stability,8,52200,"Retention: 1,340 abandoned checkouts/mo x $39 AOV recovered"
+1200000000001,2026-07-25,2026-08-06,2026-07-25,Cart abandonment email — template and send scheduling,Done,Priya Nair,priya@co.com,2026-08-03,2026-08-10,,,Conversion,5,34800,Conversion uplift: 2.1% of 41k monthly sessions x $40 AOV
+1200000000002,2026-07-28,2026-08-07,2026-07-28,Add address autocomplete to the delivery step,Done,Jordan Lee,jordan@co.com,2026-08-03,2026-08-11,,,Checkout Stability,5,,
+1200000000003,2026-07-24,2026-08-06,2026-07-24,Payment retry logic for declined cards,Done,Sam Okafor,sam@co.com,2026-08-03,2026-08-07,,,Payments,5,,
+1200000000004,2026-07-29,,2026-07-29,Order confirmation email missing line item tax breakdown,In Progress,Priya Nair,priya@co.com,2026-08-06,2026-08-12,,,Order Management,3,,
+1200000000005,2026-07-26,2026-08-07,2026-07-26,Guest checkout session expires too early,Done,Alex Rivera,alex@co.com,2026-08-04,2026-08-10,,,Checkout Stability,3,,
+1200000000006,2026-07-30,,2026-07-30,Refund webhook occasionally fires twice,In Review,Sam Okafor,sam@co.com,2026-08-07,2026-08-11,blocked-external,,Payments,3,,
+1200000000007,2026-07-31,,2026-07-31,Search results ignore the in-stock filter,To Do,Jordan Lee,jordan@co.com,,2026-08-13,,,Catalogue,3,,
+1200000000008,2026-07-20,,2026-07-20,Inventory sync race condition oversells limited stock,In Progress,Alex Rivera,alex@co.com,2026-08-04,2026-08-07,customer-impact;blocked-external,,Catalogue,8,,
+1200000000009,2026-07-27,,2026-07-27,Promo code stacking rules are inconsistent at checkout,In Progress,Priya Nair,priya@co.com,2026-08-06,2026-08-12,,,Checkout Stability,5,,
+1200000000010,2026-07-18,,2026-07-18,Accessibility: checkout form labels not announced by screen readers,To Do,Jordan Lee,jordan@co.com,,2026-08-10,compliance,,Checkout Stability,5,,
+1200000000011,2026-06-30,,2026-06-30,Upgrade payment SDK to v9 before deprecation,To Do,Sam Okafor,sam@co.com,,2026-08-14,tech-debt,,Payments,5,,
+1200000000012,2026-08-01,,2026-08-01,Saved cards not shown for returning customers,In Review,Sam Okafor,sam@co.com,2026-08-06,2026-08-12,,,Payments,3,,
+1200000000013,2026-08-02,,2026-08-02,Analytics events missing on the review-order step,To Do,Priya Nair,priya@co.com,,2026-08-14,,,Conversion,2,,
+1200000000014,2026-08-03,2026-08-09,2026-08-03,Fix flaky checkout end-to-end test,Done,Jordan Lee,jordan@co.com,2026-08-08,2026-08-12,tech-debt,,Checkout Stability,2,,
+1200000000015,2026-08-05,2026-08-09,2026-08-05,Update shipping cut-off copy for August bank holiday,Done,Priya Nair,priya@co.com,2026-08-08,2026-08-11,,,Order Management,1,,
+1200000000016,2026-08-06,,2026-08-06,Hotfix: gift card balance shows as zero after partial use,In Progress,Alex Rivera,alex@co.com,2026-08-07,2026-08-11,customer-impact;unplanned,,Payments,5,,
+1200000000017,2026-08-06,2026-08-10,2026-08-06,Add server-side logging to the promo service,Done,Sam Okafor,sam@co.com,2026-08-09,2026-08-13,,,Checkout Stability,2,,
+1200000000018,2026-08-07,2026-08-10,2026-08-07,Copy change: returns policy link in footer,Done,Jordan Lee,jordan@co.com,2026-08-09,2026-08-14,,,Order Management,1,,
+1200000000019,2026-07-21,2026-08-06,2026-07-21,Bulk order CSV import fails over 500 rows,Done,Alex Rivera,alex@co.com,2026-08-04,2026-08-06,,,Order Management,3,,
+1200000000020,2026-07-23,2026-08-07,2026-07-23,Product image CDN cache invalidation delay,Done,Priya Nair,priya@co.com,2026-08-05,2026-08-07,,,Catalogue,3,,
+1200000000021,2026-07-29,2026-08-08,2026-07-29,Wishlist items lost when a guest signs in,Done,Sam Okafor,sam@co.com,2026-08-05,2026-08-10,,,Conversion,3,,

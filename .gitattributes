@@ -1,0 +1,6 @@
+# Generated, committed on purpose so the repo works without a build step.
+dist/delivery-value-dashboard.html linguist-generated=true
+docs/demo.mp4        binary
+docs/demo-small.mp4  binary
+*.png                binary
+*.xlsx               binary

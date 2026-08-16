@@ -1,0 +1,3 @@
+key,summary,type,status,statusCategory,assignee,storyPoints,priority,epic,created,started,resolved,dueDate,flagged,addedMidSprint,businessValue,valueBasis,labels,url
+ABC-1,Checkout crash when applying a promo code,Bug,Done,Done,Sam Okafor,8,Highest,Checkout Stability,2026-07-22,2026-08-03,2026-08-05,2026-08-07,false,false,52200,"Retention: 1,340 abandoned checkouts/mo x $39 AOV",customer-impact,
+ABC-2,Promo code stacking rules are inconsistent,Story,In Progress,In Progress,Priya Nair,5,High,Checkout Stability,2026-07-27,2026-08-06,,2026-08-12,false,true,0,,,
