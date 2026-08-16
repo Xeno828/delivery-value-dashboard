@@ -1,4 +1,7 @@
-.PHONY: build check test test-agent test-a11y test-security perf report demo serve serve-live bundle fetch clean
+BUNDLE ?= data/demo-intake-bundle.json
+BOARD  ?= 42
+
+.PHONY: build check test test-agent test-a11y test-security perf report intake intake-scale intake-sequence demo serve serve-live bundle fetch clean
 
 build:            ## assemble dist/delivery-value-dashboard.html from src/
 	python3 build.py
@@ -34,6 +37,16 @@ report:           ## print the facts pack and forecast for the sample data
 	python3 agent/tools/metrics.py data/sample-sprint.json --out agent/snapshots/facts-latest.json > /dev/null
 	python3 agent/tools/forecast.py data/sample-multi-sprint.json --snapshots agent/snapshots/scope.json
 
+intake:           ## forecast a product ask (ASK=data/asks/INTAKE-2026-014.json)
+	@test -n "$(ASK)" || (echo "usage: make intake ASK=data/asks/INTAKE-2026-014.json"; exit 1)
+	python3 agent/tools/intake.py $(BUNDLE) --ask $(ASK)
+
+intake-scale:     ## print what S/M/L/XL mean on this board, in items
+	python3 agent/tools/intake.py $(BUNDLE) --board $(BOARD) --scale
+
+intake-sequence:  ## what each ordering of the outstanding asks costs the others
+	python3 agent/tools/intake.py $(BUNDLE) --sequence data/asks/*.json
+
 serve: build      ## preview at http://localhost:8000/dist/
 	@echo "http://localhost:8000/dist/delivery-value-dashboard.html"
 	python3 -m http.server 8000
@@ -41,8 +54,10 @@ serve: build      ## preview at http://localhost:8000/dist/
 serve-live: build ## serve with the live-mode API backed by the demo bundle
 	python3 scripts/serve_live.py --bundle data/sample-bundle.json
 
-bundle:           ## regenerate the demo multi-sprint bundle
+bundle:           ## regenerate the demo bundles (delivery + intake reference class)
 	python3 scripts/make_sample_bundle.py
+	python3 scripts/make_demo_bundle.py
+	python3 scripts/make_intake_demo.py
 
 fetch:            ## pull live data (needs .env — see docs/connecting-jira-asana.md)
 	./scripts/refresh.sh

@@ -195,6 +195,33 @@ On one sprint of data the engine refuses outright — verified in `tests/test_ag
 
 ---
 
+## 5b. Forecasting work that does not exist yet — product intake
+
+Everything above forecasts work already in the tracker. The portfolio decision that actually costs money is made earlier than that: an ask has been described, no ticket exists, and it has to be sequenced against everything else anyway.
+
+`agent/tools/intake.py` handles that case on the same terms as the rest — deterministic, seeded, and refusing rather than guessing. Full detail in [product-intake.md](product-intake.md); the parts that belong in this outline:
+
+**Sizing is a ladder, and the rung is always declared.** `tshirt` uses bands calibrated from the board's *own* completed epics (an "L" is not portable between teams, so it is derived per board and refused below eight completed epics). `reference-class` samples every completed epic. `explicit` takes a refined min/likely/max as a triangular distribution. Each prints its own caveat verbatim.
+
+**Two scenarios, always both.** *Earliest possible* — dedicated capacity, nothing queued — is a ceiling, not a plan. *Realistic* queues the ask behind committed unfinished work and thins throughput by the board's measured interruption rate. Interruption is modelled as a thinned throughput series rather than a multiplier on the final date, so its variance survives into the percentiles. The difference between the two is reported as **the cost of the existing queue in working days**, which is the number to quote when someone asks why it cannot start now.
+
+**Uncertainty is attributed, not just stated.** Three simulations — both inputs varying, size frozen, throughput frozen — split the spread between *not knowing how big this is* and *normal delivery variability*. That distinction is the whole point: the first sends the ask back to refinement, the second says the estimate was never the problem and stops a team being told to tighten it up. On the demo data a vague ask attributes 54% to size and the same ask refined attributes 10%.
+
+**A readiness gate runs first.** `title`, `team` and `sizing` are required or nothing is forecast. The rest are reported as gaps with their consequence stated, because the failure mode of any intake tool is making an unchallenged ask look processed.
+
+**Sequencing returns consequences, not a score.** Every ordering is evaluated for what it costs the other asks, and anything that misses its date *in every possible ordering* is reported first and separately — that is the conversation that otherwise happens six weeks late. **No WSJF, no weighted score, nothing of that family.** Those formulas multiply an unvalidated value estimate by an unvalidated size estimate and present the product as arithmetic; the delivery consequence of an ordering is computable and is returned, the relative worth of the asks is a judgement and is left with the people who own it.
+
+The intake-specific refusal thresholds sit alongside the ones above:
+
+| Guard | Threshold |
+|---|---|
+| Reference class | ≥ 5 completed epics on the board |
+| T-shirt scale | ≥ 8 completed epics (four bands cut from seven observations is noise) |
+| Explicit sizing | `minItems ≤ likelyItems ≤ maxItems`, all present |
+| Sequencing | ≥ 2 sizeable asks |
+
+---
+
 ## 6. Guardrails
 
 1. **Never compute.** Every figure comes from a tool.
@@ -206,6 +233,8 @@ On one sprint of data the engine refuses outright — verified in `tests/test_ag
 7. **Movement is the news.** If nothing moved, the report is one line saying so and whether that is concerning — not a restatement.
 8. **Stale data is the first line, not a footnote.**
 9. **Score yourself in public.** The exec brief footer carries the running Brier score. Above 0.20, stop publishing probabilities in the body and say why.
+10. **Never rank asks.** The delivery consequence of an ordering is computable and must be given. The relative worth of competing asks is not, and a score that multiplies two unvalidated estimates launders a judgement rather than improving it.
+11. **An intake figure is never a commitment.** A t-shirt forecast is an intake-stage estimate that is expected to move at refinement. If it is quoted without that sentence attached, the sentence was the part that mattered.
 
 ---
 
@@ -215,6 +244,7 @@ On one sprint of data the engine refuses outright — verified in `tests/test_ag
 |---|---|---|---|
 | `exec-brief-<date>.md` | Decision-makers who don't attend stand-up | Weekly + at sprint end | **< 400 words**, one decision requested or an explicit "nothing needed" |
 | `team-report-<date>.md` | The delivery team | Daily or every other day | As long as needed, specific issue keys throughout |
+| `intake-<ask-id>.md` | Product, the requester, whoever sequences the queue | On each new or re-refined ask | One page, both scenarios, uncertainty attributed |
 | `facts-<date>.json` | The next run | Every run | — |
 
 Two documents, never one with a summary bolted on. An exec brief that never asks for anything trains people to stop opening it; a team report written for executives is useless at stand-up.
@@ -237,6 +267,8 @@ Delivery: files first. Optionally Slack/email later, gated on the calibration sc
 | Agent becomes a performance-management tool | Per-person data exists | Prohibited outright; ownership counts only, no ranking |
 | Forecasts drift and nobody notices | Nobody scores them | Forecast log + Brier score published in the brief |
 | Backtest flatters the model | Overlapping windows, truncated horizons | Non-overlapping windows only; short horizons excluded |
+| An intake estimate hardens into a commitment | A number in a document outlives its caveat | Caveat printed verbatim with every figure; both scenarios always; re-run required after refinement |
+| A forecast is built against the wrong slice | Board selected, but as-of taken from the board's *earliest* sprint | `board_issues()` returns the most recent context; `tests/test_agent.py` asserts the throughput window contains real delivery |
 
 ---
 

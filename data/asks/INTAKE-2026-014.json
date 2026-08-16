@@ -1,0 +1,26 @@
+{
+  "id": "INTAKE-2026-014",
+  "title": "Saved payment methods across web and mobile",
+  "requestedBy": "Nadia Farouk, Product",
+  "team": "42",
+  "problemStatement": "Returning customers re-enter card details on every order. Checkout abandonment for returning customers is 31% against 18% for those with a saved card.",
+  "successMeasure": "Returning-customer checkout abandonment below 22% within one quarter of launch.",
+  "sizing": {
+    "method": "tshirt",
+    "size": "L",
+    "basis": "Initial intake sizing with Product and the tech lead. To be re-sized after the team refines it."
+  },
+  "valueEstimate": {
+    "amount": 210000,
+    "basis": "1,900 returning-customer abandonments/mo x 31%->22% recovery x $52 AOV, annualised",
+    "confidence": "low"
+  },
+  "neededBy": "2026-10-30",
+  "dependencies": [
+    "Payments platform team \u2014 tokenisation service"
+  ],
+  "assumptions": [
+    "No new PCI scope",
+    "Mobile can reuse the web tokenisation flow"
+  ]
+}

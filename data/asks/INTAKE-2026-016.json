@@ -1,0 +1,23 @@
+{
+  "id": "INTAKE-2026-016",
+  "title": "Checkout accessibility conformance to WCAG 2.2 AA",
+  "requestedBy": "Sara Lindqvist, Legal & Compliance",
+  "team": "42",
+  "problemStatement": "An external audit found 23 conformance failures in the checkout flow. The regulatory deadline is fixed and does not move.",
+  "successMeasure": "Zero critical or serious findings on re-audit.",
+  "sizing": {
+    "method": "reference-class",
+    "basis": "No refinement done. Sized from how epics on this board have historically turned out."
+  },
+  "valueEstimate": {
+    "amount": null,
+    "basis": "Not quantified \u2014 this is a compliance obligation, not a return."
+  },
+  "neededBy": "2026-10-09",
+  "dependencies": [
+    "Design system team \u2014 form component fixes"
+  ],
+  "assumptions": [
+    "The audit's 23 findings are the full scope"
+  ]
+}

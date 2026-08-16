@@ -22,6 +22,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "agent" / "tools"))
 
 import forecast as F          # noqa: E402
+import intake as I            # noqa: E402
 import metrics as M           # noqa: E402
 
 failures = []
@@ -291,6 +292,208 @@ def test_calibration():
 # =====================================================================
 # 4. backtest — would this forecast have been right?
 # =====================================================================
+# =====================================================================
+# 5. intake — forecasting an ask that does not exist yet
+# =====================================================================
+def _intake_ds():
+    p = ROOT / "data" / "demo-intake-bundle.json"
+    if not p.exists():
+        return None
+    return json.load(open(p))
+
+
+def test_intake_sizing():
+    ds = _intake_ds()
+    if ds is None:
+        check("intake demo bundle exists", False, "run scripts/make_intake_demo.py")
+        return
+    issues, _ = I.board_issues(ds, "42")
+    sizes = I.epic_sizes(issues, as_of="2026-08-10")
+    check("finished epics form a reference class", len(sizes) >= I.MIN_REFERENCE_EPICS, len(sizes))
+    check("still-growing epics are excluded",
+          all(s["done"] / s["items"] >= 0.9 for s in sizes),
+          [s["epic"] for s in sizes if s["done"] / s["items"] < 0.9][:2])
+
+    scale = I.tshirt_scale(sizes)
+    check("a t-shirt scale calibrates from the board's own history", scale.get("available"), scale)
+    bands = scale["bands"]
+    check("all four bands are populated", sorted(bands) == ["L", "M", "S", "XL"], sorted(bands))
+    order = [bands[k]["median"] for k in ("S", "M", "L", "XL")]
+    check("band medians increase S < M < L < XL", order == sorted(order), order)
+    check("bands do not overlap",
+          all(bands[a]["range"][1] < bands[b]["range"][0]
+              for a, b in (("S", "M"), ("M", "L"), ("L", "XL"))),
+          {k: bands[k]["range"] for k in bands})
+
+    thin = I.tshirt_scale(sizes[:3])
+    check("a thin history refuses a t-shirt scale rather than inventing bands",
+          isinstance(thin, I.Refusal), type(thin).__name__)
+
+
+def test_intake_scope():
+    """The three ways a forecast can be built from the wrong slice of the file.
+
+    All three were live defects. None of them fails loudly — each one just
+    returns a plausible number computed against data that does not belong to
+    the team being forecast, which is the worst failure mode a forecaster has.
+    """
+    ds = _intake_ds()
+    if ds is None:
+        return
+    issues, ctx = I.board_issues(ds, "42")
+    board_ctxs = [c for c in ds["contexts"] if str(c.get("boardId")) == "42"]
+    latest = max(c.get("endDate") or c.get("startDate") or "" for c in board_ctxs)
+    check("the board's most recent sprint supplies as-of, not its first",
+          (ctx.get("endDate") or ctx.get("startDate")) == latest or
+          ctx.get("sprintState") == "active",
+          {"picked": ctx["id"], "latest": latest})
+
+    # The trailing throughput window must land on data that exists. Anchoring
+    # it to a stale sprint quietly forecast against a quarter with almost no
+    # deliveries and returned 77 working days for a 16-item ask.
+    as_of = ctx.get("asOfDate") or "2026-08-10"
+    thr = F.throughput_samples(issues, as_of=as_of)
+    check("throughput is drawn from a window with real delivery in it",
+          thr and sum(thr) >= F.MIN_COMPLETED_ITEMS, sum(thr or [0]))
+    check("the implied rate is a working team, not a stalled one",
+          thr and sum(thr) / len(thr) > 0.4, round(sum(thr) / len(thr), 2) if thr else None)
+
+    # Interruption belongs to the team being forecast.
+    cap42 = I.capacity(ds, issues, as_of, "realistic")
+    other = next((str(c["boardId"]) for c in ds["contexts"]
+                  if str(c.get("boardId")) != "42"), None)
+    if other:
+        iss_o, ctx_o = I.board_issues(ds, other)
+        cap_o = I.capacity(ds, iss_o, ctx_o.get("asOfDate") or as_of, "realistic")
+        if not isinstance(cap42, I.Refusal) and not isinstance(cap_o, I.Refusal):
+            check("interruption is measured per board, not inherited from the file",
+                  cap42["discount"] != cap_o["discount"] or cap42["discount"] == 0,
+                  {"board42": cap42["discount"], "board" + other: cap_o["discount"]})
+
+    # Work raised after the forecast date cannot already be queued ahead of it.
+    early = I.queue_ahead(issues, "2026-06-01")
+    late = I.queue_ahead(issues, as_of)
+    check("the queue only counts work that existed at the forecast date",
+          len(early) <= len(late), {"2026-06-01": len(early), as_of: len(late)})
+
+
+def test_intake_forecast():
+    ds = _intake_ds()
+    if ds is None:
+        return
+    ask = {"id": "T", "title": "t", "team": "42",
+           "sizing": {"method": "tshirt", "size": "L"}, "neededBy": "2026-10-30"}
+    r = I.forecast_ask(ds, dict(ask), board="42", as_of="2026-08-10")
+    check("an intake forecast is produced", r.get("available"), r.get("sentence"))
+
+    e, real = r["scenarios"]["earliest"], r["scenarios"]["realistic"]
+    check("both scenarios are returned", e["available"] and real["available"])
+    check("realistic is never earlier than earliest possible",
+          real["working_days"][85] >= e["working_days"][85],
+          (e["working_days"][85], real["working_days"][85]))
+    check("the realistic scenario queues behind committed work", real["queue_items"] > 0,
+          real["queue_items"])
+    check("interruption is measured, not assumed", real["interruption_discount"] > 0,
+          real["interruption_discount"])
+    check("the cost of the existing queue is reported", r["cost_of_queue_days"] > 0,
+          r["cost_of_queue_days"])
+    days = [r["scenarios"]["realistic"]["working_days"][p] for p in I.PERCENTILES]
+    check("percentiles are monotonic", days == sorted(days), days)
+
+    again = I.forecast_ask(ds, dict(ask), board="42", as_of="2026-08-10")
+    check("same ask, same answer",
+          again["scenarios"]["realistic"]["dates"] == real["dates"])
+
+    bigger = I.forecast_ask(ds, dict(ask, sizing={"method": "tshirt", "size": "XL"}),
+                            board="42", as_of="2026-08-10")
+    check("an XL ask lands later than an L ask",
+          bigger["scenarios"]["realistic"]["working_days"][85] > real["working_days"][85],
+          (real["working_days"][85], bigger["scenarios"]["realistic"]["working_days"][85]))
+
+
+def test_intake_uncertainty_attribution():
+    """The headline output: is the range driven by not knowing the size, or by
+    normal delivery variability? If it cannot tell those apart it is useless."""
+    ds = _intake_ds()
+    if ds is None:
+        return
+    vague = {"id": "V", "title": "v", "team": "42", "neededBy": "2026-11-30",
+             "sizing": {"method": "explicit", "minItems": 6, "likelyItems": 16, "maxItems": 55}}
+    refined = {"id": "R", "title": "r", "team": "42", "neededBy": "2026-11-30",
+               "sizing": {"method": "explicit", "minItems": 15, "likelyItems": 16, "maxItems": 18}}
+    v = I.forecast_ask(ds, vague, board="42", as_of="2026-08-10")["uncertainty"]
+    r = I.forecast_ask(ds, refined, board="42", as_of="2026-08-10")["uncertainty"]
+
+    check("a vaguely sized ask is dominated by size uncertainty",
+          v["dominant"] == "size", (v["dominant"], v["size_share"]))
+    check("a refined ask is dominated by delivery variability",
+          r["dominant"] == "delivery", (r["dominant"], r["size_share"]))
+    check("refining an ask narrows the forecast",
+          r["total_spread_days"] < v["total_spread_days"],
+          (v["total_spread_days"], r["total_spread_days"]))
+    check("the shares sum to one",
+          abs(v["size_share"] + v["delivery_share"] - 1) < 0.01)
+    check("the reading tells the reader what to do",
+          "refin" in v["reading"].lower(), v["reading"][:60])
+
+
+def test_intake_readiness_and_refusals():
+    ds = _intake_ds()
+    if ds is None:
+        return
+    bare = I.readiness({"title": "something"})
+    check("an ask with no team or sizing is not forecastable", not bare["forecastable"],
+          bare["verdict"])
+    check("it names what is missing", len(bare["missing_required"]) >= 2,
+          [m["field"] for m in bare["missing_required"]])
+
+    complete = I.readiness(json.load(open(ROOT / "data" / "asks" / "INTAKE-2026-015.json")))
+    check("a refined example ask is forecastable", complete["forecastable"], complete["verdict"])
+
+    unbasis = I.readiness({"title": "t", "team": "42", "sizing": {"method": "tshirt"},
+                           "valueEstimate": {"amount": 100000}})
+    check("a value amount with no basis is called out",
+          any(g["field"] == "valueEstimate.basis" for g in unbasis["gaps"]),
+          [g["field"] for g in unbasis["gaps"]])
+
+    bad = I.forecast_ask(ds, {"id": "X", "title": "x", "team": "42",
+                              "sizing": {"method": "explicit", "minItems": 20,
+                                         "likelyItems": 5, "maxItems": 10}},
+                         board="42", as_of="2026-08-10")
+    check("nonsensical explicit sizing is refused", not bad.get("available"), bad.get("sentence"))
+
+    nohist = {"contexts": [], "issues": [{"key": "A-1", "summary": "s", "status": "Done",
+                                          "statusCategory": "Done", "created": "2026-08-01",
+                                          "resolved": "2026-08-02", "epic": "E"}]}
+    thin = I.forecast_ask(nohist, {"id": "Y", "title": "y", "team": "x",
+                                   "sizing": {"method": "reference-class"}}, as_of="2026-08-10")
+    check("a team with no history refuses rather than guessing", not thin.get("available"))
+    check("the refusal says the evidence is absent",
+          "absent, not noisy" in (thin.get("sentence") or ""), thin.get("sentence"))
+
+
+def test_intake_sequencing():
+    ds = _intake_ds()
+    if ds is None:
+        return
+    asks = [json.load(open(p)) for p in sorted((ROOT / "data" / "asks").glob("*.json"))]
+    res = I.sequence(ds, asks, board="42", as_of="2026-08-10")
+    check("sequencing runs on the example asks", res.get("available"), res.get("sentence"))
+    check("every ordering is evaluated", len(res["orderings"]) == len(asks), len(res["orderings"]))
+    check("no priority score is invented",
+          all("score" not in json.dumps(o) for o in res["orderings"]))
+    check("an ask that misses its date in every ordering is called out",
+          isinstance(res["unachievable_at_any_priority"], list))
+    if res["unachievable_at_any_priority"]:
+        u = res["unachievable_at_any_priority"][0]
+        check("it says how far short, in days", u["short_by_days"] > 0, u)
+    check("each ordering reports what it costs the others",
+          all("delays_others_by_days" in c for c in res["comparison"]))
+
+    one = I.sequence(ds, asks[:1], board="42", as_of="2026-08-10")
+    check("sequencing a single ask is refused", not one.get("available"), one.get("sentence"))
+
+
 def test_backtest():
     """Walk forward through history with NON-OVERLAPPING horizons.
 
@@ -375,6 +578,18 @@ if __name__ == "__main__":
     test_item_risk_units()
     print("calibration scoring")
     test_calibration()
+    print("intake — sizing")
+    test_intake_sizing()
+    print("intake — scope")
+    test_intake_scope()
+    print("intake — forecast")
+    test_intake_forecast()
+    print("intake — uncertainty attribution")
+    test_intake_uncertainty_attribution()
+    print("intake — readiness and refusals")
+    test_intake_readiness_and_refusals()
+    print("intake — sequencing")
+    test_intake_sequencing()
     print("backtest")
     test_backtest()
 

@@ -1,0 +1,25 @@
+{
+  "id": "INTAKE-2026-015",
+  "title": "Bulk order upload for trade customers",
+  "requestedBy": "Tom Ellery, Commercial",
+  "team": "42",
+  "problemStatement": "Trade customers place 40-line orders by emailing a spreadsheet to the support desk. Support re-keys them, taking around 6 hours a week and introducing errors.",
+  "successMeasure": "80% of trade orders self-served within two months; re-keying time under one hour a week.",
+  "sizing": {
+    "method": "explicit",
+    "minItems": 9,
+    "likelyItems": 14,
+    "maxItems": 22,
+    "basis": "Team broke it into stories at refinement on 2026-08-07; range covers whether validation is server-side only or both."
+  },
+  "valueEstimate": {
+    "amount": 64000,
+    "basis": "5.5 support hours/wk x $58 fully-loaded, annualised, plus 1.2% error-driven credit notes avoided",
+    "confidence": "medium"
+  },
+  "neededBy": "2026-12-15",
+  "dependencies": [],
+  "assumptions": [
+    "Existing CSV import limits are raised rather than rewritten"
+  ]
+}

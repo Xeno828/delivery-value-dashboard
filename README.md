@@ -87,6 +87,7 @@ Full detail: [docs/connecting-jira-asana.md](docs/connecting-jira-asana.md).
 │   └── delivery-value-dashboard.html    ← built output, committed
 ├── data/
 │   ├── sample-sprint.json               demo dataset and worked example
+│   ├── asks/                            worked product-intake requests
 │   └── templates/                       CSV + JSON starting points
 ├── scripts/
 │   ├── fetch_delivery_data.py           Jira + Asana → JSON
@@ -103,6 +104,7 @@ Full detail: [docs/connecting-jira-asana.md](docs/connecting-jira-asana.md).
 │   ├── data-format.md                   every field and what it drives
 │   ├── connecting-jira-asana.md         live data, and why not from the page
 │   ├── contexts-and-live-mode.md        project/board/sprint filtering
+│   ├── product-intake.md                forecasting an ask before it exists
 │   ├── agent-executive-summary.md       the agent, for a leadership audience
 │   ├── demo.mp4                         2-minute captioned walkthrough (8.7 MB)
 │   ├── demo-small.mp4                   same, 1200px / 2.9 MB, for email
@@ -111,7 +113,8 @@ Full detail: [docs/connecting-jira-asana.md](docs/connecting-jira-asana.md).
 │   ├── SKILL.md                         the agent definition — runnable
 │   ├── tools/metrics.py                 deterministic facts pack
 │   ├── tools/forecast.py                Monte Carlo forecasting
-│   ├── templates/                       exec brief + team report
+│   ├── tools/intake.py                  product-intake sizing and forecasting
+│   ├── templates/                       exec brief + team report + intake brief
 │   └── snapshots/                       facts packs, scope history, forecast log
 ├── tests/
 │   ├── e2e.py                           browser suite, 45 checks
@@ -138,7 +141,10 @@ Full detail: [docs/connecting-jira-asana.md](docs/connecting-jira-asana.md).
 | `make test-agent` | Agent tools only — facts, forecast, refusals, backtest |
 | `make report` | Print the facts pack and forecast for the sample data |
 | `make serve-live` | Serve with the live-mode API, backed by the demo bundle |
-| `make bundle` | Regenerate the demo multi-sprint bundle |
+| `make bundle` | Regenerate the demo bundles, including the intake reference class |
+| `make intake` | Forecast a product ask — `ASK=data/asks/INTAKE-2026-014.json` |
+| `make intake-scale` | Print what S/M/L/XL mean on a board, in items |
+| `make intake-sequence` | What each ordering of the outstanding asks costs the others |
 | `make perf` | Measure load and interaction cost at four bundle sizes |
 | `make demo` | Rebuild the story bundle and re-record the demo video |
 | `make test-a11y` | Accessibility only — WCAG 2.2 AA, both themes |
@@ -157,7 +163,21 @@ make test-agent    # including a walk-forward backtest of the forecaster
 
 It refuses rather than guesses: on a single sprint of data the forecaster returns *"too little completion history to sample from — a wider confidence interval would not fix this, the data is absent, not noisy."* On twelve weeks it returns a 4% probability of the sprint landing complete, and an 85th-percentile finish eight working days late.
 
-Design outline, question inventory, guardrails, failure modes and rollout: [docs/forecasting-agent.md](docs/forecasting-agent.md).
+### Forecasting an ask before any of it exists
+
+The same engine answers the question that arrives *before* the tickets do: a described product ask plus a named team, in, and a sized range with two delivery scenarios out.
+
+```bash
+make intake-scale                                    # what S/M/L/XL mean on this team, in items
+make intake ASK=data/asks/INTAKE-2026-014.json       # one ask, both scenarios
+make intake-sequence                                 # what each ordering costs the others
+```
+
+T-shirt bands are calibrated from the board's own completed epics rather than assumed, because an "L" has never meant the same thing on two teams. Every forecast returns **earliest possible** and **realistic** — the difference between them is the cost of the existing queue, in working days, which is the number to quote when someone asks why it cannot start now. And it attributes the uncertainty: *61% of this range is not knowing how big the ask is* sends it back to refinement, while *83% is normal delivery variability* says the estimate was never the problem.
+
+No priority score is computed — not WSJF, not anything of that family. The delivery consequence of each ordering is computable and is returned; the relative worth of competing asks is a judgement and stays with the people who own it.
+
+Design outline, question inventory, guardrails, failure modes and rollout: [docs/forecasting-agent.md](docs/forecasting-agent.md). Intake method and thresholds: [docs/product-intake.md](docs/product-intake.md).
 
 ## Deploying
 

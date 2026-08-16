@@ -1,6 +1,6 @@
 ---
 name: delivery-report
-description: Produce delivery reports and probabilistic forecasts from Jira/Asana data. Use when asked for a sprint report, a delivery update, an executive brief on delivery, a stand-up summary, a "will we make the date" question, a release confidence estimate, or a forecast of when outstanding work will finish. Reads the dashboard's dataset, calls deterministic tools for every number, and writes two audiences' worth of narrative.
+description: Produce delivery reports, probabilistic forecasts, and product-intake forecasts from Jira/Asana data. Use when asked for a sprint report, a delivery update, an executive brief on delivery, a stand-up summary, a "will we make the date" question, a release confidence estimate, a forecast of when outstanding work will finish, or an early forecast for a new product ask against a team ("how long would this take", "can we have it by", "which of these should we do first"). Reads the dashboard's dataset, calls deterministic tools for every number, and writes for two audiences.
 ---
 
 # Delivery reporting and forecasting agent
@@ -40,11 +40,16 @@ If the dataset is older than three days, lead with that. A confident report on s
 # facts — everything you may state as fact
 python3 agent/tools/metrics.py <dataset> --previous snapshots/facts-<prev>.json --out snapshots/facts-<today>.json
 
-# forecasts — everything you may state as probability
+# forecasts on work that exists — everything you may state as probability
 python3 agent/tools/forecast.py <dataset> --snapshots snapshots/scope.json --json
+
+# forecasts on work that does NOT exist yet — product intake
+python3 agent/tools/intake.py <dataset> --board <id> --scale            # the team's calibrated t-shirt scale
+python3 agent/tools/intake.py <dataset> --board <id> --ask <ask.json>   # one ask
+python3 agent/tools/intake.py <dataset> --board <id> --sequence 'asks/*.json'   # prioritisation
 ```
 
-Both emit JSON. Run `metrics.py` first; its `meta.as_of` fixes the date every other statement is relative to.
+All three emit JSON with `--json`. Run `metrics.py` first; its `meta.as_of` fixes the date every other statement is relative to. Intake method, thresholds and rationale: `docs/product-intake.md`.
 
 `forecast.py` returns, alongside the completion forecasts: `next_commitment` (how many **items** to commit to next sprint, at each confidence level) and `size_stability` (whether item counting is still valid for this team). Read both before writing anything.
 
@@ -59,6 +64,27 @@ Both emit JSON. Run `metrics.py` first; its `meta.as_of` fixes the date every ot
 5. **Write both documents** from the templates in `agent/templates/`.
 6. **Log every probability you publish** to `snapshots/forecast-log.json` with its resolution criterion and date, so it can be scored later.
 7. **Score yourself.** If the log has ten or more resolved entries, run the calibration check and put the result in the exec brief's footer. If it says "not calibrated", stop quoting probabilities in the body and say why.
+
+---
+
+## Intake mode — forecasting an ask before any of it exists
+
+Triggered by a product ask plus a named team: *"how long would this take"*, *"can we have it by November"*, *"which of these three should we start"*.
+
+**Run `readiness()` first and report it before any number.** An ask missing a title, a team or a sizing method is not forecastable, and saying so is more useful than a wide range. An ask that is forecastable but missing a problem statement or a success measure gets forecast *and* gets the gaps listed — a number attached to an unchallenged ask is how bad work gets scheduled efficiently.
+
+**Always report both scenarios.** *Earliest possible* assumes dedicated capacity from today. *Realistic* queues behind current commitments and discounts throughput by the team's measured interruption rate. The gap between them is the cost of everything already in flight, and it is usually the most actionable number on the page — quote it explicitly.
+
+**Lead with the uncertainty attribution, not the date.** The tool reports whether the range is driven by not knowing the ask's size or by normal delivery variability. This changes what the reader should do:
+
+- *Size dominates* → "refining this ask will narrow the forecast more than anything the team does". Say that, and say roughly by how much.
+- *Delivery dominates* → "the ask is understood; this spread is what this team genuinely looks like". Do not let anyone read that as an estimating problem.
+
+**On t-shirt sizes.** They are the intake-stage input and they are expected to move at refinement. State the band, state that it is provisional, and state that the forecast should be re-run after refinement. Never present a t-shirt-derived date as a commitment. The band's width reflects only how varied past epics of that size were — it does not capture how wrong the t-shirt judgement itself might be, and you must say so.
+
+**On sequencing.** `--sequence` returns what each ordering costs the others in delivery days. If it reports `unachievable_at_any_priority`, that is the headline and it goes first: no ordering delivers that ask by its date, so the conversation is about scope, capacity or the date — not about priority. Do not offer a recommended order; present the consequences and let whoever owns the trade-off choose.
+
+**Never compute a priority score.** WSJF and its relatives multiply an unvalidated value estimate by an unvalidated size estimate and present the product as arithmetic. Report the delivery consequence, which is computable, alongside each ask's own stated value and basis. If an ask has an amount with no basis, say so rather than ranking on it.
 
 ---
 
@@ -95,6 +121,9 @@ A paragraph that is mostly `[judgement]` is an opinion piece. If a section reach
 Say the refusal, do not route around it:
 
 - Fewer than ten completed items in the window → no completion forecast.
+- Fewer than five finished epics on the board → no reference-class sizing.
+- Fewer than eight finished epics → no calibrated t-shirt scale; say the scale cannot be built for this team rather than borrowing another team's.
+- An ask with no sizing method, title or team → not forecastable; list what is missing.
 - Fewer than six items with both a start and an end date → no cycle-time or ageing risk.
 - No previous snapshot → no change section; say it is a first observation.
 - No value basis on an item → it contributes zero to value, and the report says how many items that applies to.
@@ -108,6 +137,9 @@ Write both. Same facts, different documents — never one document with an execu
 
 ### `reports/exec-brief-<date>.md`
 For people who do not attend stand-up and must make a decision. Answers: are we going to make it, what changed, what is it worth, what decision do you need from them. **Under 400 words.** No chart. No status table. If there is no decision required, say that in one line — an exec brief that never asks for anything trains people to stop opening it.
+
+### `reports/intake-<ask-id>.md`
+For whoever runs intake and whoever decides. Answers: is this refined enough to forecast, how big is it and on what evidence, when would it land under each scenario, what the existing queue costs, and what should be reduced to narrow the range. Template in `agent/templates/intake-brief.md`.
 
 ### `reports/team-report-<date>.md`
 For the people doing the work. Answers: what to unblock, what is ageing, where the queues are, what to commit to next. Specific issue keys throughout. Longer is acceptable; vague is not.
@@ -126,4 +158,7 @@ Deliver both as files. Do not paste a full report into chat — summarise in two
 - Presenting a forecast without its percentile and its assumption about scope.
 - Restating last week's report because nothing moved. If nothing moved, that is the report: one line saying so, and why that is or is not concerning.
 - Softening a refusal into a hedge.
+- Any priority score, ranking formula, or WSJF-style product of value and size.
+- Presenting a t-shirt-derived date as a commitment.
+- A single delivery date for an intake ask, under any circumstances.
 - Any recommendation to work longer or harder. There is no hours data in this system and there will not be. When work in progress or unplanned work is rising, the finding is that the plan or the intake is wrong, not that the team is.
