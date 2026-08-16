@@ -26,7 +26,7 @@ jobs:
           pip install playwright
           playwright install --with-deps chromium
 
-      - name: Agent tool tests (facts, forecast, refusals, backtest)
+      - name: Agent tool tests (facts, forecast, intake, refusals, backtest)
         run: python3 tests/test_agent.py
 
       - name: End-to-end browser tests

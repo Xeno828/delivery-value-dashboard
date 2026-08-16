@@ -1,6 +1,14 @@
 # Pushing this to git
 
-The repository is already initialised with a single commit on `main`, so there is nothing to stage or write a message for. Two commands.
+The repository is already initialised with its full history on `main`, so there is nothing to stage or write a message for. Two commands.
+
+**On a Mac, one command does all of it** — unpack, verify the history survived the download, run the tests that need no browser, optionally re-author the commits as you, and push:
+
+```bash
+chmod +x scripts/setup-on-mac.sh && ./scripts/setup-on-mac.sh
+```
+
+It refuses rather than overwrites if the destination exists. Override the paths with `ZIP=` and `DEST=`. The rest of this file is the manual version.
 
 ## GitHub, with the `gh` CLI
 
@@ -57,6 +65,7 @@ Be aware that this also breaks the GitHub Pages workflow's assumption and the "c
 |---|---|
 | `src/` | Dashboard source: metrics, charts, drill-downs, the import wizard |
 | `dist/` | The built single-file dashboard (173 KB) |
+| `CLAUDE.md` | The standing constraints, for any agent session opened in this repo |
 | `agent/` | The agent definition, its three deterministic tools (facts, delivery forecasting, product intake), templates and worked examples |
 | `scripts/` | Jira/Asana fetcher, live-mode server, bundle generators, demo recorder |
 | `tests/` | Four suites — product, agent, accessibility, security — plus the perf harness |

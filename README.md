@@ -78,6 +78,7 @@ Full detail: [docs/connecting-jira-asana.md](docs/connecting-jira-asana.md).
 ## Repository layout
 
 ```
+├── CLAUDE.md             the constraints, for any agent working in here
 ├── src/
 │   ├── index.html        page structure + build placeholders
 │   ├── styles.css        all styling, both colour themes
@@ -97,6 +98,7 @@ Full detail: [docs/connecting-jira-asana.md](docs/connecting-jira-asana.md).
 │   ├── record_demo.py                   records docs/demo.mp4
 │   ├── serve_live.py                    optional live-mode server
 │   ├── refresh.sh                       cron-friendly wrapper
+│   ├── setup-on-mac.sh                  unpack, verify and push, one command
 │   └── requirements.txt
 ├── docs/
 │   ├── dashboard-review.md              why it is built this way
