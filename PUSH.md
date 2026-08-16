@@ -51,17 +51,17 @@ Be aware that this also breaks the GitHub Pages workflow's assumption and the "c
 
 ## What is in the first commit
 
-66 files, roughly 14 MB — most of which is the demo video.
+75 files, roughly 15 MB — most of which is the demo video.
 
 | | |
 |---|---|
 | `src/` | Dashboard source: metrics, charts, drill-downs, the import wizard |
 | `dist/` | The built single-file dashboard (173 KB) |
-| `agent/` | The agent definition, its two deterministic tools, templates and worked examples |
+| `agent/` | The agent definition, its three deterministic tools (facts, delivery forecasting, product intake), templates and worked examples |
 | `scripts/` | Jira/Asana fetcher, live-mode server, bundle generators, demo recorder |
 | `tests/` | Four suites — product, agent, accessibility, security — plus the perf harness |
 | `docs/` | Every explanatory document, the demo video and screenshots |
-| `data/` | Demo datasets and import templates |
+| `data/` | Demo datasets, worked product-intake asks, and import templates |
 | `.github/` | CI running all four suites, and an optional Pages workflow |
 
 ## After the first push
