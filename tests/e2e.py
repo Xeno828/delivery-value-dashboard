@@ -45,6 +45,14 @@ def wizard(page, fixture, mode="replace"):
     return mapped, stats, warns
 
 
+def open_picker(page):
+    """Idempotent — the popover stays open across preset clicks and renders,
+    so a bare click on the button is as likely to close it as open it."""
+    if not page.is_visible("#view-pop"):
+        page.click("#btn-view")
+    page.wait_for_selector("#view-pop:not(.hidden)", timeout=5000)
+
+
 def main():
     if not DIST.exists():
         sys.exit("build first: python3 build.py")
@@ -229,6 +237,87 @@ def main():
         check("a v1 file still loads and hides the context bar",
               "hidden" in (page.get_attribute("#ctxbar", "class") or "") and
               "22 issues" in page.text_content("#foot"), page.text_content("#foot")[:60])
+
+        # ---------- tile visibility: building a view for one audience ----------
+        TIDS = page.evaluate("() => window.DVD.debug.tileIds()")
+        vis = lambda: page.evaluate(
+            "ids => ids.filter(i => !document.getElementById(i).classList.contains('hidden'))", TIDS)
+
+        check("every tile is shown until someone says otherwise", vis() == TIDS, len(vis()))
+
+        kpi_before = page.text_content("#kpis")
+        open_picker(page)
+        check("the picker opens", page.is_visible("#view-pop") and
+              page.get_attribute("#btn-view", "aria-expanded") == "true")
+        check("there is a checkbox per tile",
+              page.eval_on_selector_all("[data-tile]", "n => n.length") == len(TIDS))
+
+        page.click('[data-preset="exec"]')
+        page.wait_for_timeout(200)
+        ex = vis()
+        check("the executive view is the agent's exec-brief shape",
+              ex == ["c-exec", "c-kpis", "c-pred", "c-dora", "c-value", "c-rel", "c-risk"], ex)
+        check("the executive view keeps the narrative",
+              "c-exec" in ex and len(page.text_content("#exec-list").strip()) > 40)
+        # A view that quietly drops tiles reads as a whole page to whoever gets it.
+        note = page.text_content("#vp-count")
+        check("hidden tiles are named, not just counted",
+              "5 hidden" in note and "Team load" in note, note[:70])
+
+        page.click('[data-preset="team"]')
+        page.wait_for_timeout(200)
+        tm = vis()
+        check("the team view is the agent's team-report shape",
+              tm == ["c-exec", "c-kpis", "c-burn", "c-dist", "c-flow",
+                     "c-age", "c-pred", "c-load", "c-risk"], tm)
+        check("the team view keeps the narrative too", "c-exec" in tm)
+
+        # The whole feature is only safe if it changes what is shown and
+        # nothing that is counted.
+        check("hiding tiles does not change what is computed",
+              page.text_content("#kpis") == kpi_before)
+
+        # ---------- a saved view is a working file, with the loaded data ----------
+        page.evaluate("d => window.DVD.applyDataset(d)",
+                      json.loads((ROOT / "data" / "sample-bundle.json").read_text()))
+        page.wait_for_timeout(700)
+        loaded_issues = page.evaluate("() => window.DVD.data.issues.length")
+        open_picker(page)
+        page.click('[data-preset="exec"]')
+        page.wait_for_timeout(200)
+        with page.expect_download() as dl:
+            page.click("#vp-save")
+        saved = ROOT / "tests" / "saved-view.tmp.html"
+        dl.value.save_as(str(saved))
+        check("saving a view produces a file", saved.exists() and saved.stat().st_size > 100_000,
+              saved.stat().st_size if saved.exists() else 0)
+
+        p2 = b.new_page(viewport={"width": 1500, "height": 1000})
+        p2errs = []
+        p2.on("pageerror", lambda e: p2errs.append(str(e)))
+        p2.goto(saved.as_uri())
+        p2.wait_for_timeout(900)
+        v2 = p2.evaluate("ids => ids.filter(i => !document.getElementById(i).classList.contains('hidden'))", TIDS)
+        check("the saved copy opens on the view it was saved with", v2 == ex, v2)
+        # The trap this guards: after an upload the dataset lives in memory, so
+        # serialising the page alone hands someone a file that quietly reverted
+        # to the demo sprint — right-looking numbers about the wrong company.
+        check("the saved copy carries the loaded data, not the demo seed",
+              p2.evaluate("() => window.DVD.data.issues.length") == loaded_issues,
+              (p2.evaluate("() => window.DVD.data.issues.length"), loaded_issues))
+        check("the saved copy renders its charts", p2.is_visible("#kpis .kpi"))
+        check("the saved copy raises no page errors", not p2errs, p2errs[:2])
+        p2.close()
+        saved.unlink()
+
+        # ---------- the view travels in the URL, and bad input fails safe ----------
+        page.goto(DIST.as_uri() + "?view=exec")
+        page.wait_for_timeout(700)
+        check("?view=exec applies on load", vis() == ex, vis())
+        page.goto(DIST.as_uri() + "?tiles=not-a-tile,nonsense")
+        page.wait_for_timeout(700)
+        check("an unrecognised tile list shows everything rather than a blank page",
+              vis() == TIDS, len(vis()))
 
         check("no console errors", not console, console[:3])
         page.screenshot(path=str(ROOT / "tests" / "last-run.png"), full_page=True)

@@ -217,6 +217,27 @@ def scenes(fc):
                 "linking to the issues it came from.",
            hl="#c-risk", dwell=6.4))
 
+    # The popover is deliberately left open across preset clicks in the product,
+    # which is right for using it and wrong for filming it — it sits over the
+    # view it just produced. So: open, choose, close, and only then show the
+    # result. The ring stays off the popover; a floating panel over a ringed
+    # card reads as two things happening at once.
+    A(dict(tag="Two audiences, one file", title="Turn tiles off and send the view",
+           body="Twelve tiles, two presets — shaped after the agent's own executive brief and "
+                "team report, so the page and the write-up agree about what matters.",
+           click="#btn-view", hl=None, dwell=6.0))
+    A(dict(click='[data-preset="exec"]', dwell=0.6))
+    A(dict(tag="Two audiences, one file", title="The executive view, in one click",
+           body="Five tiles hidden — and named, not silently dropped. Nothing is recomputed: "
+                "hiding a tile changes what is shown, never what is counted. Save it as a "
+                "standalone file, or print it, and the narrative goes with it.",
+           click="#btn-view", hl="#c-exec", dwell=7.4))
+    # Put the page back before the closing card, so the last frame of the
+    # product is the whole product rather than a filtered view of it.
+    A(dict(click="#btn-view", dwell=0.4))
+    A(dict(click='[data-preset="all"]', dwell=0.4))
+    A(dict(click="#btn-view", dwell=0.4))
+
     A(dict(card=close_card, dwell=9.0, hide_ring=True))
     return S
 
@@ -265,6 +286,31 @@ def run(page, S, total):
         page.wait_for_timeout(int(sc["dwell"] * 1000))
 
 
+def forecast_json(path):
+    """The closing card quotes the forecaster, so the numbers on it have to come
+    from the forecaster. This used to read a file somebody produced by hand,
+    which meant `make demo` could not be run from a clean checkout and the card
+    could drift from the tool without anything failing. Now it runs the tool.
+
+    An explicit --forecast file is still honoured if it exists.
+    """
+    if path.exists():
+        return path.read_text()
+    out = subprocess.run(
+        [sys.executable, str(ROOT / "agent" / "tools" / "forecast.py"),
+         str(ROOT / "data" / "sample-multi-sprint.json"),
+         "--snapshots", str(ROOT / "agent" / "snapshots" / "scope.json"), "--json"],
+        capture_output=True, text=True, check=True).stdout
+    f = json.loads(out)
+    card = dict(prob=f["sprint_completion"]["prob_by_target"],
+                p85=f["sprint_completion"]["percentiles"]["85"],
+                commit=f["next_commitment"]["recommended"],
+                median=f["next_commitment"]["stretch_median"],
+                obs=f["inputs"]["throughput_observations"],
+                done=f["inputs"]["items_completed_in_window"])
+    return json.dumps(card)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="docs/demo.mp4")
@@ -272,7 +318,7 @@ def main():
                     help="JSON of real forecaster output for the closing card")
     a = ap.parse_args()
 
-    fc = json.loads(pathlib.Path(a.forecast).read_text())
+    fc = json.loads(forecast_json(pathlib.Path(a.forecast)))
     from datetime import date as _d
     def nice(iso):
         d = _d.fromisoformat(iso)

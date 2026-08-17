@@ -9,7 +9,7 @@ git clone <your-fork-url> && cd delivery-value-dashboard
 make build && open dist/delivery-value-dashboard.html
 ```
 
-**[▶ Watch the 2-minute demo](docs/demo.mp4)** ([lighter 2.9 MB version](docs/demo-small.mp4)) · **[Executive summary of the agent](docs/agent-executive-summary.md)**
+**[▶ Watch the 2-minute demo](docs/demo.mp4)** ([lighter 3.0 MB version](docs/demo-small.mp4)) · **[Executive summary of the agent](docs/agent-executive-summary.md)**
 
 ---
 
@@ -93,7 +93,7 @@ Full detail: [docs/connecting-jira-asana.md](docs/connecting-jira-asana.md).
 │   ├── rebuild_burndown.py              recompute a burndown in both units
 │   ├── make_sample_bundle.py            random bundle, for load testing
 │   ├── make_demo_bundle.py              authored bundle, for the demo
-│   ├── record_demo.py                   records docs/demo.mp4
+│   ├── record_demo.py                   records both demo videos
 │   ├── serve_live.py                    optional live-mode server
 │   ├── refresh.sh                       cron-friendly wrapper
 │   └── requirements.txt
@@ -105,8 +105,8 @@ Full detail: [docs/connecting-jira-asana.md](docs/connecting-jira-asana.md).
 │   ├── contexts-and-live-mode.md        project/board/sprint filtering
 │   ├── product-intake.md                forecasting an ask before it exists
 │   ├── agent-executive-summary.md       the agent, for a leadership audience
-│   ├── demo.mp4                         2-minute captioned walkthrough (8.7 MB)
-│   ├── demo-small.mp4                   same, 1200px / 2.9 MB, for email
+│   ├── demo.mp4                         captioned walkthrough, 2m13s (8.9 MB)
+│   ├── demo-small.mp4                   same, 1200px / 3.0 MB, for email
 │   └── forecasting-agent.md             the agent's design outline
 ├── agent/                               reporting & forecasting agent
 │   ├── SKILL.md                         the agent definition — runnable
@@ -116,7 +116,7 @@ Full detail: [docs/connecting-jira-asana.md](docs/connecting-jira-asana.md).
 │   ├── templates/                       exec brief + team report + intake brief
 │   └── snapshots/                       facts packs, scope history, forecast log
 ├── tests/
-│   ├── e2e.py                           browser suite, 45 checks
+│   ├── e2e.py                           browser suite, 89 checks
 │   ├── test_agent.py                    facts, forecast, refusals, backtest
 │   ├── perf.py                          timing harness, four bundle sizes
 │   ├── a11y.py                          WCAG 2.2 AA, both themes
@@ -184,6 +184,25 @@ Design outline, question inventory, guardrails, failure modes and rollout: [docs
 - **Shared drive.** Drop `dist/delivery-value-dashboard.html` next to `dashboard-data.json`.
 - **GitHub Pages.** `.github/workflows/pages.yml` publishes the built file and the whole of `data/`. It never runs on its own — it is `workflow_dispatch` only, so you start it from the Actions tab and it publishes at no other time. Do not run it on a repository where the fetcher has written real issue titles unless your plan supports private Pages. CI itself needs nothing configured: no secrets, no environment.
 - **Board pack.** The **Print** button lays the page out cleanly to PDF.
+
+### Sending one audience their own view
+
+The **Tiles** button chooses which of the twelve tiles a view contains. Two presets are built in, and both keep *What this sprint means* — a view without the narrative is the wall of charts this page exists to replace.
+
+| Preset | Tiles | Shaped after |
+|---|---|---|
+| **Executive** | narrative, headline numbers, forecast trust, release quality, value, releases, risks | `agent/templates/exec-brief.md` |
+| **Team** | narrative, headline numbers, burndown, per-person work, flow time, ageing, forecast trust, team load, risks | `agent/templates/team-report.md` |
+
+The presets deliberately match the two reports the agent already writes. A printed view and the agent's brief for the same audience disagreeing about what matters is worse than either being slightly wrong alone.
+
+Three ways to send one:
+
+- **Save this view as a file** — writes a standalone HTML copy with the view *and the data currently loaded* baked in. This is the one to email.
+- **Print** — hidden tiles do not print, so the PDF matches what is on screen.
+- **A link** — the view travels as `?view=exec`, `?view=team` or `?tiles=c-exec,c-risk`, which is useful when the file is hosted rather than emailed.
+
+Hiding a tile changes what is shown and never what is counted: every figure still comes from the same computation over the same filtered issues. The picker names the tiles it has hidden rather than only counting them, because a view that quietly drops a tile reads as a whole page to whoever receives it.
 
 ## Why HTML rather than PowerPoint or a BI tool
 

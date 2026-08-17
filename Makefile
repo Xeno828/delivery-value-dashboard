@@ -29,9 +29,14 @@ perf: build       ## measure load and interaction cost at four bundle sizes
 	@python3 scripts/make_sample_bundle.py --scale 22 --out /tmp/bundle-22.json >/dev/null
 	python3 tests/perf.py
 
-demo: build       ## rebuild the story bundle and record docs/demo.mp4
+demo: build       ## rebuild the story bundle and record both demo videos
 	python3 scripts/make_demo_bundle.py
 	python3 scripts/record_demo.py --out docs/demo.mp4
+	@# The small cut is what people email. Produced here rather than by hand so
+	@# the two videos cannot end up showing different versions of the product.
+	ffmpeg -y -loglevel error -i docs/demo.mp4 -vf scale=1200:-2 -c:v libx264 \
+	  -preset slow -crf 30 -pix_fmt yuv420p -movflags +faststart docs/demo-small.mp4
+	@ls -lh docs/demo.mp4 docs/demo-small.mp4 | awk '{print "  " $$9 "  " $$5}'
 
 report:           ## print the facts pack and forecast for the sample data
 	python3 agent/tools/metrics.py data/sample-sprint.json --out agent/snapshots/facts-latest.json > /dev/null

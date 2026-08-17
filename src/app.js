@@ -52,6 +52,10 @@ const S = {
   /** Selected context id — one project+board+sprint, or a "roll:" rollup. */
   ctx: null,
   view: null,
+  /** Tile ids currently on screen. Set at boot from the URL or from a saved
+   *  copy's data-tiles attribute; never from storage, which would not
+   *  survive the file being emailed. */
+  shown: null,
   drillOpener: null,
   live: null,          // set when a local live-mode server answers
   filters: { assignee: "", epic: "", type: "", status: "", q: "" },
@@ -1343,6 +1347,197 @@ $("#btn-theme").onclick = () => setTheme(document.documentElement.dataset.theme 
 if (matchMedia("(prefers-color-scheme: dark)").matches) document.documentElement.dataset.theme = "dark";
 
 /* =====================================================================
+   tile visibility — one page, two audiences
+   ---------------------------------------------------------------------
+   An executive and the team that did the work do not need the same tiles,
+   but they must not be given different numbers. Hiding a tile changes what
+   is shown and nothing that is computed: every figure still comes from the
+   same derive() over the same filtered issues, so a tile that reappears
+   agrees with the one next to it.
+
+   Both presets keep "What this sprint means". A view without the narrative
+   is a wall of charts, which is the thing this page exists to replace.
+
+   State travels in the URL (?view= / ?tiles=) and, for a saved copy, in a
+   data-tiles attribute on <html>. Deliberately not in browser storage: the
+   intended distribution method is emailing the file, and stored state does
+   not survive that. This file uses no browser storage of any kind — the
+   security suite bans those APIs by name from the whole source, comments
+   included, which is why they are not written out here either.
+   ================================================================== */
+const TILES = [
+  { id: "c-exec",  label: "What this sprint means" },
+  { id: "c-kpis",  label: "Headline numbers" },
+  { id: "c-burn",  label: "Burndown, with scope changes" },
+  { id: "c-dist",  label: "Where each person's work sits" },
+  { id: "c-flow",  label: "How long work takes, and what waits" },
+  { id: "c-age",   label: "How long open work has been sitting" },
+  { id: "c-pred",  label: "Can we trust the forecast?" },
+  { id: "c-dora",  label: "Release quality & speed" },
+  { id: "c-load",  label: "Team load" },
+  { id: "c-value", label: "Business value delivered" },
+  { id: "c-rel",   label: "Releases & milestones" },
+  { id: "c-risk",  label: "Risks and what to do about them" }
+];
+const TILE_IDS = TILES.map(t => t.id);
+
+/** Which tiles each audience gets. Taken from the agent's own two report
+ *  templates rather than invented here — agent/templates/exec-brief.md asks
+ *  will we make it / what changed / what it is worth / what we need from you;
+ *  team-report.md asks where we are / unblock / ageing / flow / what to
+ *  commit next. A printed view and the agent's brief for the same audience
+ *  disagreeing about what matters is a worse failure than either being
+ *  slightly wrong on its own. */
+const PRESETS = {
+  all:  TILE_IDS.slice(),
+  exec: ["c-exec", "c-kpis", "c-pred", "c-dora", "c-value", "c-rel", "c-risk"],
+  team: ["c-exec", "c-kpis", "c-burn", "c-dist", "c-flow", "c-age", "c-pred", "c-load", "c-risk"]
+};
+const PRESET_LABEL = { all: "Everything", exec: "Executive", team: "Team" };
+
+/** The preset whose set matches exactly, or "custom". Compared as sets so
+ *  ticking a box back to a preset's shape re-selects that preset. */
+function presetOf(shown) {
+  for (const k of Object.keys(PRESETS)) {
+    const p = PRESETS[k];
+    if (p.length === shown.size && p.every(id => shown.has(id))) return k;
+  }
+  return "custom";
+}
+
+function setShown(ids) {
+  S.shown = new Set(ids.filter(id => TILE_IDS.indexOf(id) >= 0));
+  applyTiles();
+  syncTileUrl();
+}
+
+/** Show or hide each tile. Nothing here recomputes — render() has already
+ *  produced every tile's content whether it is on screen or not. */
+function applyTiles() {
+  TILE_IDS.forEach(id => {
+    const el = $("#" + id);
+    if (el) el.classList.toggle("hidden", !S.shown.has(id));
+  });
+  const name = presetOf(S.shown), hidden = TILE_IDS.length - S.shown.size;
+  const btn = $("#btn-view");
+  btn.textContent = hidden ? "Tiles · " + (name === "custom" ? S.shown.size + " of " + TILE_IDS.length
+                                                             : PRESET_LABEL[name]) : "Tiles";
+  btn.title = hidden ? hidden + " of " + TILE_IDS.length + " tiles hidden in this view"
+                     : "Choose which tiles this view shows";
+  paintPicker();
+}
+
+/** Reflect state into the URL so a hosted view can be linked. replaceState
+ *  throws on some file:// origins; a saved copy carries the view in its
+ *  data-tiles attribute instead, so failing here costs nothing. */
+function syncTileUrl() {
+  try {
+    const u = new URL(location.href), name = presetOf(S.shown);
+    u.searchParams.delete("view"); u.searchParams.delete("tiles");
+    if (name !== "all") {
+      if (name === "custom") u.searchParams.set("tiles", [...S.shown].join(","));
+      else u.searchParams.set("view", name);
+    }
+    history.replaceState(null, "", u);
+  } catch (e) { /* file:// — the attribute on a saved copy covers this */ }
+}
+
+function buildPicker() {
+  const pop = $("#view-pop");
+  pop.innerHTML =
+    '<h4 id="vp-h">Tiles in this view</h4>' +
+    '<div class="note">Hiding a tile changes what is shown, never what is counted. ' +
+    'Both presets keep the narrative.</div>' +
+    '<div class="vp-presets" role="group" aria-label="Preset views">' +
+      Object.keys(PRESETS).map(k =>
+        '<button type="button" data-preset="' + esc(k) + '" aria-pressed="false">' +
+        esc(PRESET_LABEL[k]) + "</button>").join("") +
+    "</div>" +
+    '<div class="vp-list">' +
+      TILES.map(t => '<label><input type="checkbox" data-tile="' + esc(t.id) + '">' +
+        "<span>" + esc(t.label) + "</span></label>").join("") +
+    "</div>" +
+    '<div class="vp-count" id="vp-count"></div>' +
+    '<div class="vp-actions">' +
+      '<button type="button" class="btn" id="vp-save">Save this view as a file</button>' +
+    "</div>";
+
+  pop.querySelectorAll("[data-preset]").forEach(b =>
+    b.onclick = () => setShown(PRESETS[b.dataset.preset]));
+  pop.querySelectorAll("[data-tile]").forEach(c =>
+    c.onchange = () => {
+      const next = new Set(S.shown);
+      c.checked ? next.add(c.dataset.tile) : next.delete(c.dataset.tile);
+      setShown([...next]);
+    });
+  $("#vp-save").onclick = saveView;
+}
+
+/** Push state into the picker's controls. Split from applyTiles so the
+ *  checkboxes cannot drift from the tiles they describe. */
+function paintPicker() {
+  const pop = $("#view-pop");
+  if (!pop.firstChild) return;
+  const name = presetOf(S.shown);
+  pop.querySelectorAll("[data-preset]").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.preset === name)));
+  pop.querySelectorAll("[data-tile]").forEach(c => { c.checked = S.shown.has(c.dataset.tile); });
+  const hidden = TILE_IDS.filter(id => !S.shown.has(id));
+  // Name what is hidden rather than only counting it. A view that quietly
+  // drops a tile reads as a complete page to whoever receives it.
+  $("#vp-count").innerHTML = hidden.length
+    ? "<b>" + hidden.length + " hidden:</b> " +
+      esc(hidden.map(id => TILES.find(t => t.id === id).label).join(", "))
+    : "All " + TILE_IDS.length + " tiles shown.";
+}
+
+function openPicker(on) {
+  $("#view-pop").classList.toggle("hidden", !on);
+  $("#btn-view").setAttribute("aria-expanded", String(on));
+  if (on) { paintPicker(); $("#view-pop").querySelector("[data-preset]").focus(); }
+  else $("#btn-view").focus();
+}
+$("#btn-view").onclick = () => openPicker($("#view-pop").classList.contains("hidden"));
+addEventListener("keydown", e => {
+  if (e.key === "Escape" && !$("#view-pop").classList.contains("hidden")) openPicker(false);
+});
+addEventListener("mousedown", e => {
+  if (!$("#view-pop").classList.contains("hidden") && !e.target.closest(".viewpick")) openPicker(false);
+});
+
+/** Write a standalone copy of this page with the current view and the
+ *  current data baked in.
+ *
+ *  The data matters as much as the view: after an upload the dataset lives
+ *  in memory, not in the seed script, so serialising the document alone
+ *  would hand someone a file that silently reverted to the demo sprint —
+ *  a copy that looks right and is about the wrong company.
+ */
+function saveView() {
+  const root = document.documentElement.cloneNode(true);
+  root.setAttribute("data-tiles", [...S.shown].join(","));
+  root.setAttribute("data-theme", document.documentElement.dataset.theme || "light");
+
+  const seed = root.querySelector("#seed-data");
+  seed.textContent = JSON.stringify(S.data);
+
+  // Drop rendered output. Every one of these is rewritten unconditionally by
+  // render() on load, so clearing them costs nothing and keeps the copy from
+  // carrying a second, stale set of charts.
+  ["#exec-verdict", "#exec-basis", "#exec-list", "#kpis", "#ctxbar", "#f-chips", "#foot",
+   "#burn-chart", "#burn-table", "#dist-chart", "#dist-table", "#flowtime-chart", "#flowtime-table",
+   "#age-chart", "#age-table", "#pred-chart", "#pred-table",
+   "#dora-body", "#load-body", "#value-body", "#rel-body", "#risk-body", "#p-body", "#view-pop"
+  ].forEach(sel => { const el = root.querySelector(sel); if (el) el.innerHTML = ""; });
+
+  const name = presetOf(S.shown);
+  const stem = (S.view && S.view.meta && S.view.meta.sprintName || "sprint").replace(/\W+/g, "-").toLowerCase();
+  download(stem + "-" + (name === "custom" ? "custom" : name) + "-view.html",
+    "<!DOCTYPE html>\n" + root.outerHTML, "text/html;charset=utf-8");
+  openPicker(false);
+}
+
+/* =====================================================================
    master render
    ================================================================== */
 let rafT;
@@ -1353,6 +1548,7 @@ function render() {
   renderHeader(m); renderFilters(); renderExec(m); renderKpis(m);
   renderBurn(m); renderDist(m, items); renderFlowTime(m, items); renderAge(m);
   renderPred(m); renderDora(m); renderLoad(); renderValue(m); renderRel(m); renderRisk(m, items);
+  applyTiles();
   const empty = !S.view.issues.length && S.view.ctx && !S.view.ctx.isRollup;
   $("#grid").style.opacity = empty ? "0.45" : "";
   const nctx = (S.data.contexts || []).length;
@@ -1458,6 +1654,10 @@ window.DVD = {
   debug: {
     contexts: () => selectableContexts(),
     view: () => S.view,
+    tiles: () => [...S.shown],
+    tileIds: () => TILE_IDS.slice(),
+    presets: () => PRESETS,
+    setTiles: ids => setShown(ids),
     selectContext: id => { S.ctx = id; render(); },
     setFilter: (k, v) => { S.filters[k] = v; render(); },
     setUnit: u => { S.unit = u; render(); },
@@ -1478,6 +1678,24 @@ window.DVD = {
 S.data = normalise(JSON.parse(document.getElementById("seed-data").textContent));
 const qs = new URLSearchParams(location.search).get("data");
 S.ctx = S.data.defaultContextId;
+
+/* Which tiles to show. An explicit ?tiles= or ?view= wins, then a saved
+ * copy's data-tiles attribute, then everything. An unrecognised or empty
+ * selection falls back to everything on purpose: a blank page reads as a
+ * broken file, not as a deliberate view. */
+(function initTiles() {
+  const sp = new URLSearchParams(location.search);
+  const t = sp.get("tiles"), v = sp.get("view");
+  const attr = document.documentElement.getAttribute("data-tiles");
+  let ids;
+  if (t) ids = t.split(",");
+  else if (v && PRESETS[v]) ids = PRESETS[v];
+  else if (attr !== null) ids = attr.split(",");
+  else ids = PRESETS.all;
+  S.shown = new Set(ids.map(s => s.trim()).filter(id => TILE_IDS.indexOf(id) >= 0));
+  if (!S.shown.size) S.shown = new Set(PRESETS.all);
+  buildPicker();
+})();
 if (qs) {
   fetch(qs).then(r => r.json()).then(d => { S.data = normalise(d); S.ctx = d.defaultContextId; render(); })
     .catch(() => render())

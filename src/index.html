@@ -21,6 +21,11 @@
       <span class="src-badge" id="t-src"><i class="dot"></i><span></span></span>
       <span class="health-chip" id="t-health"></span>
       <button class="btn" id="btn-theme" title="Switch light / dark">Dark</button>
+      <div class="viewpick">
+        <button class="btn" id="btn-view" aria-expanded="false" aria-haspopup="dialog"
+                aria-controls="view-pop" title="Choose which tiles this view shows">Tiles</button>
+        <div class="vp-pop hidden" id="view-pop" role="dialog" aria-modal="false" aria-labelledby="vp-h"></div>
+      </div>
       <button class="btn" id="btn-print">Print</button>
       <button class="btn" id="btn-export">Export CSV</button>
       <button class="btn primary" id="btn-import">Load data</button>
@@ -61,7 +66,7 @@
       </div>
     </div>
 
-    <div class="span12"><div class="kpis" id="kpis"></div></div>
+    <div class="span12" id="c-kpis"><div class="kpis" id="kpis"></div></div>
 
     <div class="card span7" id="c-burn">
       <div class="card-hd">
