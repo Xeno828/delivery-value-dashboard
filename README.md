@@ -9,8 +9,6 @@ git clone <your-fork-url> && cd delivery-value-dashboard
 make build && open dist/delivery-value-dashboard.html
 ```
 
-*Working from the delivered zip rather than a clone? It is already a git repository with an initial commit — see [PUSH.md](PUSH.md) to push it to your own remote.*
-
 **[▶ Watch the 2-minute demo](docs/demo.mp4)** ([lighter 2.9 MB version](docs/demo-small.mp4)) · **[Executive summary of the agent](docs/agent-executive-summary.md)**
 
 ---
@@ -98,7 +96,6 @@ Full detail: [docs/connecting-jira-asana.md](docs/connecting-jira-asana.md).
 │   ├── record_demo.py                   records docs/demo.mp4
 │   ├── serve_live.py                    optional live-mode server
 │   ├── refresh.sh                       cron-friendly wrapper
-│   ├── setup-on-mac.sh                  unpack, verify and push, one command
 │   └── requirements.txt
 ├── docs/
 │   ├── dashboard-review.md              why it is built this way
@@ -185,7 +182,7 @@ Design outline, question inventory, guardrails, failure modes and rollout: [docs
 
 - **Email it.** One file. This is the intended distribution method.
 - **Shared drive.** Drop `dist/delivery-value-dashboard.html` next to `dashboard-data.json`.
-- **GitHub Pages.** `.github/workflows/pages.yml` publishes the demo dataset. Do not enable it on a repository containing real issue data unless your plan supports private Pages.
+- **GitHub Pages.** `.github/workflows/pages.yml` publishes the built file and the whole of `data/`. It never runs on its own — it is `workflow_dispatch` only, so you start it from the Actions tab and it publishes at no other time. Do not run it on a repository where the fetcher has written real issue titles unless your plan supports private Pages. CI itself needs nothing configured: no secrets, no environment.
 - **Board pack.** The **Print** button lays the page out cleanly to PDF.
 
 ## Why HTML rather than PowerPoint or a BI tool

@@ -84,4 +84,3 @@ These are product decisions, not style. Violating one is a bug even when the tes
 | Forecasting an ask before it exists | `docs/product-intake.md` |
 | The agent definition itself | `agent/SKILL.md` |
 | Why each rule above exists | `CHANGELOG.md` |
-| Pushing this to a remote | `PUSH.md` |
