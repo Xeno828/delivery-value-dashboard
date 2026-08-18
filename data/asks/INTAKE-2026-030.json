@@ -1,0 +1,28 @@
+{
+  "id": "INTAKE-2026-030",
+  "title": "Subscribe and save for consumables",
+  "requestedBy": "Stakeholder demo",
+  "team": "42",
+  "problemStatement": "Consumable reorders are manual, so repeat purchase depends on the customer remembering. A subscription option was broken out with the tech lead into 30 discrete items across catalogue, checkout, billing and account management.",
+  "successMeasure": "15% of consumable revenue on subscription within two quarters of launch.",
+  "sizing": {
+    "method": "explicit",
+    "minItems": 30,
+    "likelyItems": 30,
+    "maxItems": 30,
+    "basis": "Broken out into exactly 30 items during refinement. Stated as a fixed count so that every day of the resulting range is delivery variability rather than sizing doubt — which is the point this ask is used to demonstrate."
+  },
+  "valueEstimate": {
+    "amount": 240000,
+    "basis": "Consumables are 22% of monthly revenue; 15% of that on subscription at a 9pp higher retention rate, annualised",
+    "confidence": "low"
+  },
+  "neededBy": "2026-10-31",
+  "dependencies": [
+    "None outside board 42"
+  ],
+  "assumptions": [
+    "All 30 items sit on board 42",
+    "Existing billing provider supports recurring charges without new PCI scope"
+  ]
+}
