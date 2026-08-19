@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.12.1
+
+**Fixed a WCAG 1.4.10 reflow failure introduced by the third forecast mode.** Adding a *Sequence asks* button made the tile's segmented control 260px wide with `flex-wrap: nowrap` above it, so at a 380px viewport its right edge sat at 364 — inside the card, 16px from the screen. On CI's Linux font metrics those same three labels render wider and the page needed 399px, so it scrolled sideways and the accessibility suite failed.
+
+The fix is structural rather than a shorter label: card headers, their tool groups and the segmented control all wrap now, the title block yields space before either wraps, and below 760px the tools take their own row. The control's right edge moved from 364 to 283 at 320px, and the layout holds with glyphs 40% wider than they render here.
+
+**The suite was checking the wrong width.** WCAG 1.4.10 specifies **320 CSS pixels**; this checked 380, which is softer, and it passed on macOS while CI failed on Linux. It now checks both, and additionally asserts that no laid-out control comes within 8px of the 320px edge — because a control that just reaches the viewport passes on one machine and fails on the next, which is exactly what happened. Against the previous CSS the 320px checks fail and name the offending element; the 380px check still passes, which is the whole point of adding them.
+
+
 ## 1.12.0
 
 **Ask sequencing is on the tile.** A third mode runs `intake.sequence()` for the selected board and shows what `make intake-sequence` shows: what each ordering of that board's outstanding asks costs the others. Asks come from `data/asks/`, matched to the board, and the view follows the dashboard's selection like the other two.

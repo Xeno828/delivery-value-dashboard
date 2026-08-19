@@ -294,11 +294,31 @@ def main():
 
         # ---------- zoom / reflow (1.4.10) ----------
         print("1.4.10  reflow")
-        page.set_viewport_size({"width": 380, "height": 800})
-        page.wait_for_timeout(700)
-        check("no horizontal scrolling at 380px",
-              not page.evaluate("() => document.documentElement.scrollWidth > window.innerWidth + 2"),
-              page.evaluate("() => document.documentElement.scrollWidth"))
+        # 320 CSS pixels is the width WCAG 1.4.10 actually specifies; 380 was the
+        # softer check here, and it passed on macOS while CI failed on Linux
+        # because a control sat 16px from the edge and Linux renders glyphs wider.
+        # Testing the real threshold leaves that much less to font metrics.
+        for width in (380, 320):
+            page.set_viewport_size({"width": width, "height": 800})
+            page.wait_for_timeout(700)
+            check("no horizontal scrolling at %dpx" % width,
+                  not page.evaluate("() => document.documentElement.scrollWidth > window.innerWidth + 2"),
+                  page.evaluate("() => document.documentElement.scrollWidth"))
+
+        # A control that reaches the viewport edge passes today and fails on the
+        # next machine. Assert the margin, not just the absence of a scrollbar.
+        page.set_viewport_size({"width": 320, "height": 800})
+        page.wait_for_timeout(500)
+        widest = page.evaluate("""() => {
+            let worst = {sel: '', right: 0};
+            document.querySelectorAll('.card, .seg, .kpis, .filters, .topbar').forEach(e => {
+              const r = e.getBoundingClientRect();
+              if (r.width && r.right > worst.right) worst = {sel: e.id || e.className, right: Math.round(r.right)};
+            });
+            return worst;
+        }""")
+        check("no laid-out control reaches within 8px of the 320px edge",
+              widest["right"] <= 312, widest)
         page.set_viewport_size({"width": 1500, "height": 1000})
 
         b.close()

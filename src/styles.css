@@ -75,10 +75,19 @@ a{color:var(--link)}
 .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px;align-items:start}
 .card{background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);
   padding:14px 16px 16px;box-shadow:var(--shadow);min-width:0;display:flex;flex-direction:column}
-.card > .card-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:2px}
+/* Wraps rather than overflows. A header whose tools cannot wrap sets the card's
+   minimum width, and one control wider than the viewport fails WCAG 1.4.10 for
+   the whole page — which is exactly what a three-button segmented control did
+   here, marginally on macOS and over the line on CI's font metrics. */
+.card > .card-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+  margin-bottom:2px;flex-wrap:wrap}
+/* The title block yields space to the tools before either wraps: without a
+   shrink factor it claims its full content width and pushes a wide control onto
+   a second row even on a large screen. */
+.card > .card-hd > div:first-child{flex:1 1 220px;min-width:0}
 .card h2{margin:0;font-size:14px;font-weight:650;letter-spacing:-.005em}
 .card .cap{font-size:12px;color:var(--text-secondary);margin:2px 0 10px}
-.hd-tools{display:flex;gap:4px;align-items:center;flex:none}
+.hd-tools{display:flex;gap:4px;align-items:center;flex:none;flex-wrap:wrap}
 .icon-btn{border:1px solid var(--border);background:var(--surface-1);border-radius:7px;width:26px;height:26px;
   display:inline-flex;align-items:center;justify-content:center;font-size:12px;color:var(--text-secondary);padding:0}
 .icon-btn:hover{background:var(--plane);color:var(--text-primary)}
@@ -87,7 +96,13 @@ a{color:var(--link)}
 .span6{grid-column:span 6}.span7{grid-column:span 7}.span8{grid-column:span 8}
 .span9{grid-column:span 9}.span12{grid-column:span 12}
 @media(max-width:1180px){.span3,.span4,.span5{grid-column:span 6}.span7,.span8,.span9{grid-column:span 12}}
-@media(max-width:760px){.grid > *{grid-column:span 12 !important}}
+@media(max-width:760px){
+  .grid > *{grid-column:span 12 !important}
+  /* Give the tools their own row instead of squeezing them beside the title,
+     so a multi-option control has the full card width to wrap into. */
+  .card > .card-hd{flex-direction:column;align-items:stretch}
+  .hd-tools{justify-content:flex-start}
+}
 
 /* ---------- exec summary ---------- */
 .exec{display:grid;grid-template-columns:minmax(280px,1.15fr) 2fr;gap:20px}
@@ -319,7 +334,8 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 .toast.on{opacity:1;transform:translateX(-50%)}
 
 /* ---------- unit toggle ---------- */
-.seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--plane)}
+.seg{display:inline-flex;flex-wrap:wrap;border:1px solid var(--border);border-radius:8px;
+  overflow:hidden;background:var(--plane);max-width:100%}
 .seg button{border:none;background:none;padding:6px 11px;font-size:12.5px;font-weight:600;
   color:var(--text-secondary);line-height:1.2}
 .seg button + button{border-left:1px solid var(--border)}
