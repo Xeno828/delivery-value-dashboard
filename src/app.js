@@ -1015,12 +1015,16 @@ function renderPred(m) {
 function spark(vals, w, h, col, goodUp) {
   if (!vals || vals.length < 2) return "";
   const mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals), rg = (mx - mn) || 1;
-  const x = i => (i / (vals.length - 1)) * (w - 4) + 2;
-  const y = v => h - 3 - ((v - mn) / rg) * (h - 6);
+  // Inset by the marker's own radius: a circle centred on the right edge paints
+  // r pixels outside the svg, which is how a 110px decoration ended up 324px
+  // across on a 320px screen.
+  const R = 2.75, pad = R + 0.5;
+  const x = i => (i / (vals.length - 1)) * (w - 2 * pad) + pad;
+  const y = v => h - pad - ((v - mn) / rg) * (h - 2 * pad);
   const s = svgEl(w, h);
   s.add('<polyline fill="none" stroke="' + col + '" stroke-width="1.75" stroke-linejoin="round" points="' +
     vals.map((v, i) => x(i) + "," + y(v)).join(" ") + '"/>');
-  s.add('<circle cx="' + x(vals.length - 1) + '" cy="' + y(vals[vals.length - 1]) + '" r="2.75" fill="' + col + '"/>');
+  s.add('<circle cx="' + x(vals.length - 1) + '" cy="' + y(vals[vals.length - 1]) + '" r="' + R + '" fill="' + col + '"/>');
   return s.out();
 }
 function renderDora(m) {

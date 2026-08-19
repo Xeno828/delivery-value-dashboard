@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.12.2
+
+**The 320px reflow failure was a sparkline, not the tile.** With the header fixed, the stricter check found the real remaining offender on CI: the value card's *last 6 sprints* sparkline. A fixed 110px chart sits beside the headline figure in a flex row that cannot wrap, so at 320px the pair overflowed the page — and the endpoint marker made it worse, because a circle centred on the SVG's right edge paints its radius outside the box it belongs to. A 110px decoration measured 324px across on a 320px screen.
+
+The row wraps now, the chart never exceeds its column, and `spark()` insets both axes by the marker's radius so nothing is drawn outside its own SVG. The sparkwrap's right edge at 320px moves from 323 to 283.
+
+**The reflow check now names what overflows.** A bare *"323"* is not actionable, least of all when the cause is font metrics on a machine other than the one running the test — this reproduced on no local configuration, including with glyphs stretched 40%. The check reports the offending elements with their right edges, and CI identified the sparkline on the first run afterwards.
+
 ## 1.12.1
 
 **Fixed a WCAG 1.4.10 reflow failure introduced by the third forecast mode.** Adding a *Sequence asks* button made the tile's segmented control 260px wide with `flex-wrap: nowrap` above it, so at a 380px viewport its right edge sat at 364 — inside the card, 16px from the screen. On CI's Linux font metrics those same three labels render wider and the page needed 399px, so it scrolled sideways and the accessibility suite failed.

@@ -183,7 +183,13 @@ table.tv td.num,table.tv th.num{text-align:right}
 .riskrow .rd{font-size:12.5px;color:var(--text-secondary)}
 .riskrow .ra{font-size:12.5px;color:var(--text-primary)}
 .riskrow .ra b{font-weight:650}
-.sparkwrap{display:flex;align-items:center;gap:10px}
+/* Wraps, and its chart never exceeds its column. A fixed-width sparkline beside
+   a headline figure fits at every width this was designed at and none below it;
+   at 320px the pair overflowed the page, which is a WCAG 1.4.10 failure caused
+   by a decoration. */
+.sparkwrap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sparkwrap > *{min-width:0}
+.sparkwrap svg{display:block;max-width:100%;height:auto}
 .rel{display:grid;grid-template-columns:1fr auto;gap:6px 12px;padding:11px 0;border-top:1px solid var(--grid);align-items:center}
 .rel:first-of-type{border-top:none}
 .progress{height:6px;border-radius:3px;background:var(--grid);overflow:hidden;grid-column:1/-1}
