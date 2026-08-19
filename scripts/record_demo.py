@@ -16,6 +16,7 @@ Requires ffmpeg on PATH for the webm -> mp4 conversion.
 """
 
 import argparse
+import atexit
 import json
 import pathlib
 import shutil
@@ -23,6 +24,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 
 from playwright.sync_api import sync_playwright
 
@@ -232,6 +234,32 @@ def scenes(fc):
                 "hiding a tile changes what is shown, never what is counted. Save it as a "
                 "standalone file, or print it, and the narrative goes with it.",
            click="#btn-view", hl="#c-exec", dwell=7.4))
+    # ---- the Monte Carlo tile, all three questions ----
+    # Served by agent/tools/forecast.py over the live connection, which is why
+    # this recording runs against a server rather than the file.
+    A(dict(tag="Ask the forecaster", title="When does the outstanding work land?",
+           body="A Monte Carlo run by the same tool the agent uses, sampling this team's whole "
+                "recorded history rather than the sprint on screen. Read the 85th percentile — "
+                "a median is a coin flip by construction.",
+           click='[data-fc="when"]', hl="#c-forecast", settle=15000, dwell=7.2))
+
+    A(dict(tag="Ask the forecaster", title="Or size work that does not exist yet",
+           body="Type an item count and the same history answers a different question. "
+                "It is labelled as asked-for, so a hypothetical can never be mistaken for "
+                "this sprint's own position.",
+           fill=("#fc-items", "30"), hl="#c-forecast", settle=15000, dwell=7.4))
+
+    A(dict(tag="Ask the forecaster", title="How much lands by a date you choose",
+           body="The capacity question, and the one that sizes the next commitment. "
+                "Commit at the 85th percentile; the median misses half the time.",
+           click='[data-fc="howmany"]', hl="#c-forecast", settle=15000, dwell=7.2))
+
+    A(dict(tag="Ask the forecaster", title="And what each ordering costs the others",
+           body="Every ordering of the outstanding asks, simulated. It opens with the asks that "
+                "miss their date in every ordering — no sequence saves those, so the levers are "
+                "scope, capacity or the date. No value score is computed, here or anywhere.",
+           click='[data-fc="sequence"]', hl="#c-forecast", settle=25000, dwell=8.6))
+
     # Put the page back before the closing card, so the last frame of the
     # product is the whole product rather than a filtered view of it.
     A(dict(click="#btn-view", dwell=0.4))
@@ -272,6 +300,23 @@ def run(page, S, total):
         if sc.get("click"):
             page.click(sc["click"])
             page.wait_for_timeout(550)
+        if sc.get("fill"):
+            sel, val = sc["fill"]
+            page.fill(sel, val)
+            page.dispatch_event(sel, "change")
+            page.wait_for_timeout(450)
+        if sc.get("settle"):
+            # The forecast tile fetches from the live-mode server, so the panel
+            # is a "running simulations" note for a moment. Wait for the answer
+            # rather than filming the wait.
+            try:
+                page.wait_for_function(
+                    "() => { const e = document.getElementById('forecast-body');"
+                    "  return e && !/Running 20,000|Simulating every/.test(e.textContent); }",
+                    timeout=sc["settle"])
+            except Exception:
+                pass
+            page.wait_for_timeout(300)
         if "hl" in sc:
             # Scroll first: a ring drawn around an element below the fold is a
             # ring nobody sees. Measure only once the scroll has settled.
@@ -331,6 +376,28 @@ def main():
 
     tmp = pathlib.Path(tempfile.mkdtemp())
     bundle = json.loads(BUNDLE.read_text())
+
+    # The Monte Carlo tile is served by agent/tools/forecast.py over the
+    # live-mode connection, so the demo has to be recorded against a running
+    # server rather than the file. Serve the *same* bundle the page displays —
+    # a different one would put a disagreement between tile and page on film.
+    port = 8899
+    server = subprocess.Popen(
+        [sys.executable, str(ROOT / "scripts" / "serve_live.py"),
+         "--bundle", str(BUNDLE), "--port", str(port)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    atexit.register(server.terminate)
+    page_url = "http://127.0.0.1:%d/dist/%s" % (port, DIST.name)
+    for _ in range(60):
+        try:
+            urllib.request.urlopen("http://127.0.0.1:%d/api/contexts" % port, timeout=1).read()
+            break
+        except Exception:
+            time.sleep(0.25)
+    else:
+        server.terminate()
+        sys.exit("live-mode server did not start; the forecast scenes need it")
+
     with sync_playwright() as pw:
         b = pw.chromium.launch(args=["--force-device-scale-factor=1"])
         ctx = b.new_context(viewport={"width": W, "height": H},
@@ -338,7 +405,7 @@ def main():
                             record_video_size={"width": W, "height": H})
         t_ctx = time.monotonic()
         page = ctx.new_page()
-        page.goto(DIST.as_uri())
+        page.goto(page_url)
         page.wait_for_timeout(700)
         page.evaluate("d => window.DVD.applyDataset(d)", bundle)
         page.wait_for_timeout(700)

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.12.3
+
+**The demo now shows the Monte Carlo tile, all three questions.** Four new scenes: *when* the outstanding work lands, the same history asked about **30 items that do not exist yet**, *how many* land by a chosen date with the next-sprint commitment, and *what each ordering of the asks costs the others* — including the asks that miss their date in every ordering and the two the tool could not size.
+
+**Recording it required serving the page.** The tile is answered by `forecast.py` and `intake.py` over the live-mode connection, so `record_demo.py` now starts `serve_live.py` against the demo bundle and drives the page over http rather than `file://`. It serves **the same bundle the page displays** — a different one would have put a disagreement between the tile and the page on film, which is the exact failure this design exists to prevent.
+
+Two small recorder capabilities came with it: typing into a field as a scene action, and waiting for a fetch to land so the video shows the answer rather than the *"running 20,000 simulations"* moment.
+
+Both cuts re-recorded: 2m50s, 11 MB and 3.7 MB.
+
+
 ## 1.12.2
 
 **The 320px reflow failure was a sparkline, not the tile.** With the header fixed, the stricter check found the real remaining offender on CI: the value card's *last 6 sprints* sparkline. A fixed 110px chart sits beside the headline figure in a flex row that cannot wrap, so at 320px the pair overflowed the page — and the endpoint marker made it worse, because a circle centred on the SVG's right edge paints its radius outside the box it belongs to. A 110px decoration measured 324px across on a 320px screen.

@@ -9,7 +9,7 @@ git clone <your-fork-url> && cd delivery-value-dashboard
 make build && open dist/delivery-value-dashboard.html
 ```
 
-**[▶ Watch the 2-minute demo](docs/demo.mp4)** ([lighter 3.0 MB version](docs/demo-small.mp4)) · **[Executive summary of the agent](docs/agent-executive-summary.md)**
+**[▶ Watch the 3-minute demo](docs/demo.mp4)** ([lighter 3.7 MB version](docs/demo-small.mp4)) · **[Executive summary of the agent](docs/agent-executive-summary.md)**
 
 ---
 
@@ -127,8 +127,8 @@ Because it needs the local server, this tile shows an offline notice rather than
 │   ├── contexts-and-live-mode.md        project/board/sprint filtering
 │   ├── product-intake.md                forecasting an ask before it exists
 │   ├── agent-executive-summary.md       the agent, for a leadership audience
-│   ├── demo.mp4                         captioned walkthrough, 2m13s (8.9 MB)
-│   ├── demo-small.mp4                   same, 1200px / 3.0 MB, for email
+│   ├── demo.mp4                         captioned walkthrough, 2m50s (11 MB)
+│   ├── demo-small.mp4                   same, 1200px / 3.7 MB, for email
 │   └── forecasting-agent.md             the agent's design outline
 ├── agent/                               reporting & forecasting agent
 │   ├── SKILL.md                         the agent definition — runnable
