@@ -84,3 +84,17 @@ These are product decisions, not style. Violating one is a bug even when the tes
 | Forecasting an ask before it exists | `docs/product-intake.md` |
 | The agent definition itself | `agent/SKILL.md` |
 | Why each rule above exists | `CHANGELOG.md` |
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as GitHub issues on `Xeno828/delivery-value-dashboard`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical roles, each label string equal to its name. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` and `docs/adr/` at the repo root, both created lazily. See `docs/agents/domain.md`.
