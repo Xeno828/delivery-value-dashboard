@@ -89,6 +89,8 @@ Each question takes an input, so the tile answers hypotheticals as well as the s
 - **When** — set **how many items**. Defaults to the sprint's outstanding count; type `30` and you get the delivery range for a 30-item ask against that team's measured pace. The figure is labelled as asked-for so it can never be read as the sprint's own.
 - **How many** — set **a date**. Defaults to the sprint end; pick any date and you get how much lands by then.
 
+A third mode, **Sequence asks**, runs `intake.py --sequence` for the selected board: what each ordering of that board's outstanding asks costs the others. It leads with the asks that miss their date in *every* ordering — that is not a prioritisation problem, and saying so stops a meeting re-arranging a list that cannot be re-arranged into success — then the comparison, then any ask it could not size, named with the tool's reason. No value score is computed, here or anywhere else. Asks are read from `data/asks/` per board.
+
 Rejected input says so rather than quietly reverting, and a request too large for the simulation's 400-working-day horizon states that the dates are a floor rather than an estimate — without that, every percentile reads exactly the horizon and looks like an answer.
 
 Because it needs the local server, this tile shows an offline notice rather than a forecast in an emailed copy. If you are sending a view on, untick it under **Tiles**.

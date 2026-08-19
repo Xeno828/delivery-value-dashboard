@@ -68,6 +68,8 @@ const S = {
   fcItems: null,
   fcDate: null,
   fcError: null,
+  sequences: {},
+  seqPending: {},
   drillOpener: null,
   live: null,          // set when a local live-mode server answers
   filters: { assignee: "", epic: "", type: "", status: "", q: "" },
@@ -1248,7 +1250,7 @@ function renderForecast() {
   // broken rather than offline.
   const known = S.forecasts[fcKey(S.ctx)];
   const asked = (known && known.asked) || {};
-  const ctrl = q === "when"
+  const ctrl = q === "sequence" ? "" : q === "when"
     ? '<div class="fc-ask"><label for="fc-items">How many items?</label>' +
       '<input id="fc-items" type="number" min="1" max="5000" step="1" inputmode="numeric" ' +
       'value="' + esc(String(S.fcItems != null ? S.fcItems
@@ -1270,13 +1272,17 @@ function renderForecast() {
   // Offline is a state, not an error. Say what is missing and how to get it
   // rather than leaving a card that looks broken.
   if (!S.live) {
-    el.innerHTML = ctrl + '<div class="fc-offline"><b>A forecast needs the live-mode connection.</b>' +
-      "<div class=\"note\">The simulation is run by <code>agent/tools/forecast.py</code>, not by this file — " +
-      "so that the number here and the number in a written brief are the same number. Start it with " +
+    const tool = q === "sequence" ? "agent/tools/intake.py" : "agent/tools/forecast.py";
+    const what = q === "sequence" ? "Sequencing asks" : "A forecast";
+    el.innerHTML = ctrl + '<div class="fc-offline"><b>' + what + " needs the live-mode connection.</b>" +
+      '<div class="note">It is run by <code>' + tool + "</code>, not by this file — so that the " +
+      "number here and the number in a written brief are the same number. Start it with " +
       "<code>make serve-live</code> and reload.<br><br>Everything else on this page works offline, and if you are " +
       "sending this file on, untick this tile under <b>Tiles</b>.</div></div>";
     return;
   }
+
+  if (q === "sequence") return renderSequence(el, ctrl);
 
   const id = S.ctx, key = fcKey(id), fc = S.forecasts[key];
   if (fc === undefined) {
@@ -1412,6 +1418,86 @@ function bindForecastInputs() {
 
 function fcKey(id) {
   return id + "|" + (S.fcItems == null ? "" : S.fcItems) + "|" + (S.fcDate || "");
+}
+
+function fetchSequence(id) {
+  if (S.seqPending[id]) return;
+  S.seqPending[id] = true;
+  fetch("api/sequence?id=" + encodeURIComponent(id), { cache: "no-store" })
+    .then(r => (r.ok ? r.json() : (r.status === 404 ? { unknown: true } : null)))
+    .then(j => { S.sequences[id] = j || null; })
+    .catch(() => { S.sequences[id] = null; })
+    .then(() => { delete S.seqPending[id]; if (S.ctx === id) renderForecast(); });
+}
+
+/** The same output `make intake-sequence` prints, in the same order and with
+ *  the same sentences. The decision-forcing part comes first and separately:
+ *  an ask that misses its date in every ordering is not a prioritisation
+ *  problem, and saying so stops a meeting re-arranging a list that cannot be
+ *  re-arranged into success. */
+function renderSequence(el, ctrl) {
+  const id = S.ctx, sq = S.sequences[id];
+  if (sq === undefined) {
+    el.innerHTML = ctrl + '<div class="note">Simulating every ordering…</div>';
+    fetchSequence(id);
+    return;
+  }
+  if (sq === null || sq.unknown) {
+    el.innerHTML = ctrl + '<div class="fc-offline"><b>No sequencing for this selection.</b>' +
+      '<div class="note">The server has no asks recorded against it. Sequencing runs per board, ' +
+      "from the files in <code>data/asks/</code>.</div></div>";
+    return;
+  }
+  if (!sq.available) {
+    // The tool's sentence, verbatim. It says which of the several reasons
+    // applies, and they are not interchangeable.
+    el.innerHTML = ctrl + '<div class="fc-refusal"><b>No sequence.</b> ' +
+      esc(sq.sentence || "not available") + "</div>";
+    return;
+  }
+
+  let html = ctrl + '<div class="fc-lead">Sequencing <b>' + (sq.asks_considered || 0) +
+    " ask" + (sq.asks_considered === 1 ? "" : "s") + "</b> on <b>" +
+    esc(sq.boardName || sq.team && sq.team.boardName || "this board") + "</b> — queued behind " +
+    sq.queue_items + " committed item" + (sq.queue_items === 1 ? "" : "s") + ".</div>";
+
+  const un = sq.unachievable_at_any_priority || [];
+  if (un.length) {
+    html += '<div class="fc-refusal"><b>No ordering delivers these by their date.</b><ul class="seq-un">' +
+      un.map(u => "<li><b>" + esc(u.id) + "</b> — needed " + esc(fmtD(u.neededBy)) +
+        ", best case " + esc(fmtD(u.best_case_p85)) + ", short by " + u.short_by_days +
+        " days</li>").join("") +
+      "</ul>Sequencing cannot fix this. The levers are scope, capacity or the date.</div>";
+  }
+
+  const cmp = sq.comparison || [];
+  if (cmp.length) {
+    html += '<div class="tv-wrap"><table class="tv fc-tab"><thead><tr>' +
+      "<th>If this goes first</th><th>It lands (85%)</th><th>Delays the others</th>" +
+      "<th>Misses a date for</th></tr></thead><tbody>" +
+      cmp.map(r => "<tr><td>" + esc(r.first) + "</td><td>" + esc(fmtD(r.its_own_p85_date)) +
+        "</td><td>" + r.delays_others_by_days + " working days</td><td class=\"note\">" +
+        ((r.misses_a_needed_by || []).length ? esc((r.misses_a_needed_by || []).join(", ")) : "—") +
+        "</td></tr>").join("") + "</tbody></table></div>";
+  }
+
+  // Named, never merely counted. An ask dropped from the comparison without a
+  // reason makes the remaining list look like the whole list.
+  const sk = sq.skipped || [];
+  if (sk.length) {
+    html += '<div class="fc-commit"><b>' + sk.length + " ask" + (sk.length === 1 ? "" : "s") +
+      " could not be sized, and are not in the comparison above:</b><ul class=\"seq-un\">" +
+      sk.map(s => "<li><b>" + esc(s.id) + "</b> — " + esc(s.reason) + "</li>").join("") +
+      "</ul></div>";
+  }
+
+  html += '<div class="note fc-basis">' + esc(sq.basis || "") + "</div>";
+  html += '<div class="note fc-src">' + esc(sq.note || "") +
+    "<br>Computed by <code>intake.py</code> as at " + esc(fmtD(sq.as_of)) +
+    " — the same tool <code>make intake-sequence</code> runs, against the dataset " +
+    "being served here. That command defaults to a different bundle, so compare like " +
+    "for like before calling a difference a disagreement.</div>";
+  el.innerHTML = html;
 }
 
 function fetchForecast(id, key) {

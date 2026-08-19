@@ -228,3 +228,24 @@ accepted here too: the outstanding count is then every open item across that boa
 Forecasts are cached per context id for the process lifetime. Against a bundle this is
 instant; against live Jira the first call for a team pulls every sprint on it and can
 take a few seconds.
+
+
+## `GET api/sequence?id=<contextId>`
+
+Runs `intake.sequence()` for the board the context belongs to, against the asks in
+`data/asks/` whose `team` matches that board id — the same call `make intake-sequence`
+makes. Returns `unachievable_at_any_priority`, `comparison` (one row per ordering, with
+`delays_others_by_days`), `skipped` (asks that could not be sized, each with its reason),
+`basis` and `note`.
+
+A board with no recorded asks returns `available: false` with a sentence saying so, not an
+empty comparison. Unknown ids return `404`.
+
+Only the bundle backend supports it. A live Jira connection returns `available: false`
+with a reason: sizing an ask needs the board's completed epics and its measured
+interruption rate, and a sprint-at-a-time pull does not carry either. Assembling a partial
+dataset and returning a number built on it would be worse than declining.
+
+**No value score is computed**, and none will be. The delivery consequence of an ordering
+is computable; the relative worth of competing asks is a judgement that stays with the
+people accountable for it.

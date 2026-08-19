@@ -45,6 +45,9 @@ sys.path.insert(0, str(ROOT / "scripts"))
 # disagree about the same sprint.
 sys.path.insert(0, str(ROOT / "agent" / "tools"))
 import forecast as FC  # noqa: E402
+import intake as IN    # noqa: E402
+
+ASKS_DIR = ROOT / "data" / "asks"
 
 # An asked-for item count is bounded so a typo cannot start a simulation that
 # runs for minutes. The bound is stated in the error rather than clamped
@@ -139,6 +142,55 @@ def forecast_for(contexts, issues, byContext, cid, items=None, target=None):
     return out
 
 
+def load_asks(board):
+    """Every recorded ask for one board. Read per request rather than cached:
+    an ask is a file somebody edits, and a stale sequence is worse than a slow
+    one."""
+    out = []
+    if not ASKS_DIR.is_dir():
+        return out
+    for f in sorted(ASKS_DIR.glob("*.json")):
+        try:
+            a = json.loads(f.read_text())
+        except ValueError:
+            continue
+        if str(a.get("team") or "") == str(board):
+            out.append(a)
+    return out
+
+
+def sequence_for(data, cid):
+    """What each ordering of this board's outstanding asks costs the others.
+
+    Same tool the terminal runs for `make intake-sequence`, same output. It is
+    not a priority score and never becomes one: the delivery consequence of an
+    ordering is computable, the relative worth of the asks is not.
+    """
+    contexts = data.get("contexts", [])
+    ctx = next((c for c in contexts if c["id"] == cid), None)
+    if ctx is None and cid.startswith("roll:"):
+        proj, _, board = cid[len("roll:"):].partition("|")
+        ctx = next((c for c in contexts
+                    if str(c.get("projectKey") or "") == proj
+                    and str(c.get("boardId") or "") == board), None)
+    if ctx is None:
+        return None
+    board = ctx.get("boardId")
+    asks = load_asks(board)
+    if not asks:
+        return {"available": False, "board": str(board),
+                "boardName": ctx.get("boardName"),
+                "sentence": "No asks are recorded for this board. Sequencing compares the "
+                            "outstanding asks against each other, so it needs at least two; "
+                            "add them under data/asks/ and they appear here."}
+    res = IN.sequence(data, [dict(a) for a in asks], board=board,
+                      as_of=ctx.get("asOfDate") or ctx.get("endDate"))
+    res.setdefault("board", str(board))
+    res.setdefault("boardName", ctx.get("boardName"))
+    res["asks_considered"] = len(asks)
+    return res
+
+
 # --------------------------------------------------------------- backends
 class BundleBackend:
     """Reads an existing bundle file. Used for demos, tests, and for working
@@ -148,6 +200,7 @@ class BundleBackend:
         self.path = pathlib.Path(path)
         self.data = json.loads(self.path.read_text())
         self._fc = {}   # forecasts, per context id, for the process lifetime
+        self._seq = {}  # ask sequencing, per context id
         self.label = "bundle file %s" % self.path.name
         self.source = (self.data.get("meta") or {}).get("source", "bundle")
 
@@ -166,6 +219,11 @@ class BundleBackend:
             "burndown": by.get("burndown", []), "history": by.get("history", []),
             "releases": by.get("releases", []), "dora": by.get("dora"),
         }
+
+    def sequence(self, cid):
+        if cid not in self._seq:
+            self._seq[cid] = sequence_for(self.data, cid)
+        return self._seq[cid]
 
     def forecast(self, cid, items=None, target=None):
         key = (cid, items, target)
@@ -246,6 +304,17 @@ class JiraBackend:
         self._cache[cid] = out
         return out
 
+    def sequence(self, cid):
+        """Sequencing sizes asks against the board's completed epics and its
+        interruption history, which a sprint-at-a-time Jira pull does not carry.
+        Rather than assemble a partial dataset and return a number built on it,
+        say what is missing."""
+        return {"available": False,
+                "sentence": "Ask sequencing needs a bundled dataset — it sizes asks against "
+                            "the board's completed epics and its measured interruption rate, "
+                            "which this live Jira connection does not pull. Run the fetcher to "
+                            "a bundle and serve that, or use `make intake-sequence`."}
+
     def forecast(self, cid, items=None, target=None):
         """Unlike the bundle, this has to fetch. A forecast needs the team's
         whole history, so every sprint on the team is pulled — slow the first
@@ -310,6 +379,12 @@ class Handler(SimpleHTTPRequestHandler):
                 except ValueError:
                     return self._json({"error": "date must be YYYY-MM-DD"}, 400)
             got = self.backend.forecast(cid, items, target)
+            if got is None:
+                return self._json({"error": "unknown context %r" % cid}, 404)
+            return self._json(got)
+        if path in ("api/sequence", "dist/api/sequence"):
+            cid = urllib.parse.parse_qs(u.query).get("id", [""])[0]
+            got = self.backend.sequence(cid)
             if got is None:
                 return self._json({"error": "unknown context %r" % cid}, 404)
             return self._json(got)

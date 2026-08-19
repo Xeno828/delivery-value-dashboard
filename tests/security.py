@@ -338,6 +338,40 @@ def server_checks():
               and "floor rather than an estimate" in huge["sprint_completion"]["basis"],
               huge["sprint_completion"]["unfinished_fraction"])
 
+        # ---- ask sequencing ----
+        seq = json.loads(urllib.request.urlopen(
+            "http://127.0.0.1:%d/api/sequence?id=BLC/42/S24" % port, timeout=60).read().decode())
+        check("the sequence endpoint answers for a board with asks",
+              seq.get("available") is True and seq.get("asks_considered", 0) >= 2,
+              (seq.get("available"), seq.get("asks_considered")))
+        # Same discipline as the forecast: the page must show what the tool
+        # produced, so compare against intake.sequence() called right here.
+        import intake as INT
+        direct_seq = INT.sequence(bundle, [dict(a) for a in SL.load_asks("42")], board="42",
+                                  as_of=next(c["asOfDate"] for c in bundle["contexts"]
+                                             if c["id"] == "BLC/42/S24"))
+        check("the sequence endpoint agrees with the tool called directly",
+              [r["first"] for r in seq.get("comparison", [])]
+              == [r["first"] for r in direct_seq.get("comparison", [])]
+              and [r["delays_others_by_days"] for r in seq.get("comparison", [])]
+              == [r["delays_others_by_days"] for r in direct_seq.get("comparison", [])],
+              ([r["first"] for r in seq.get("comparison", [])],
+               [r["first"] for r in direct_seq.get("comparison", [])]))
+        # An ask that cannot be sized is dropped from the comparison. It must be
+        # named with its reason, or the remaining list reads as the whole list.
+        check("asks that could not be sized are reported, not dropped",
+              all(s.get("id") and s.get("reason") for s in seq.get("skipped", [])),
+              seq.get("skipped"))
+        check("sequencing computes no priority score",
+              "No value score is computed" in (seq.get("note") or ""), seq.get("note"))
+        noask = json.loads(urllib.request.urlopen(
+            "http://127.0.0.1:%d/api/sequence?id=BLC/43/S24" % port, timeout=30).read().decode())
+        check("a board with no asks says so rather than returning an empty comparison",
+              noask.get("available") is False and "No asks are recorded" in noask.get("sentence", ""),
+              noask.get("sentence", "")[:60])
+        c4, b4 = get("/api/sequence?id=../../etc/passwd")
+        check("sequence id traversal is refused", c4 == 404 and b"root:" not in b4, (c4, b4[:40]))
+
         # The badge is the only thing on the page that reports the connection,
         # and it used to report the loaded dataset's own label instead. The
         # bundled demo file labels itself "Demo data (no live connection)", so
@@ -377,6 +411,18 @@ def server_checks():
             rejected = " ".join((pg.text_content("#forecast-body") or "").split())
             check("a rejected item count says so rather than reverting silently",
                   "is not a whole number" in rejected, rejected[:120])
+
+            pg.click('[data-fc="sequence"]')
+            pg.wait_for_timeout(6000)
+            sq = " ".join((pg.text_content("#forecast-body") or "").split())
+            check("the sequence view renders the orderings",
+                  "If this goes first" in sq and "Sequencing 4 asks" in sq, sq[:120])
+            check("the sequence view leads with what no ordering can fix",
+                  "No ordering delivers these by their date" in sq, sq[:160])
+            check("the sequence view names the asks it could not size",
+                  "could not be sized" in sq and "t-shirt scale" in sq, sq[-260:])
+            check("the sequence view states that no value score is computed",
+                  "No value score is computed" in sq, sq[-200:])
             br.close()
 
         # path traversal through the context id

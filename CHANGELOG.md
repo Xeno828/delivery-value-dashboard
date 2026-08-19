@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.12.0
+
+**Ask sequencing is on the tile.** A third mode runs `intake.sequence()` for the selected board and shows what `make intake-sequence` shows: what each ordering of that board's outstanding asks costs the others. Asks come from `data/asks/`, matched to the board, and the view follows the dashboard's selection like the other two.
+
+**It leads with the part that ends the argument.** Asks that miss their date in *every* ordering are printed first and separately, because that is not a prioritisation problem — no sequence saves them, and the only levers left are scope, capacity or the date. A planning meeting that spends an hour re-arranging a list which cannot be re-arranged into success is the thing this is meant to prevent.
+
+**Asks it could not size are named, with the tool's reason.** On the demo bundle two of the four are dropped — *too few completed epics to calibrate a t-shirt scale*, *too few completed epics to form a reference class* — and both appear under the comparison rather than vanishing from it. A comparison of two asks that silently began as four reads as the whole picture.
+
+**Still no value score, and still none coming.** The tool's closing sentence is printed verbatim: the delivery consequence of each ordering is computable, the relative worth of the asks is not.
+
+**Honest edges.** A board with no recorded asks says so instead of returning an empty table. A live Jira connection declines with a reason — sizing needs the board's completed epics and its measured interruption rate, which a sprint-at-a-time pull does not carry — rather than assembling a partial dataset and returning a number built on it. And the tile no longer claims to print "the same output" as the terminal command: `make intake-sequence` defaults to a different bundle, so it names the tool and tells you to compare like for like before calling a difference a disagreement.
+
+
 ## 1.11.0
 
 **The forecast tile takes an input, so it answers hypotheticals as well as the sprint in front of you.** *When* accepts an item count and *How many* accepts a date, both defaulting to the selected sprint's own figures. Ask for 30 items against the Storefront team's measured pace and the answer is 41 working days at the 85th percentile; ask how much lands by 31 October and it is 44 items. The same history, a different question.
