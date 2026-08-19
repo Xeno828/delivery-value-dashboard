@@ -277,11 +277,20 @@ def server_checks():
             check("context id %r cannot read arbitrary files" % probe.split("id=")[1][:24],
                   code == 404 and b"root:" not in body, (code, body[:60]))
 
+        # A missing file must be refused, not dropped. This is the weaker-looking
+        # check and the one that matters: the handler used to raise while logging
+        # the 404 it had already decided on, killing the thread mid-response. Every
+        # traversal probe below then "passed" because a dead connection returns no
+        # body — proving nothing about traversal at all.
+        code, _ = get("/favicon.ico")
+        check("a missing static file gets a clean 404, not a dropped connection",
+              code == 404, code)
+
         # static path traversal
         for probe in ("/../../../etc/passwd", "/..%2f..%2f..%2fetc%2fpasswd", "/./../../etc/passwd"):
             code, body = get(probe)
-            check("static path %r is not served" % probe[:26],
-                  b"root:" not in body, (code, body[:40]))
+            check("static path %r is refused, with a status" % probe[:26],
+                  code in (403, 404) and b"root:" not in body, (code, body[:40]))
 
         # it should not be reachable from a non-loopback interface
         ip = None

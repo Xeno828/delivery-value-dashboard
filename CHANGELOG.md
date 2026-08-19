@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.9.1
+
+**The live-mode server dropped the connection on any 404 instead of sending it.** `log_message()` tested `"/api/" in a[0]` to decide whether a line was worth printing. Two callers reach it with different shapes: `log_request` passes the request line as a string, `log_error` passes an `HTTPStatus`. Membership against a non-string raises — and it raised *after* the 404 had been decided but *before* it was written, so the handler thread died and the client saw a dropped connection rather than a refusal. A browser asking for `/favicon.ico` was enough, which means it fired on every page load in live mode and filled the terminal with tracebacks. During a demo, that is the whole impression.
+
+**The worse part is what it was hiding.** Three path-traversal checks in the security suite were passing *because* of it. They asserted only that `root:` did not appear in the response body, and a dropped connection has no body, so they passed without ever testing traversal. The protection itself was real — `SimpleHTTPRequestHandler.translate_path` collapses `..` before any file is opened, and the 404 was correct — but the tests were not proving it. A check that cannot tell "refused cleanly" from "crashed before answering" is not a check.
+
+Those three now require an actual HTTP status (403 or 404) alongside the absent body, and a fourth asserts that a plain missing file returns a clean 404 rather than a dropped connection. All four fail against the unfixed server; that was verified by reverting the fix and re-running, not assumed.
+
 ## 1.9.0
 
 **Tiles can be turned off, so one file can be sent to two audiences.** The **Tiles** button picks which of the twelve tiles a view contains, with an **Executive** and a **Team** preset. Both keep *What this sprint means*: a view without the narrative is the wall of charts this page exists to replace, and sending an executive one is how a dashboard gets skimmed and ignored.

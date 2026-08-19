@@ -165,7 +165,13 @@ class Handler(SimpleHTTPRequestHandler):
         return SimpleHTTPRequestHandler.do_GET(self)
 
     def log_message(self, fmt, *a):
-        if "/api/" in (a[0] if a else ""):
+        # Two callers, two shapes: log_request passes the request line as a
+        # string, log_error passes an HTTPStatus. Testing membership against a
+        # non-string raises, and it raised *after* the 404 had been decided but
+        # before it was sent — so the handler thread died and the client saw a
+        # dropped connection rather than a refusal. A browser asking for
+        # /favicon.ico was enough to trigger it on every page load.
+        if "/api/" in str(a[0] if a else ""):
             sys.stderr.write("  %s\n" % (fmt % a))
 
 
