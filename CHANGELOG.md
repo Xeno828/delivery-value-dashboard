@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.9.2
+
+**The source badge denied live connections that were working.** With `make serve-live` running, the page said *"Demo data (no live connection)"* while the very same server was handing it eighteen sprints. Nothing was broken underneath — the probe succeeded, the contexts merged, the project/board/sprint bar appeared, switching worked. Only the badge was wrong, and it was wrong in the most damaging way available: stating as fact that the thing you were demonstrating was not happening.
+
+The cause is that the badge reported one fact while claiming another. It read `meta.sourceLabel` — what the **loaded dataset** says about itself — and never consulted `S.live`, which is the only thing that knows whether a server answered. The bundled demo file labels itself "Demo data (no live connection)", so that string was printed verbatim whether or not a connection existed. The two are genuinely different questions: a live connection can serve demo data, which is exactly what `serve_live.py --bundle` is for.
+
+Now the badge reports the connection when there is one — *"Live: bundle file sample-bundle.json"*, green rather than amber — and falls back to the dataset's own label when there is not. The tooltip states both, because "connected to a demo bundle" is the honest description and neither half should be dropped.
+
+A test pins it in `tests/security.py`, which is the only suite holding both a browser and a running server. It loads the page over http against the live server and fails if the badge denies the connection; that failure was confirmed by reverting the fix, not assumed.
+
+
 ## 1.9.1
 
 **The live-mode server dropped the connection on any 404 instead of sending it.** `log_message()` tested `"/api/" in a[0]` to decide whether a line was worth printing. Two callers reach it with different shapes: `log_request` passes the request line as a string, `log_error` passes an `HTTPStatus`. Membership against a non-string raises — and it raised *after* the 404 had been decided but *before* it was written, so the handler thread died and the client saw a dropped connection rather than a refusal. A browser asking for `/favicon.ico` was enough, which means it fired on every page load in live mode and filled the terminal with tracebacks. During a demo, that is the whole impression.

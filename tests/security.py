@@ -269,6 +269,24 @@ def server_checks():
         code, _ = get("/api/contexts")
         check("the contexts endpoint answers", code == 200, code)
 
+        # The badge is the only thing on the page that reports the connection,
+        # and it used to report the loaded dataset's own label instead. The
+        # bundled demo file labels itself "Demo data (no live connection)", so
+        # with this server running the page sat there denying the connection
+        # that had just handed it eighteen sprints. This is the only suite with
+        # both a browser and a live server, so the check belongs here.
+        with sync_playwright() as pw2:
+            br = pw2.chromium.launch()
+            pg = br.new_page()
+            pg.goto("http://127.0.0.1:%d/dist/delivery-value-dashboard.html" % port)
+            pg.wait_for_timeout(1500)
+            badge = (pg.text_content("#t-src") or "").strip()
+            bar = pg.get_attribute("#ctxbar", "class") or ""
+            check("live mode merges the server's contexts", "hidden" not in bar, bar)
+            check("the badge does not deny a connection that is answering",
+                  "no live connection" not in badge and badge.startswith("Live:"), badge)
+            br.close()
+
         # path traversal through the context id
         for probe in ("/api/context?id=../../etc/passwd",
                       "/api/context?id=%2e%2e%2f%2e%2e%2fetc%2fpasswd",

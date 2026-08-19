@@ -976,14 +976,23 @@ function renderHeader(m) {
     "  ·  data as at " + fmtD(asOf());
   $("#t-goal").innerHTML = meta.sprintGoal ? "<b>Sprint goal:</b> " + esc(meta.sprintGoal) : "";
 
-  const live = meta.source && meta.source !== "demo";
+  // Two separate facts, and the badge used to report only the first: what the
+  // loaded dataset says about itself, and whether a live server is answering.
+  // The bundled demo file labels itself "Demo data (no live connection)", so
+  // with serve_live running the badge sat there denying the connection that had
+  // just handed it eighteen sprints. S.live is the connection; meta is the data.
+  const connected = !!S.live;
+  const liveData = meta.source && meta.source !== "demo";
   const sb = $("#t-src");
-  sb.querySelector(".dot").style.background = live ? CSSV("--good") : CSSV("--warning");
-  sb.querySelector("span:last-child").textContent = meta.sourceLabel ||
-    (live ? "Live: " + meta.source : "Demo data");
+  sb.querySelector(".dot").style.background = (connected || liveData) ? CSSV("--good") : CSSV("--warning");
+  sb.querySelector("span:last-child").textContent = connected
+    ? "Live: " + (S.live.label || S.live.source)
+    : (meta.sourceLabel || (liveData ? "Live: " + meta.source : "Demo data"));
   sb.dataset.tt = "<b>Where this data came from</b><br>" + esc(meta.sourceLabel || "Demo data") +
     "<br>Pulled " + (meta.generatedAt ? new Date(meta.generatedAt).toLocaleString() : "unknown") +
-    ".<br><br>Amber means this is not a live connection.";
+    (connected ? "<br><br>Connected to " + esc(S.live.label || S.live.source) +
+                 ". The connection is live; whether the data behind it is demo or real is the line above."
+               : ".<br><br>Amber means this is not a live connection.");
 
   const band = m.healthBand;
   const map = { Green: ["--good-wash", "--good-ink", "●", "On track"],
