@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.12.4
+
+**The theme button lied on a machine that prefers dark.** The opening theme comes from `prefers-color-scheme`, and that branch set the attribute directly instead of going through `setTheme()` — so on a dark-preferring machine the page opened dark under a button still reading *"Dark"*. The label names the theme pressing it switches **to**, and it is also the control's accessible name, so the one user who cannot see which theme is showing was told the opposite of what the control does. The preference branch now sets the label alongside the attribute; it still bypasses `render()`, which has no data to draw at that point in load.
+
+The accessibility suite now opens a second page under an emulated dark preference and asserts the pair — attribute and label — on load and after a press. It fails against the previous build, which is why it is here.
+
+
 ## 1.12.3
 
 **The demo now shows the Monte Carlo tile, all three questions.** Four new scenes: *when* the outstanding work lands, the same history asked about **30 items that do not exist yet**, *how many* land by a chosen date with the next-sprint commitment, and *what each ordering of the asks costs the others* — including the asks that miss their date in every ordering and the two the tool could not size.

@@ -2347,7 +2347,14 @@ function setTheme(t) {
   render();
 }
 $("#btn-theme").onclick = () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
-if (matchMedia("(prefers-color-scheme: dark)").matches) document.documentElement.dataset.theme = "dark";
+/* The system preference picks the opening theme. Set the label from the same
+   place the attribute is set: the button names the theme it switches *to*, so
+   one reading "Dark" on an already-dark page describes the state instead of
+   the action — and that label is the control's accessible name. */
+if (matchMedia("(prefers-color-scheme: dark)").matches) {
+  document.documentElement.dataset.theme = "dark";
+  $("#btn-theme").textContent = "Light";
+}
 
 /* =====================================================================
    tile visibility — one page, two audiences

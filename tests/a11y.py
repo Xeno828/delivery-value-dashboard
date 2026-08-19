@@ -187,6 +187,27 @@ def main():
         check("every visible control has an accessible name",
               page.evaluate(NAMES) == [], page.evaluate(NAMES)[:4])
 
+        # The theme button's label is its accessible name, and it names the theme
+        # pressing it switches *to*. The opening theme comes from the system
+        # preference, so under a dark preference the page has to open dark with the
+        # label already reading "Light". It shipped reading "Dark" on a dark page,
+        # which told a screen-reader user the opposite of what the control does.
+        THEME = ("() => [document.documentElement.dataset.theme,"
+                 " document.getElementById('btn-theme').textContent.trim()]")
+        dark = b.new_page(viewport={"width": 1500, "height": 1000}, color_scheme="dark")
+        dark.goto(DIST.as_uri())
+        dark.wait_for_timeout(600)
+        opened = dark.evaluate(THEME)
+        check("a dark system preference opens the page dark", opened[0] == "dark", opened)
+        check("the theme button names the theme it switches to, not the one showing",
+              opened == ["dark", "Light"], opened)
+        dark.click("#btn-theme")
+        dark.wait_for_timeout(300)
+        toggled = dark.evaluate(THEME)
+        check("pressing it switches theme and renames itself",
+              toggled == ["light", "Dark"], toggled)
+        dark.close()
+
         # ---------- 1.3.1 relationships ----------
         print("1.3.1  info and relationships")
         h = page.evaluate(HEADINGS)
