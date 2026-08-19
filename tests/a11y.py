@@ -298,12 +298,31 @@ def main():
         # softer check here, and it passed on macOS while CI failed on Linux
         # because a control sat 16px from the edge and Linux renders glyphs wider.
         # Testing the real threshold leaves that much less to font metrics.
+        # When this fails, "323" is not enough to act on — especially since the
+        # cause is usually font metrics on a machine other than the one running
+        # the test. Name the elements sticking out over the edge.
+        OVERFLOWERS = """() => {
+            const vw = window.innerWidth, out = [];
+            document.querySelectorAll('body *').forEach(e => {
+              const r = e.getBoundingClientRect();
+              if (r.width <= 0 || r.right <= vw + 0.5) return;
+              if (getComputedStyle(e).visibility === 'hidden') return;
+              out.push((e.tagName.toLowerCase()
+                        + (e.id ? '#' + e.id : '')
+                        + (typeof e.className === 'string' && e.className
+                             ? '.' + e.className.trim().split(/\\s+/)[0] : ''))
+                       + ' right=' + Math.round(r.right)
+                       + ' "' + (e.textContent || '').trim().slice(0, 24) + '"');
+            });
+            return out.slice(0, 6);
+        }"""
         for width in (380, 320):
             page.set_viewport_size({"width": width, "height": 800})
             page.wait_for_timeout(700)
-            check("no horizontal scrolling at %dpx" % width,
-                  not page.evaluate("() => document.documentElement.scrollWidth > window.innerWidth + 2"),
-                  page.evaluate("() => document.documentElement.scrollWidth"))
+            sw = page.evaluate("() => document.documentElement.scrollWidth")
+            ok = not page.evaluate("() => document.documentElement.scrollWidth > window.innerWidth + 2")
+            check("no horizontal scrolling at %dpx" % width, ok,
+                  sw if ok else "%d — over the edge: %s" % (sw, page.evaluate(OVERFLOWERS)))
 
         # A control that reaches the viewport edge passes today and fails on the
         # next machine. Assert the margin, not just the absence of a scrollbar.
