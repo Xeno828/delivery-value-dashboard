@@ -84,6 +84,13 @@ The simulation is run by `agent/tools/forecast.py` over the connection, not reim
 
 It samples **the whole recorded history of that team**, not just the sprint on screen — one sprint offers too few observations and the tool refuses. Only the outstanding count comes from the selected sprint. The tile names the slice, the date span and the observation count so the basis is auditable, and prints refusals verbatim when the evidence is thin.
 
+Each question takes an input, so the tile answers hypotheticals as well as the sprint in front of you:
+
+- **When** — set **how many items**. Defaults to the sprint's outstanding count; type `30` and you get the delivery range for a 30-item ask against that team's measured pace. The figure is labelled as asked-for so it can never be read as the sprint's own.
+- **How many** — set **a date**. Defaults to the sprint end; pick any date and you get how much lands by then.
+
+Rejected input says so rather than quietly reverting, and a request too large for the simulation's 400-working-day horizon states that the dates are a floor rather than an estimate — without that, every percentile reads exactly the horizon and looks like an answer.
+
 Because it needs the local server, this tile shows an offline notice rather than a forecast in an emailed copy. If you are sending a view on, untick it under **Tiles**.
 
 ## Repository layout

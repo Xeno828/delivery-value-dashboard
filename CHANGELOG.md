@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.11.0
+
+**The forecast tile takes an input, so it answers hypotheticals as well as the sprint in front of you.** *When* accepts an item count and *How many* accepts a date, both defaulting to the selected sprint's own figures. Ask for 30 items against the Storefront team's measured pace and the answer is 41 working days at the 85th percentile; ask how much lands by 31 October and it is 44 items. The same history, a different question.
+
+**An asked-for figure is labelled as one.** The lead line reads *"30 items asked for — not this sprint's 4"*, because a hypothetical that looks like a status report is worse than no answer at all. The endpoint echoes `asked.default_items` and `asked.default_date` so the swap is always visible, and a one-click reset returns to the sprint's own numbers.
+
+**Rejected input says so instead of quietly reverting.** An out-of-range count is refused with `400` at the server and an explanation in the tile — *"0" is not a whole number between 1 and 5000. Showing this sprint's own outstanding count instead.* Silently substituting a different number would return a figure answering a question nobody asked, which reads exactly like an answer to the one they did.
+
+**A bug this feature would otherwise have shipped: the simulation's horizon was silent.** Each trial is abandoned after 400 working days, and a request beyond the team's pace returned every percentile at exactly 400 — uniform, precise and meaningless. Unreachable while the item count came from real sprint data; reachable the moment anyone can type a number. `forecast_completion()` now counts abandoned trials, returns `unfinished_fraction`, and names the horizon in its basis line whenever it is non-zero. The tile prints *"These dates are a floor"* above the table. This is the no-silent-caps rule applied to the forecaster itself, and it holds for the CLI and the agent too, not just the tile.
+
+
 ## 1.10.0
 
 **The Monte Carlo forecast is on the dashboard, not just in a terminal.** A new tile answers the two questions `forecast.py` exists for — *when will this finish* and *how many will land by the date* — for whichever project, board and sprint is selected, and re-runs when that selection changes. The second question also carries the next-sprint commitment sizing, with the tool's note about the median printed as written.

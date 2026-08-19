@@ -232,6 +232,14 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
    Deliberately typographic. These are tool outputs to be read and quoted, not a
    series to be plotted, so nothing here touches the chart palette — those
    colours are validated for colour-vision deficiency on their own terms. */
+.fc-ask{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:0 0 12px;padding:9px 11px;
+  background:var(--plane);border:1px solid var(--border);border-radius:8px}
+.fc-ask label{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+.fc-ask input{font:inherit;font-size:12.5px;padding:5px 8px;border-radius:7px;border:1px solid var(--border);
+  background:var(--surface-1);color:var(--text-primary);width:8.5em}
+.fc-ask input[type=number]{width:6em}
+.fc-ask .note{font-size:11.5px}
+.fc-badinput{flex-basis:100%;font-size:11.5px;color:var(--warn-ink);font-weight:600}
 .fc-lead{font-size:13.5px;line-height:1.55;margin:2px 0 12px}
 .fc-tab td:first-child,.fc-tab th:first-child{width:5.5em}
 .fc-tab tr.fc-hi td{background:var(--info-wash);font-weight:600}

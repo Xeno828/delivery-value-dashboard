@@ -193,8 +193,28 @@ structure the CLI prints with `--json`, plus a `sampled_from` block naming the s
 }
 ```
 
+### Optional parameters
+
+| Parameter | Replaces | Rejected when |
+|---|---|---|
+| `items=<n>` | the outstanding count for the selected context | not a whole number in 1–5000 |
+| `date=<YYYY-MM-DD>` | the selected sprint's end date | not an ISO date |
+
+Both are echoed back under `asked`, alongside `default_items` and `default_date`, so a
+caller can always show what was swapped for what.
+
+Bad input returns `400` with an `{"error": ...}` message rather than being ignored. A
+silently dropped override returns a number answering a different question, which reads
+exactly like an answer to the one asked.
+
 An unknown id returns `404` with `{"error": "unknown context '<id>'"}`, the same shape
 as `api/context`.
+
+**The simulation horizon.** A single trial is abandoned after 400 working days. The share
+of trials that hit it comes back as `sprint_completion.unfinished_fraction`, and is named
+in the `basis` line whenever it is non-zero. Without that, a request far larger than the
+team's pace returns every percentile at exactly 400 days — uniform, precise and
+meaningless.
 
 **What it samples.** Every issue belonging to the same *team* as the requested context,
 across all of that team's sprints, over the full span of imported history — not the

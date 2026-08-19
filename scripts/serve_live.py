@@ -26,6 +26,7 @@ put it behind a hostname, you want a real BI tool instead — see the README.
 """
 
 import argparse
+import datetime
 import json
 import os
 import pathlib
@@ -44,6 +45,12 @@ sys.path.insert(0, str(ROOT / "scripts"))
 # disagree about the same sprint.
 sys.path.insert(0, str(ROOT / "agent" / "tools"))
 import forecast as FC  # noqa: E402
+
+# An asked-for item count is bounded so a typo cannot start a simulation that
+# runs for minutes. The bound is stated in the error rather than clamped
+# silently, and the forecaster reports separately when a trial runs out of its
+# own horizon.
+MAX_ASK_ITEMS = 5000
 
 
 # ------------------------------------------------------------- forecasting
@@ -68,7 +75,7 @@ def team_slice(contexts, ctx):
             "board %s/%s" % (ctx.get("projectKey"), ctx.get("boardId")))
 
 
-def forecast_for(contexts, issues, byContext, cid):
+def forecast_for(contexts, issues, byContext, cid, items=None, target=None):
     """Run the real forecaster for one context. Returns None for an unknown id.
 
     The slice is the thing to get right, and getting it wrong produces a
@@ -101,16 +108,26 @@ def forecast_for(contexts, issues, byContext, cid):
     # wide, the outstanding count is narrow. A rollup's "selected context" is
     # every sprint it spans.
     remaining_ids = ({c["id"] for c in roll_members} if roll_members else {cid})
-    remaining = len([i for i in issues
-                     if i.get("contextId") in remaining_ids
-                     and (i.get("statusCategory") or "") != "Done"])
+    actual_remaining = len([i for i in issues
+                            if i.get("contextId") in remaining_ids
+                            and (i.get("statusCategory") or "") != "Done"])
+    # An asked-for item count or date replaces the sprint's own, so the same
+    # history can answer "what if it were 30 items" or "what about by then".
+    # The defaults are still reported, so the tile can show what was swapped.
+    remaining = actual_remaining if items is None else items
     as_of = ctx.get("asOfDate") or ctx.get("endDate")
     meta = {"sprintName": ctx.get("sprintName"), "startDate": ctx.get("startDate"),
             "endDate": ctx.get("endDate"), "asOfDate": as_of,
             "workingDays": ctx.get("workingDays")}
     ds = {"issues": team_issues, "meta": meta,
           "releases": (byContext.get(cid) or {}).get("releases", [])}
-    out = FC.build(ds, as_of=as_of, remaining=remaining, target=ctx.get("endDate"))
+    eff_target = target or ctx.get("endDate")
+    out = FC.build(ds, as_of=as_of, remaining=remaining, target=eff_target)
+    out["asked"] = {
+        "items": items, "date": target,
+        "default_items": actual_remaining, "default_date": ctx.get("endDate"),
+        "as_of": as_of,
+    }
     resolved = sorted(x for x in (FC._d(i["resolved"]) for i in team_issues
                                   if i.get("resolved")) if x)
     out["sampled_from"] = {
@@ -150,12 +167,14 @@ class BundleBackend:
             "releases": by.get("releases", []), "dora": by.get("dora"),
         }
 
-    def forecast(self, cid):
-        if cid not in self._fc:
-            self._fc[cid] = forecast_for(self.data.get("contexts", []),
+    def forecast(self, cid, items=None, target=None):
+        key = (cid, items, target)
+        if key not in self._fc:
+            self._fc[key] = forecast_for(self.data.get("contexts", []),
                                          self.data.get("issues", []),
-                                         self.data.get("byContext") or {}, cid)
-        return self._fc[cid]
+                                         self.data.get("byContext") or {},
+                                         cid, items, target)
+        return self._fc[key]
 
 
 class JiraBackend:
@@ -227,15 +246,16 @@ class JiraBackend:
         self._cache[cid] = out
         return out
 
-    def forecast(self, cid):
+    def forecast(self, cid, items=None, target=None):
         """Unlike the bundle, this has to fetch. A forecast needs the team's
         whole history, so every sprint on the team is pulled — slow the first
         time, cached after, and the reason the endpoint can take a few seconds
         against live Jira."""
         if not hasattr(self, "_fc"):
             self._fc = {}
-        if cid in self._fc:
-            return self._fc[cid]
+        key = (cid, items, target)
+        if key in self._fc:
+            return self._fc[key]
         all_ctx = self.contexts()
         ctx = next((c for c in all_ctx if c["id"] == cid), None)
         if ctx is None:
@@ -246,8 +266,8 @@ class JiraBackend:
             got = self.context(m["id"])
             if got:
                 issues.extend(got["issues"])
-        self._fc[cid] = forecast_for(all_ctx, issues, {}, cid)
-        return self._fc[cid]
+        self._fc[key] = forecast_for(all_ctx, issues, {}, cid, items, target)
+        return self._fc[key]
 
 
 # ---------------------------------------------------------------- handler
@@ -270,8 +290,26 @@ class Handler(SimpleHTTPRequestHandler):
             b = self.backend
             return self._json({"source": b.source, "label": b.label, "contexts": b.contexts()})
         if path in ("api/forecast", "dist/api/forecast"):
-            cid = urllib.parse.parse_qs(u.query).get("id", [""])[0]
-            got = self.backend.forecast(cid)
+            qs = urllib.parse.parse_qs(u.query)
+            cid = qs.get("id", [""])[0]
+            # Reject bad input rather than quietly forecasting something else.
+            # A silently ignored override is worse than an error: the number
+            # comes back looking like the answer to the question asked.
+            items = qs.get("items", [""])[0].strip()
+            if items:
+                if not items.isdigit() or not (1 <= int(items) <= MAX_ASK_ITEMS):
+                    return self._json({"error": "items must be a whole number between 1 and %d"
+                                                % MAX_ASK_ITEMS}, 400)
+                items = int(items)
+            else:
+                items = None
+            target = qs.get("date", [""])[0].strip() or None
+            if target:
+                try:
+                    datetime.date.fromisoformat(target)
+                except ValueError:
+                    return self._json({"error": "date must be YYYY-MM-DD"}, 400)
+            got = self.backend.forecast(cid, items, target)
             if got is None:
                 return self._json({"error": "unknown context %r" % cid}, 404)
             return self._json(got)

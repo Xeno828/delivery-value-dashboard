@@ -36,6 +36,11 @@ MIN_THROUGHPUT_SAMPLES = 8      # distinct periods with an observation
 MIN_COMPLETED_ITEMS = 10        # items with a resolution date
 MIN_CYCLE_SAMPLES = 6           # items with both a start and a resolution
 TRIALS = 20_000
+# How far a single simulated trial is allowed to run before it is abandoned.
+# A trial that hits this has not finished, and saying so matters: without it
+# every percentile reads exactly HORIZON and looks like an answer. Reported as
+# unfinished_fraction, and named in the basis line whenever it is not zero.
+HORIZON = 400                   # working days
 SEED = 20260816                 # fixed: same inputs must give the same answer
 PERCENTILES = (50, 70, 85, 95)
 
@@ -68,6 +73,10 @@ class DateForecast:
     samples: int = 0
     method: str = "monte-carlo-throughput"
     basis: str = ""
+    # Share of trials that ran out of simulated horizon without finishing. Any
+    # value above zero means these dates are a floor, not an estimate — see
+    # HORIZON below.
+    unfinished_fraction: float = 0.0
 
 
 @dataclass
@@ -211,16 +220,18 @@ def forecast_completion(remaining_items: int,
 
     rng = random.Random(seed)
     growth = list(scope_growth or [])
-    day_counts, cap = [], 400
+    day_counts, unfinished = [], 0
 
     for _ in range(trials):
         target = remaining_items
         if growth:
             target = target * rng.choice(growth)
         done, days = 0.0, 0
-        while done < target and days < cap:
+        while done < target and days < HORIZON:
             done += rng.choice(samples)
             days += 1
+        if done < target:
+            unfinished += 1
         day_counts.append(days)
 
     day_counts.sort()
@@ -232,10 +243,14 @@ def forecast_completion(remaining_items: int,
         percentiles={p: add_working_days(begin, n).isoformat() for p, n in pcts.items()},
         scope_growth_applied=(statistics.mean(growth) - 1.0) if growth else 0.0,
         samples=len(samples),
-        basis=("%d working-day observations, %d items completed in the window%s"
+        unfinished_fraction=round(unfinished / float(trials), 4),
+        basis=("%d working-day observations, %d items completed in the window%s%s"
                % (len(samples), sum(samples),
                   "; historical scope growth applied" if growth else
-                  "; scope assumed frozen (no snapshot history available)")),
+                  "; scope assumed frozen (no snapshot history available)",
+                  ("; %.0f%% of simulations had not finished within the %d working-day "
+                   "horizon, so these dates are a floor rather than an estimate"
+                   % (100.0 * unfinished / float(trials), HORIZON)) if unfinished else "")),
     )
     if target_date:
         budget = len(working_days(begin, _d(target_date))) - 1

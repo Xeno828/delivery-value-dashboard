@@ -311,6 +311,33 @@ def server_checks():
                direct.get("inputs", {}).get("throughput_observations"),
                d_sc.get("reason")))
 
+        # ---- asked-for overrides on the endpoint ----
+        def fjson(q):
+            return json.loads(urllib.request.urlopen(
+                "http://127.0.0.1:%d/api/forecast?id=BLC/42/S24&%s" % (port, q), timeout=20).read().decode())
+        thirty = fjson("items=30")
+        check("an asked-for item count is used, and the sprint's own is still reported",
+              thirty["sprint_completion"]["remaining_items"] == 30
+              and thirty["asked"]["default_items"] == 4,
+              (thirty["sprint_completion"]["remaining_items"], thirty["asked"]["default_items"]))
+        bydate = fjson("date=2026-10-31")
+        check("an asked-for date is used for the capacity question",
+              bydate["capacity_to_target"]["target_date"] == "2026-10-31",
+              bydate["capacity_to_target"].get("target_date"))
+        # Bad input must be refused, not quietly replaced with something else —
+        # a silently ignored override returns a number answering a different
+        # question, which reads exactly like an answer to the one asked.
+        for bad in ("items=abc", "items=0", "items=99999", "date=nonsense"):
+            c3, b3 = get("/api/forecast?id=BLC/42/S24&" + bad)
+            check("%r is refused rather than ignored" % bad, c3 == 400 and b"error" in b3, (c3, b3[:60]))
+        # No silent caps: a request too big for the simulation's horizon must say
+        # so, or every percentile reads exactly the horizon and looks like an answer.
+        huge = fjson("items=5000")
+        check("a forecast that outruns the horizon says so",
+              huge["sprint_completion"]["unfinished_fraction"] > 0
+              and "floor rather than an estimate" in huge["sprint_completion"]["basis"],
+              huge["sprint_completion"]["unfinished_fraction"])
+
         # The badge is the only thing on the page that reports the connection,
         # and it used to report the loaded dataset's own label instead. The
         # bundled demo file labels itself "Demo data (no live connection)", so
@@ -338,6 +365,18 @@ def server_checks():
             nice = "%s %d" % (d85.strftime("%b"), d85.day)
             check("the tile shows the forecast the tool produced", nice in tile, (nice, tile[:110]))
             check("the tile names the slice it sampled", "Sampled from team" in tile, tile[-160:])
+
+            # An asked-for figure must never read as the sprint's own.
+            pg.fill("#fc-items", "30"); pg.dispatch_event("#fc-items", "change")
+            pg.wait_for_timeout(3000)
+            asked = " ".join((pg.text_content("#forecast-body") or "").split())
+            check("an asked-for item count is labelled as asked for",
+                  "30 items asked for" in asked and "not this sprint's 4" in asked, asked[:120])
+            pg.fill("#fc-items", "0"); pg.dispatch_event("#fc-items", "change")
+            pg.wait_for_timeout(1500)
+            rejected = " ".join((pg.text_content("#forecast-body") or "").split())
+            check("a rejected item count says so rather than reverting silently",
+                  "is not a whole number" in rejected, rejected[:120])
             br.close()
 
         # path traversal through the context id

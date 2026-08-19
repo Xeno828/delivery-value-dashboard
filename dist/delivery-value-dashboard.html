@@ -239,6 +239,14 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
    Deliberately typographic. These are tool outputs to be read and quoted, not a
    series to be plotted, so nothing here touches the chart palette — those
    colours are validated for colour-vision deficiency on their own terms. */
+.fc-ask{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:0 0 12px;padding:9px 11px;
+  background:var(--plane);border:1px solid var(--border);border-radius:8px}
+.fc-ask label{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+.fc-ask input{font:inherit;font-size:12.5px;padding:5px 8px;border-radius:7px;border:1px solid var(--border);
+  background:var(--surface-1);color:var(--text-primary);width:8.5em}
+.fc-ask input[type=number]{width:6em}
+.fc-ask .note{font-size:11.5px}
+.fc-badinput{flex-basis:100%;font-size:11.5px;color:var(--warn-ink);font-weight:600}
 .fc-lead{font-size:13.5px;line-height:1.55;margin:2px 0 12px}
 .fc-tab td:first-child,.fc-tab th:first-child{width:5.5em}
 .fc-tab tr.fc-hi td{background:var(--info-wash);font-weight:600}
@@ -682,6 +690,13 @@ const S = {
   forecasts: {},
   fcPending: {},
   fcQuestion: "when",
+  /** Asked-for overrides. Deliberately kept when the context changes: "if we
+   *  took 30 items, when would each team deliver it" is the question worth
+   *  asking, and the tile labels the figure as asked-for so it cannot be read
+   *  as the sprint's own. */
+  fcItems: null,
+  fcDate: null,
+  fcError: null,
   drillOpener: null,
   live: null,          // set when a local live-mode server answers
   filters: { assignee: "", epic: "", type: "", status: "", q: "" },
@@ -1822,6 +1837,7 @@ function commitU(m) {
    the agent would eventually disagree about the same sprint.
    ================================================================== */
 const FC_PCTS = [50, 70, 85, 95];
+const FC_MAX_ITEMS = 5000;   // matches MAX_ASK_ITEMS in scripts/serve_live.py
 
 function fcRefusal(r) {
   // Verbatim, including the trailing clause. "Not enough data" and "wide
@@ -1844,6 +1860,7 @@ function fcRows(rows) {
 function renderForecast() {
   const el = $("#forecast-body");
   if (!el) return;
+  bindForecastInputs();
   const q = S.fcQuestion;
   $$("[data-fc]").forEach(b => {
     b.setAttribute("aria-pressed", String(b.dataset.fc === q));
@@ -1855,10 +1872,34 @@ function renderForecast() {
     }
   });
 
+  // The controls are built before any early return so they are present in every
+  // state — a disabled-looking card with no way to change the question reads as
+  // broken rather than offline.
+  const known = S.forecasts[fcKey(S.ctx)];
+  const asked = (known && known.asked) || {};
+  const ctrl = q === "when"
+    ? '<div class="fc-ask"><label for="fc-items">How many items?</label>' +
+      '<input id="fc-items" type="number" min="1" max="5000" step="1" inputmode="numeric" ' +
+      'value="' + esc(String(S.fcItems != null ? S.fcItems
+                            : (asked.default_items != null ? asked.default_items : ""))) + '">' +
+      (S.fcItems != null
+        ? '<button type="button" class="linkish" data-fc-reset="items">Use this sprint\'s ' +
+          (asked.default_items != null ? asked.default_items : "own") + "</button>"
+        : '<span class="note">Outstanding in the selected sprint. Change it to size any ask.</span>') +
+      (S.fcError ? '<div class="fc-badinput">' + esc(S.fcError) + "</div>" : "") +
+      "</div>"
+    : '<div class="fc-ask"><label for="fc-date">By what date?</label>' +
+      '<input id="fc-date" type="date" value="' +
+      esc(S.fcDate || asked.default_date || "") + '">' +
+      (S.fcDate
+        ? '<button type="button" class="linkish" data-fc-reset="date">Use the sprint end</button>'
+        : '<span class="note">The end of the selected sprint. Change it to ask about any date.</span>') +
+      "</div>";
+
   // Offline is a state, not an error. Say what is missing and how to get it
   // rather than leaving a card that looks broken.
   if (!S.live) {
-    el.innerHTML = '<div class="fc-offline"><b>A forecast needs the live-mode connection.</b>' +
+    el.innerHTML = ctrl + '<div class="fc-offline"><b>A forecast needs the live-mode connection.</b>' +
       "<div class=\"note\">The simulation is run by <code>agent/tools/forecast.py</code>, not by this file — " +
       "so that the number here and the number in a written brief are the same number. Start it with " +
       "<code>make serve-live</code> and reload.<br><br>Everything else on this page works offline, and if you are " +
@@ -1866,14 +1907,14 @@ function renderForecast() {
     return;
   }
 
-  const id = S.ctx, fc = S.forecasts[id];
+  const id = S.ctx, key = fcKey(id), fc = S.forecasts[key];
   if (fc === undefined) {
-    el.innerHTML = '<div class="note">Running 20,000 simulations…</div>';
-    fetchForecast(id);
+    el.innerHTML = ctrl + '<div class="note">Running 20,000 simulations…</div>';
+    fetchForecast(id, key);
     return;
   }
   if (fc === null) {
-    el.innerHTML = '<div class="fc-refusal"><b>No forecast.</b> The request to the live server failed, ' +
+    el.innerHTML = ctrl + '<div class="fc-refusal"><b>No forecast.</b> The request to the live server failed, ' +
       "so nothing was simulated. Nothing else on this page is affected.</div>";
     return;
   }
@@ -1882,34 +1923,51 @@ function renderForecast() {
   // screen can legitimately be one the server has never heard of. Say that,
   // rather than implying something is broken.
   if (fc.unknown) {
-    el.innerHTML = '<div class="fc-offline"><b>This sprint came with the file, not from the server.</b>' +
+    el.innerHTML = ctrl + '<div class="fc-offline"><b>This sprint came with the file, not from the server.</b>' +
       '<div class="note">There is nothing on the server to simulate against for it. Pick a sprint from the ' +
       "<b>PROJECT / BOARD / SPRINT</b> row above and the forecast will run for that team.</div></div>";
     return;
   }
 
+  if (fc.badInput) {
+    el.innerHTML = ctrl + '<div class="fc-refusal"><b>That input was not used.</b> ' + esc(fc.badInput) +
+      " Nothing was simulated, so no figure below is an answer to it.</div>";
+    return;
+  }
+
   const src = fc.sampled_from || {}, inp = fc.inputs || {};
-  let html = "";
+  const ask = fc.asked || {};
+  let html = ctrl;
 
   if (q === "when") {
     const sc = fc.sprint_completion || {};
     if (!sc.available) { html += fcRefusal(sc); } else {
       const p = sc.percentiles || {}, d = sc.days || {};
-      html += '<div class="fc-lead"><b>' + sc.remaining_items + " item" +
-        (sc.remaining_items === 1 ? "" : "s") + "</b> outstanding. 85% of simulations finish by <b>" +
+      html += '<div class="fc-lead">' + (ask.items != null
+          ? '<b>' + sc.remaining_items + " item" + (sc.remaining_items === 1 ? "" : "s") +
+            "</b> asked for — not this sprint's " + ask.default_items + "."
+          : "<b>" + sc.remaining_items + " item" + (sc.remaining_items === 1 ? "" : "s") +
+            "</b> outstanding.") + " 85% of simulations finish by <b>" +
         esc(fmtD(p["85"])) + "</b> — " + d["85"] + " working days." +
         (sc.prob_by_target != null && sc.target_date
           ? " Chance of finishing by " + esc(fmtD(sc.target_date)) + ": <b>" +
             (sc.prob_by_target * 100).toFixed(1) + "%</b>." : "") + "</div>";
       html += fcRows({ head: "Finished by", body: FC_PCTS.map(k =>
         [k, fmtD(p[k]), d[k] + " working days"]) });
+      if (sc.unfinished_fraction) {
+        html += '<div class="fc-refusal"><b>These dates are a floor.</b> ' +
+          (sc.unfinished_fraction * 100).toFixed(0) +
+          "% of simulations had not finished within the horizon, so the real answer is later " +
+          "than what is shown — ask for fewer items, or read this as \u201cno sooner than\u201d.</div>";
+      }
       html += '<div class="note fc-basis">' + esc(sc.basis || "") + "</div>";
     }
   } else {
     const cap = fc.capacity_to_target || {}, nc = fc.next_commitment || {};
     if (!cap.available) { html += fcRefusal(cap); } else {
       const p = cap.percentiles || {};
-      html += '<div class="fc-lead">By <b>' + esc(fmtD(cap.target_date)) + "</b> — " +
+      html += '<div class="fc-lead">' + (ask.date ? "By the date you asked for, <b>" : "By <b>") +
+        esc(fmtD(cap.target_date)) + "</b> — " +
         cap.horizon_days + " working days away — 85% of simulations deliver at least <b>" +
         p["85"] + " item" + (p["85"] === 1 ? "" : "s") + "</b>.</div>";
       html += fcRows({ head: "At least this many", body: FC_PCTS.map(k =>
@@ -1939,14 +1997,68 @@ function renderForecast() {
 /** One request per context, and never two at once for the same one: render()
  *  also fires on a debounced resize, which would otherwise re-ask on every
  *  window drag. */
-function fetchForecast(id) {
-  if (S.fcPending[id]) return;
-  S.fcPending[id] = true;
-  fetch("api/forecast?id=" + encodeURIComponent(id), { cache: "no-store" })
-    .then(r => (r.ok ? r.json() : (r.status === 404 ? { unknown: true } : null)))
-    .then(j => { S.forecasts[id] = j || null; })
-    .catch(() => { S.forecasts[id] = null; })
-    .then(() => { delete S.fcPending[id]; if (S.ctx === id) renderForecast(); });
+/** Cache key: the same context asked a different question is a different
+ *  answer, so the overrides belong in the key or a stale figure is shown. */
+/** Inputs are re-created on every render, so bind by delegation once rather
+ *  than re-attaching handlers to fresh nodes. Applied on "change" — which fires
+ *  on blur, Enter and date-picker selection — so a four-digit number is one
+ *  request rather than four. */
+function bindForecastInputs() {
+  const card = $("#c-forecast");
+  if (!card || card.dataset.askBound === "1") return;
+  card.dataset.askBound = "1";
+  card.addEventListener("change", e => {
+    const el = e.target;
+    if (el.id === "fc-items") {
+      const raw = el.value.trim(), v = parseInt(raw, 10);
+      const ok = raw === "" || (isFinite(v) && String(v) === raw && v >= 1 && v <= FC_MAX_ITEMS);
+      // Reverting to the sprint's own number without saying so would be a silent
+      // correction: the reader sees a figure answering a question they did not
+      // ask. Say what was rejected and what is being shown instead.
+      S.fcError = ok ? null
+        : "\u201c" + raw + "\u201d is not a whole number between 1 and " + FC_MAX_ITEMS +
+          ". Showing this sprint's own outstanding count instead.";
+      S.fcItems = (ok && raw !== "") ? v : null;
+      renderForecast();
+    } else if (el.id === "fc-date") {
+      S.fcError = null;
+      S.fcDate = el.value || null;
+      renderForecast();
+    }
+  });
+  card.addEventListener("keydown", e => {
+    if (e.key === "Enter" && (e.target.id === "fc-items" || e.target.id === "fc-date")) {
+      e.preventDefault(); e.target.blur();
+    }
+  });
+  card.addEventListener("click", e => {
+    const b = e.target.closest("[data-fc-reset]");
+    if (!b) return;
+    if (b.dataset.fcReset === "items") S.fcItems = null; else S.fcDate = null;
+    renderForecast();
+  });
+}
+
+function fcKey(id) {
+  return id + "|" + (S.fcItems == null ? "" : S.fcItems) + "|" + (S.fcDate || "");
+}
+
+function fetchForecast(id, key) {
+  if (S.fcPending[key]) return;
+  S.fcPending[key] = true;
+  let url = "api/forecast?id=" + encodeURIComponent(id);
+  if (S.fcItems != null) url += "&items=" + encodeURIComponent(S.fcItems);
+  if (S.fcDate) url += "&date=" + encodeURIComponent(S.fcDate);
+  fetch(url, { cache: "no-store" })
+    .then(r => r.json().then(j => ({ ok: r.ok, status: r.status, j: j }))
+                       .catch(() => ({ ok: false, status: r.status, j: null })))
+    .then(res => {
+      S.forecasts[key] = res.ok ? res.j
+        : res.status === 404 ? { unknown: true }
+        : { badInput: (res.j && res.j.error) || "the server rejected that input" };
+    })
+    .catch(() => { S.forecasts[key] = null; })
+    .then(() => { delete S.fcPending[key]; if (fcKey(S.ctx) === key) renderForecast(); });
 }
 
 function renderRisk(m, items) {

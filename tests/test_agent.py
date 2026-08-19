@@ -578,6 +578,21 @@ def test_full_history_window():
             issues, window_days=F.full_history_days(issues, as_of), as_of=as_of)
         check("%s: full history matches the 90-day tail" % name, tail == whole,
               "%d obs/%d items vs %d/%d" % (len(tail), sum(tail), len(whole), sum(whole)))
+    # A trial that runs out of horizon is not a finished trial, and every
+    # percentile silently reading exactly HORIZON is the worst kind of wrong
+    # number: uniform, precise and meaningless.
+    ds = json.loads((ROOT / "data" / "sample-multi-sprint.json").read_text())
+    thr = F.throughput_samples(ds["issues"], as_of=ds["meta"]["asOfDate"])
+    small = F.forecast_completion(10, thr, ds["meta"]["asOfDate"])
+    check("a normal forecast finishes inside the horizon", small.unfinished_fraction == 0,
+          small.unfinished_fraction)
+    huge = F.forecast_completion(5000, thr, ds["meta"]["asOfDate"])
+    check("a forecast that outruns the horizon reports it",
+          huge.unfinished_fraction > 0 and "floor rather than an estimate" in huge.basis,
+          huge.unfinished_fraction)
+    check("the horizon is named in the basis, not just implied",
+          str(F.HORIZON) in huge.basis, huge.basis[-90:])
+
     span = F.full_history_days(
         json.loads((ROOT / "data" / "sample-multi-sprint.json").read_text())["issues"],
         "2026-08-10")
