@@ -175,3 +175,36 @@ So the ceiling is delivery, not rendering: a 2.8 MB attachment is unpleasant to 
 | 2,000–6,000 issues | Still fine to use; consider splitting bundles per project so each recipient gets only what they need. |
 | Above ~6,000 issues | Use live mode. Bundle the current sprint per board and let the server supply the rest on demand — the page already fetches a sprint only when it is selected. |
 | Any size, if emailing | Keep the bundle under about 1 MB. That is roughly 20 boards × 6 sprints. |
+
+
+## `GET api/forecast?id=<contextId>`
+
+Returns the full output of `agent/tools/forecast.py` for one context — the same
+structure the CLI prints with `--json`, plus a `sampled_from` block naming the slice.
+
+```
+{
+  "inputs":      { "throughput_observations": 55, "window_days": 76, ... },
+  "sprint_completion": { "percentiles": {"50": "2026-08-17", "85": "2026-08-20"}, ... },
+  "capacity_to_target": { "percentiles": {"85": 1}, ... },
+  "next_commitment":    { "recommended": 5, "note": "...", ... },
+  "sampled_from": { "slice": "team 'Storefront Team'", "contexts": 6,
+                    "first_resolved": "2026-05-26", "last_resolved": "2026-08-13" }
+}
+```
+
+An unknown id returns `404` with `{"error": "unknown context '<id>'"}`, the same shape
+as `api/context`.
+
+**What it samples.** Every issue belonging to the same *team* as the requested context,
+across all of that team's sprints, over the full span of imported history — not the
+90-day default and not the selected sprint alone. A single sprint yields too few
+throughput observations to sample and the tool refuses; the team's whole record is what
+makes an answer possible. Only the **remaining work** comes from the selected context.
+
+Rollup ids (`roll:<projectKey>|<boardId>`) are synthesised by the dashboard and are
+accepted here too: the outstanding count is then every open item across that board.
+
+Forecasts are cached per context id for the process lifetime. Against a bundle this is
+instant; against live Jira the first call for a team pulls every sprint on it and can
+take a few seconds.

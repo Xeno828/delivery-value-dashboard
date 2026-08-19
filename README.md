@@ -73,6 +73,19 @@ Connect the Atlassian and Asana connectors in Claude and ask in plain language: 
 
 Full detail: [docs/connecting-jira-asana.md](docs/connecting-jira-asana.md).
 
+## Monte Carlo forecasting, in the page
+
+With `make serve-live` running, a **Monte Carlo forecast** tile answers two questions for whichever team, board and sprint is selected, and re-runs when you change that selection:
+
+- **When will it finish** — percentile completion dates for the work outstanding in the selected sprint.
+- **How many by the date** — how much lands by the sprint end, plus what to commit to next sprint.
+
+The simulation is run by `agent/tools/forecast.py` over the connection, not reimplemented in the page. That is the point: a second Monte Carlo would be a second set of numbers, and the tile and a written brief would eventually disagree about the same sprint.
+
+It samples **the whole recorded history of that team**, not just the sprint on screen — one sprint offers too few observations and the tool refuses. Only the outstanding count comes from the selected sprint. The tile names the slice, the date span and the observation count so the basis is auditable, and prints refusals verbatim when the evidence is thin.
+
+Because it needs the local server, this tile shows an offline notice rather than a forecast in an emailed copy. If you are sending a view on, untick it under **Tiles**.
+
 ## Repository layout
 
 ```
@@ -116,7 +129,7 @@ Full detail: [docs/connecting-jira-asana.md](docs/connecting-jira-asana.md).
 │   ├── templates/                       exec brief + team report + intake brief
 │   └── snapshots/                       facts packs, scope history, forecast log
 ├── tests/
-│   ├── e2e.py                           browser suite, 89 checks
+│   ├── e2e.py                           browser suite, 92 checks
 │   ├── test_agent.py                    facts, forecast, refusals, backtest
 │   ├── perf.py                          timing harness, four bundle sizes
 │   ├── a11y.py                          WCAG 2.2 AA, both themes

@@ -235,6 +235,24 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 .tabs button[aria-selected=true]{color:var(--link);border-bottom-color:var(--link)}
 .foot{margin-top:18px;font-size:11.5px;color:var(--muted);text-align:center;line-height:1.6}
 
+/* ---------- Monte Carlo forecast tile ----------
+   Deliberately typographic. These are tool outputs to be read and quoted, not a
+   series to be plotted, so nothing here touches the chart palette — those
+   colours are validated for colour-vision deficiency on their own terms. */
+.fc-lead{font-size:13.5px;line-height:1.55;margin:2px 0 12px}
+.fc-tab td:first-child,.fc-tab th:first-child{width:5.5em}
+.fc-tab tr.fc-hi td{background:var(--info-wash);font-weight:600}
+.fc-basis{margin-top:9px;font-style:italic}
+.fc-commit{margin-top:12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;
+  background:var(--plane);font-size:12.5px;line-height:1.5}
+.fc-commit .note{margin-top:4px;font-style:normal}
+.fc-refusal{padding:11px 13px;border-left:3px solid var(--warn-ink);background:var(--warn-wash);
+  border-radius:0 8px 8px 0;font-size:12.5px;line-height:1.55}
+.fc-offline{padding:12px 14px;border:1px dashed var(--border);border-radius:9px;
+  font-size:12.5px;line-height:1.55}
+.fc-src{margin-top:12px;padding-top:9px;border-top:1px solid var(--grid);font-size:11.5px;line-height:1.55}
+.fc-tab{font-variant-numeric:tabular-nums}
+
 /* ---------- tile picker ----------
    The popover is anchored to its button rather than centred, because it is a
    refinement of the page and not a task that should take the page over. */
@@ -427,6 +445,20 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
       </div>
       <div id="pred-chart"></div>
       <div class="tv-wrap hidden" id="pred-table"></div>
+    </div>
+
+    <div class="card span7" id="c-forecast">
+      <div class="card-hd">
+        <div><h2>Monte Carlo forecast <span class="info" data-tip="forecast">i</span></h2>
+        <div class="cap">Run by the same tool the agent uses, over this team's whole recorded history. Follows the project, board and sprint selected above.</div></div>
+        <div class="hd-tools">
+          <div class="seg" role="group" aria-label="Which forecast question">
+            <button type="button" data-fc="when" aria-pressed="true">When</button>
+            <button type="button" data-fc="howmany" aria-pressed="false">How many</button>
+          </div>
+        </div>
+      </div>
+      <div id="forecast-body"></div>
     </div>
 
     <div class="card span4" id="c-dora">
@@ -645,6 +677,11 @@ const S = {
    *  copy's data-tiles attribute; never from storage, which would not
    *  survive the file being emailed. */
   shown: null,
+  /** Forecasts from the live-mode tool, cached per context id. Never computed
+   *  here: the page renders what forecast.py returned and nothing else. */
+  forecasts: {},
+  fcPending: {},
+  fcQuestion: "when",
   drillOpener: null,
   live: null,          // set when a local live-mode server answers
   filters: { assignee: "", epic: "", type: "", status: "", q: "" },
@@ -682,6 +719,7 @@ const HELP = {
   flowtime: "<b>What it is</b><br>For each closed item: total time from being raised to being done (lead time), split into time actively worked (cycle time) and time waiting in a queue.<br><br><b>How to read it</b><br>Long pale bars are the real problem. Waiting is invisible in most reports and is usually the majority of elapsed time.<br><br><b>How to improve it</b><br>Attack the queues, not the coding. Refine sooner, review faster, and stop starting work you cannot immediately progress.",
   age: "<b>What it is</b><br>How long each unfinished item has existed, in bands sized for a two-week sprint.<br><br><b>Why these bands</b><br>Monthly bands are useless at sprint scale — everything lands in the first bucket. Anything past 14 days has already survived a full sprint.<br><br><b>How to improve it</b><br>Review the oldest item first at every stand-up. Age, not priority, is the best predictor of an item never finishing.",
   pred: "<b>What it is</b><br>What the team committed to versus what it completed, over the last six sprints.<br><br><b>How to read it</b><br>The number that matters is consistency, not height. A team that reliably delivers 34 points is more useful to a business than one that swings between 20 and 50.<br><br><b>How to improve it</b><br>Set the next commitment from the average of the last three completions, not from optimism.",
+  forecast: "<b>What it is</b><br>A Monte Carlo simulation run by <code>agent/tools/forecast.py</code> &mdash; the same tool the reporting agent uses, reached over the local live-mode connection. The page does not compute it and does not reimplement it, so the tile and a written brief cannot disagree about the same sprint.<br><br><b>What it samples</b><br>Every recorded day of this <i>team's</i> history, not just the sprint on screen. One sprint offers too few observations to sample and the tool refuses; the team's full record is what makes an answer possible. Only the <i>remaining work</i> comes from the selected sprint.<br><br><b>How to read it</b><br>Quote the 85th percentile, not the median. A median is a coin flip by construction, and a commitment set there misses half the time.<br><br><b>When it refuses</b><br>Below its evidence thresholds it says so rather than widening the range. That sentence is the answer, printed as the tool wrote it.",
   dora: "<b>What it is</b><br>The four DORA measures: how often you release, how often a release breaks something, how long a change takes to reach customers, and how fast you recover.<br><br><b>How to read it</b><br>Deployment frequency and lead time measure speed; change failure rate and recovery time measure safety. Improving one at the cost of the other is not progress.<br><br><b>How to improve it</b><br>Smaller, more frequent releases usually improve all four at once.",
   load: "<b>What it is</b><br>Two load signals, both taken from issue status and nothing else: how much work is started but unfinished, and how much of each sprint arrived after planning.<br><br><b>Why not hours</b><br>This organisation does not operate overtime, and a chart of hours would imply a time-tracking regime that does not exist. Output per person went too &mdash; on its own it is a productivity-per-head number, and this dashboard does not measure people.<br><br><b>How to read it</b><br>Work in progress rising while completion stays flat means more is being started than finished, and every extra item in flight slows the ones already there. Rising unplanned work means the commitment is being displaced after it was agreed.<br><br><b>How to improve it</b><br>Cap work in progress per person, and fix intake at the front rather than asking for more effort at the back.",
   value: "<b>What it is</b><br>Estimated commercial impact of the items closed this sprint, counting only items where someone recorded how the number was arrived at.<br><br><b>How to read it</b><br>These are forecasts, not booked revenue. The basis line is more important than the figure.<br><br><b>How to improve it</b><br>Require a one-line basis on any item claiming value, and revisit the estimate 90 days later against actuals.",
@@ -1771,6 +1809,146 @@ function commitU(m) {
   return m.cur[k] != null ? m.cur[k] : m.cur.committedSP;
 }
 
+/* =====================================================================
+   RENDER: Monte Carlo forecast
+   ---------------------------------------------------------------------
+   Every figure here was produced by agent/tools/forecast.py and arrived over
+   the live-mode connection. Nothing in this function computes a forecast
+   number; it formats values that are already in the payload — a date, a count,
+   a probability as a percentage — and quotes the tool's own sentences.
+
+   That is the whole point of serving it rather than reimplementing it. A second
+   Monte Carlo in JavaScript would be a second set of numbers, and the page and
+   the agent would eventually disagree about the same sprint.
+   ================================================================== */
+const FC_PCTS = [50, 70, 85, 95];
+
+function fcRefusal(r) {
+  // Verbatim, including the trailing clause. "Not enough data" and "wide
+  // interval" are different statements and only one of them is true.
+  return '<div class="fc-refusal"><b>No forecast.</b> ' + esc(r.reason || "not available") +
+         (r.have != null && r.need != null
+            ? " <span class=\"note\">Has " + r.have + ", needs " + r.need + ".</span>" : "") +
+         "</div>";
+}
+
+function fcRows(rows) {
+  return '<div class="tv-wrap"><table class="tv fc-tab"><thead><tr>' +
+    "<th>Confidence</th><th>" + esc(rows.head) + "</th><th></th></tr></thead><tbody>" +
+    rows.body.map(r =>
+      "<tr" + (r[0] === 85 ? ' class="fc-hi"' : "") + "><td>" + r[0] + "%</td><td>" +
+      esc(String(r[1])) + "</td><td class=\"note\">" + esc(String(r[2] || "")) + "</td></tr>").join("") +
+    "</tbody></table></div>";
+}
+
+function renderForecast() {
+  const el = $("#forecast-body");
+  if (!el) return;
+  const q = S.fcQuestion;
+  $$("[data-fc]").forEach(b => {
+    b.setAttribute("aria-pressed", String(b.dataset.fc === q));
+    if (b.dataset.bound !== "1") {
+      b.dataset.bound = "1";
+      b.addEventListener("click", () => {
+        if (S.fcQuestion !== b.dataset.fc) { S.fcQuestion = b.dataset.fc; renderForecast(); }
+      });
+    }
+  });
+
+  // Offline is a state, not an error. Say what is missing and how to get it
+  // rather than leaving a card that looks broken.
+  if (!S.live) {
+    el.innerHTML = '<div class="fc-offline"><b>A forecast needs the live-mode connection.</b>' +
+      "<div class=\"note\">The simulation is run by <code>agent/tools/forecast.py</code>, not by this file — " +
+      "so that the number here and the number in a written brief are the same number. Start it with " +
+      "<code>make serve-live</code> and reload.<br><br>Everything else on this page works offline, and if you are " +
+      "sending this file on, untick this tile under <b>Tiles</b>.</div></div>";
+    return;
+  }
+
+  const id = S.ctx, fc = S.forecasts[id];
+  if (fc === undefined) {
+    el.innerHTML = '<div class="note">Running 20,000 simulations…</div>';
+    fetchForecast(id);
+    return;
+  }
+  if (fc === null) {
+    el.innerHTML = '<div class="fc-refusal"><b>No forecast.</b> The request to the live server failed, ' +
+      "so nothing was simulated. Nothing else on this page is affected.</div>";
+    return;
+  }
+  // A 404 is not a failure here. The file ships with one sprint baked into it,
+  // and live mode adds the server's sprints alongside it — so the sprint on
+  // screen can legitimately be one the server has never heard of. Say that,
+  // rather than implying something is broken.
+  if (fc.unknown) {
+    el.innerHTML = '<div class="fc-offline"><b>This sprint came with the file, not from the server.</b>' +
+      '<div class="note">There is nothing on the server to simulate against for it. Pick a sprint from the ' +
+      "<b>PROJECT / BOARD / SPRINT</b> row above and the forecast will run for that team.</div></div>";
+    return;
+  }
+
+  const src = fc.sampled_from || {}, inp = fc.inputs || {};
+  let html = "";
+
+  if (q === "when") {
+    const sc = fc.sprint_completion || {};
+    if (!sc.available) { html += fcRefusal(sc); } else {
+      const p = sc.percentiles || {}, d = sc.days || {};
+      html += '<div class="fc-lead"><b>' + sc.remaining_items + " item" +
+        (sc.remaining_items === 1 ? "" : "s") + "</b> outstanding. 85% of simulations finish by <b>" +
+        esc(fmtD(p["85"])) + "</b> — " + d["85"] + " working days." +
+        (sc.prob_by_target != null && sc.target_date
+          ? " Chance of finishing by " + esc(fmtD(sc.target_date)) + ": <b>" +
+            (sc.prob_by_target * 100).toFixed(1) + "%</b>." : "") + "</div>";
+      html += fcRows({ head: "Finished by", body: FC_PCTS.map(k =>
+        [k, fmtD(p[k]), d[k] + " working days"]) });
+      html += '<div class="note fc-basis">' + esc(sc.basis || "") + "</div>";
+    }
+  } else {
+    const cap = fc.capacity_to_target || {}, nc = fc.next_commitment || {};
+    if (!cap.available) { html += fcRefusal(cap); } else {
+      const p = cap.percentiles || {};
+      html += '<div class="fc-lead">By <b>' + esc(fmtD(cap.target_date)) + "</b> — " +
+        cap.horizon_days + " working days away — 85% of simulations deliver at least <b>" +
+        p["85"] + " item" + (p["85"] === 1 ? "" : "s") + "</b>.</div>";
+      html += fcRows({ head: "At least this many", body: FC_PCTS.map(k =>
+        [k, p[k] + " item" + (p[k] === 1 ? "" : "s"), ""]) });
+      html += '<div class="note fc-basis">' + esc(cap.basis || "") + "</div>";
+    }
+    if (nc.available) {
+      html += '<div class="fc-commit"><b>Next sprint:</b> commit to <b>' + nc.recommended +
+        " item" + (nc.recommended === 1 ? "" : "s") + "</b> at 85% confidence" +
+        (nc.stretch_median != null ? " — the median would be " + nc.stretch_median : "") + "." +
+        '<div class="note">' + esc(nc.note || "") + "</div></div>";
+    } else if (nc.reason) { html += fcRefusal(nc); }
+  }
+
+  // Where the sample came from, always. A wide window should be visible rather
+  // than implied, and the team slice is the thing most worth auditing.
+  html += '<div class="note fc-src">Sampled from <b>' + esc(src.slice || "this team") + "</b>" +
+    (src.contexts ? " across " + src.contexts + " sprint" + (src.contexts === 1 ? "" : "s") : "") +
+    (src.first_resolved ? ", " + esc(fmtD(src.first_resolved)) + " – " + esc(fmtD(src.last_resolved)) : "") +
+    " · " + (inp.throughput_observations || 0) + " working-day observations · " +
+    (inp.window_days != null ? inp.window_days + " days of history" : "full history") +
+    "<br>20,000 seeded trials, computed by <code>forecast.py</code> as at " +
+    esc(fmtD(fc.as_of)) + ". Same inputs, same answer, every time.</div>";
+  el.innerHTML = html;
+}
+
+/** One request per context, and never two at once for the same one: render()
+ *  also fires on a debounced resize, which would otherwise re-ask on every
+ *  window drag. */
+function fetchForecast(id) {
+  if (S.fcPending[id]) return;
+  S.fcPending[id] = true;
+  fetch("api/forecast?id=" + encodeURIComponent(id), { cache: "no-store" })
+    .then(r => (r.ok ? r.json() : (r.status === 404 ? { unknown: true } : null)))
+    .then(j => { S.forecasts[id] = j || null; })
+    .catch(() => { S.forecasts[id] = null; })
+    .then(() => { delete S.fcPending[id]; if (S.ctx === id) renderForecast(); });
+}
+
 function renderRisk(m, items) {
   const host = $("#risk-body"), risks = [];
   const push = (sev, t, d, a, its) => risks.push({ sev, t, d, a, its: its || [] });
@@ -1971,6 +2149,7 @@ const TILES = [
   { id: "c-flow",  label: "How long work takes, and what waits" },
   { id: "c-age",   label: "How long open work has been sitting" },
   { id: "c-pred",  label: "Can we trust the forecast?" },
+  { id: "c-forecast", label: "Monte Carlo forecast" },
   { id: "c-dora",  label: "Release quality & speed" },
   { id: "c-load",  label: "Team load" },
   { id: "c-value", label: "Business value delivered" },
@@ -1988,8 +2167,9 @@ const TILE_IDS = TILES.map(t => t.id);
  *  slightly wrong on its own. */
 const PRESETS = {
   all:  TILE_IDS.slice(),
-  exec: ["c-exec", "c-kpis", "c-pred", "c-dora", "c-value", "c-rel", "c-risk"],
-  team: ["c-exec", "c-kpis", "c-burn", "c-dist", "c-flow", "c-age", "c-pred", "c-load", "c-risk"]
+  exec: ["c-exec", "c-kpis", "c-pred", "c-forecast", "c-dora", "c-value", "c-rel", "c-risk"],
+  team: ["c-exec", "c-kpis", "c-burn", "c-dist", "c-flow", "c-age", "c-pred", "c-forecast",
+         "c-load", "c-risk"]
 };
 const PRESET_LABEL = { all: "Everything", exec: "Executive", team: "Team" };
 
@@ -2145,7 +2325,7 @@ function render() {
   const items = filtered(), m = derive(items);
   renderHeader(m); renderFilters(); renderExec(m); renderKpis(m);
   renderBurn(m); renderDist(m, items); renderFlowTime(m, items); renderAge(m);
-  renderPred(m); renderDora(m); renderLoad(); renderValue(m); renderRel(m); renderRisk(m, items);
+  renderPred(m); renderForecast(); renderDora(m); renderLoad(); renderValue(m); renderRel(m); renderRisk(m, items);
   applyTiles();
   const empty = !S.view.issues.length && S.view.ctx && !S.view.ctx.isRollup;
   $("#grid").style.opacity = empty ? "0.45" : "";

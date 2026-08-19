@@ -559,6 +559,31 @@ def test_backtest():
         check("the forecaster is not absurdly optimistic at the median", cov[50] >= 0.25, cov)
 
 
+def test_full_history_window():
+    """build() samples every recorded day rather than a 90-day tail, so the
+    dashboard tile and the CLI cannot disagree about which history they used.
+
+    On every dataset in this repo the two are identical, because none of them
+    spans more than 90 days. That is the point of pinning it: the day a longer
+    dataset lands, the divergence shows up here rather than in a forecast
+    somebody has already quoted in a steering meeting.
+    """
+    for name in ("sample-bundle.json", "sample-multi-sprint.json", "demo-bundle.json"):
+        ds = json.loads((ROOT / "data" / name).read_text())
+        issues = ds["issues"]
+        as_of = (ds.get("meta") or {}).get("asOfDate") or max(
+            i["resolved"] for i in issues if i.get("resolved"))
+        tail = F.throughput_samples(issues, as_of=as_of)
+        whole = F.throughput_samples(
+            issues, window_days=F.full_history_days(issues, as_of), as_of=as_of)
+        check("%s: full history matches the 90-day tail" % name, tail == whole,
+              "%d obs/%d items vs %d/%d" % (len(tail), sum(tail), len(whole), sum(whole)))
+    span = F.full_history_days(
+        json.loads((ROOT / "data" / "sample-multi-sprint.json").read_text())["issues"],
+        "2026-08-10")
+    check("full_history_days reports the real span", span == 77, span)
+
+
 if __name__ == "__main__":
     print("facts pack vs the dashboard")
     test_facts()
@@ -568,6 +593,8 @@ if __name__ == "__main__":
     test_diff()
     print("forecast behaviour")
     test_forecast_behaviour()
+    print("full-history sampling")
+    test_full_history_window()
     print("commitment sizing")
     test_commitment_sizing()
     print("item-size stability")

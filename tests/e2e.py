@@ -256,7 +256,8 @@ def main():
         page.wait_for_timeout(200)
         ex = vis()
         check("the executive view is the agent's exec-brief shape",
-              ex == ["c-exec", "c-kpis", "c-pred", "c-dora", "c-value", "c-rel", "c-risk"], ex)
+              ex == ["c-exec", "c-kpis", "c-pred", "c-forecast", "c-dora",
+                     "c-value", "c-rel", "c-risk"], ex)
         check("the executive view keeps the narrative",
               "c-exec" in ex and len(page.text_content("#exec-list").strip()) > 40)
         # A view that quietly drops tiles reads as a whole page to whoever gets it.
@@ -268,8 +269,8 @@ def main():
         page.wait_for_timeout(200)
         tm = vis()
         check("the team view is the agent's team-report shape",
-              tm == ["c-exec", "c-kpis", "c-burn", "c-dist", "c-flow",
-                     "c-age", "c-pred", "c-load", "c-risk"], tm)
+              tm == ["c-exec", "c-kpis", "c-burn", "c-dist", "c-flow", "c-age",
+                     "c-pred", "c-forecast", "c-load", "c-risk"], tm)
         check("the team view keeps the narrative too", "c-exec" in tm)
 
         # The whole feature is only safe if it changes what is shown and
@@ -318,6 +319,18 @@ def main():
         page.wait_for_timeout(700)
         check("an unrecognised tile list shows everything rather than a blank page",
               vis() == TIDS, len(vis()))
+
+        # ---------- the forecast tile offline ----------
+        # Opened from disk there is no server, so the tile must say so rather
+        # than showing a number, a spinner that never resolves, or a blank card.
+        page.goto(DIST.as_uri())
+        page.wait_for_timeout(900)
+        fb = " ".join((page.text_content("#forecast-body") or "").split())
+        check("the forecast tile explains itself with no live connection",
+              "needs the live-mode connection" in fb, fb[:90])
+        check("the offline forecast tile shows no percentile figures",
+              "% of simulations" not in fb and "Confidence" not in fb, fb[:90])
+        check("the offline tile names how to get one", "make serve-live" in fb, fb[-80:])
 
         check("no console errors", not console, console[:3])
         page.screenshot(path=str(ROOT / "tests" / "last-run.png"), full_page=True)

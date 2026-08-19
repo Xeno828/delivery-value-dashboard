@@ -228,6 +228,24 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 .tabs button[aria-selected=true]{color:var(--link);border-bottom-color:var(--link)}
 .foot{margin-top:18px;font-size:11.5px;color:var(--muted);text-align:center;line-height:1.6}
 
+/* ---------- Monte Carlo forecast tile ----------
+   Deliberately typographic. These are tool outputs to be read and quoted, not a
+   series to be plotted, so nothing here touches the chart palette — those
+   colours are validated for colour-vision deficiency on their own terms. */
+.fc-lead{font-size:13.5px;line-height:1.55;margin:2px 0 12px}
+.fc-tab td:first-child,.fc-tab th:first-child{width:5.5em}
+.fc-tab tr.fc-hi td{background:var(--info-wash);font-weight:600}
+.fc-basis{margin-top:9px;font-style:italic}
+.fc-commit{margin-top:12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;
+  background:var(--plane);font-size:12.5px;line-height:1.5}
+.fc-commit .note{margin-top:4px;font-style:normal}
+.fc-refusal{padding:11px 13px;border-left:3px solid var(--warn-ink);background:var(--warn-wash);
+  border-radius:0 8px 8px 0;font-size:12.5px;line-height:1.55}
+.fc-offline{padding:12px 14px;border:1px dashed var(--border);border-radius:9px;
+  font-size:12.5px;line-height:1.55}
+.fc-src{margin-top:12px;padding-top:9px;border-top:1px solid var(--grid);font-size:11.5px;line-height:1.55}
+.fc-tab{font-variant-numeric:tabular-nums}
+
 /* ---------- tile picker ----------
    The popover is anchored to its button rather than centred, because it is a
    refinement of the page and not a task that should take the page over. */

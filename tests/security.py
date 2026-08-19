@@ -269,6 +269,48 @@ def server_checks():
         code, _ = get("/api/contexts")
         check("the contexts endpoint answers", code == 200, code)
 
+        # ---- the forecast endpoint ----
+        code, _ = get("/api/forecast?id=BLC/42/S24")
+        check("the forecast endpoint answers", code == 200, code)
+        # get() truncates bodies at 400 bytes for the probes above; this one
+        # needs to parse, so read it whole.
+        served = json.loads(urllib.request.urlopen(
+            "http://127.0.0.1:%d/api/forecast?id=BLC/42/S24" % port, timeout=10).read().decode())
+        for probe in ("nope", "../../etc/passwd", "%2e%2e%2fetc%2fpasswd"):
+            c2, b2 = get("/api/forecast?id=" + probe)
+            check("forecast id %r is refused and reads no file" % probe[:22],
+                  c2 == 404 and b"root:" not in b2, (c2, b2[:40]))
+
+        # THE agreement check. The page must never show a forecast the tool did
+        # not produce: a second Monte Carlo would be a second set of numbers, and
+        # a delivery forecast computed against the wrong slice looks exactly like
+        # a correct one. Compare what the browser rendered against what
+        # forecast.py returns for the same context, in Python, right here.
+        sys.path.insert(0, str(ROOT / "agent" / "tools"))
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import serve_live as SL
+        bundle = json.loads((ROOT / "data" / "sample-bundle.json").read_text())
+        direct = SL.forecast_for(bundle["contexts"], bundle["issues"],
+                                 bundle.get("byContext") or {}, "BLC/42/S24")
+        # .get() throughout: if the slice is wrong the tool refuses and these keys
+        # vanish, and a refusal must report as a readable FAIL rather than a
+        # KeyError that aborts the suite before the browser checks run.
+        d_sc = direct.get("sprint_completion", {})
+        s_sc = served.get("sprint_completion", {})
+        check("the endpoint agrees with the tool called directly",
+              s_sc.get("percentiles", {}).get("85") is not None
+              and s_sc.get("percentiles", {}).get("85") == d_sc.get("percentiles", {}).get(85),
+              (s_sc.get("percentiles", {}).get("85"), d_sc.get("percentiles", {}).get(85)))
+        # The sample is the team's whole history; the outstanding count is only
+        # the selected sprint's. Conflating them is the 1.8.0 bug, and sampling
+        # the sprint alone drops under the thresholds and refuses outright.
+        check("the forecast samples the team but counts only the sprint's remaining work",
+              d_sc.get("available") is True and d_sc.get("remaining_items") == 4
+              and direct.get("inputs", {}).get("throughput_observations") == 55,
+              (d_sc.get("available"), d_sc.get("remaining_items"),
+               direct.get("inputs", {}).get("throughput_observations"),
+               d_sc.get("reason")))
+
         # The badge is the only thing on the page that reports the connection,
         # and it used to report the loaded dataset's own label instead. The
         # bundled demo file labels itself "Demo data (no live connection)", so
@@ -285,6 +327,17 @@ def server_checks():
             check("live mode merges the server's contexts", "hidden" not in bar, bar)
             check("the badge does not deny a connection that is answering",
                   "no live connection" not in badge and badge.startswith("Live:"), badge)
+
+            # The tile must render the tool's number, not one of its own.
+            pg.select_option("#c-board", label="Storefront Delivery")
+            pg.wait_for_timeout(3000)
+            tile = " ".join((pg.text_content("#forecast-body") or "").split())
+            want = direct["sprint_completion"]["percentiles"][85]
+            from datetime import date as _date
+            d85 = _date.fromisoformat(want)
+            nice = "%s %d" % (d85.strftime("%b"), d85.day)
+            check("the tile shows the forecast the tool produced", nice in tile, (nice, tile[:110]))
+            check("the tile names the slice it sampled", "Sampled from team" in tile, tile[-160:])
             br.close()
 
         # path traversal through the context id

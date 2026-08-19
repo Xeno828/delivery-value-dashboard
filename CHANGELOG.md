@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.10.0
+
+**The Monte Carlo forecast is on the dashboard, not just in a terminal.** A new tile answers the two questions `forecast.py` exists for — *when will this finish* and *how many will land by the date* — for whichever project, board and sprint is selected, and re-runs when that selection changes. The second question also carries the next-sprint commitment sizing, with the tool's note about the median printed as written.
+
+**It is served, not reimplemented.** The tile calls `agent/tools/forecast.py` through a new `api/forecast` endpoint in `serve_live.py`. Nothing in the page computes a forecast; it formats values already in the payload and quotes the tool's own sentences. A second Monte Carlo written in JavaScript would be a second set of numbers, and the tile and a written brief would eventually disagree about the same sprint — the failure this project treats as worst. The trade is stated plainly: **the tile does not work in an emailed file**, where it shows an offline notice instead. It is the first thing here that needs the server to be useful.
+
+**It samples the team's whole history, and says so.** A forecast built from one sprint refuses — on the demo board a single sprint offers 2 throughput observations against a threshold of 8, while the team's six sprints offer 55. So the sample is the team, sliced by `team` and falling back to project+board, and only the *outstanding count* comes from the selected sprint. Conflating those two is exactly the 1.8.0 bug that turned a 19-day forecast into 77 and looked entirely credible. A test pins both halves: the sample must be 55 observations and the remaining count must be 4.
+
+**`build()` now samples every recorded day rather than a 90-day tail.** The old default silently discarded older history on a long import — a smaller sample, and one that can drop under the refusal thresholds for no stated reason. Both the tile and the CLI now pass the full span, because if they sampled different windows they would report different forecasts for the same sprint. **This changes nothing today**: every dataset in the repo spans 76–79 days, so full-history and 90-day sampling are byte-identical on all three, the recorded demo keeps its figures and `agent/snapshots/` stays valid. A test asserts that equality so the day a longer dataset lands, the divergence appears in the suite rather than in a forecast someone has already quoted.
+
+More history means older throughput, and a team's pace from eight months ago may not describe it now. `size_stability()` already reports that drift, and the tile now shows the slice, the date span and the observation count — a wide window should be visible rather than implied.
+
+**New coupling, deliberately.** `scripts/serve_live.py` now imports `agent/tools/forecast.py`; it is the first dependency from `scripts/` on the agent tools. That is the point of serving the real thing.
+
+
 ## 1.9.2
 
 **The source badge denied live connections that were working.** With `make serve-live` running, the page said *"Demo data (no live connection)"* while the very same server was handing it eighteen sprints. Nothing was broken underneath — the probe succeeded, the contexts merged, the project/board/sprint bar appeared, switching worked. Only the badge was wrong, and it was wrong in the most damaging way available: stating as fact that the thing you were demonstrating was not happening.

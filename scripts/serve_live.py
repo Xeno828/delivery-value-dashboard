@@ -37,6 +37,89 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
+# The forecast endpoint runs the real tool rather than reimplementing it. This
+# is the only place scripts/ depends on agent/tools/, and it is deliberate: a
+# second implementation of the Monte Carlo is a second set of numbers, and the
+# whole point of serving it from here is that the page and the agent cannot
+# disagree about the same sprint.
+sys.path.insert(0, str(ROOT / "agent" / "tools"))
+import forecast as FC  # noqa: E402
+
+
+# ------------------------------------------------------------- forecasting
+def team_slice(contexts, ctx):
+    """Every context belonging to the same team as `ctx`.
+
+    A forecast built from one sprint refuses — on the demo board a single sprint
+    offers 2 throughput observations against a threshold of 8. The team's whole
+    history offers 55. So the sample is the team, and only the *remaining work*
+    comes from the selected sprint.
+
+    `team` is a free-text label, so fall back to project+board when it is absent.
+    Slicing by team rather than board matters when a team runs two boards: the
+    request is for everything known about that team, not a convenient subset.
+    """
+    team = (ctx.get("team") or "").strip()
+    if team:
+        return [c for c in contexts if (c.get("team") or "").strip() == team], "team %r" % team
+    return ([c for c in contexts
+             if c.get("projectKey") == ctx.get("projectKey")
+             and c.get("boardId") == ctx.get("boardId")],
+            "board %s/%s" % (ctx.get("projectKey"), ctx.get("boardId")))
+
+
+def forecast_for(contexts, issues, byContext, cid):
+    """Run the real forecaster for one context. Returns None for an unknown id.
+
+    The slice is the thing to get right, and getting it wrong produces a
+    credible wrong number rather than an error — see CHANGELOG 1.8.0, where
+    reading the wrong context turned a 19-day forecast into 77.
+    """
+    ctx = next((c for c in contexts if c["id"] == cid), None)
+    roll_members = None
+    if ctx is None and cid.startswith("roll:"):
+        # The dashboard synthesises one rollup per board client-side, so the
+        # server has never seen this id. It is still a real question — "when
+        # does everything open on this board land" — so answer it rather than
+        # bouncing the caller. Key format: roll:<projectKey>|<boardId>.
+        key = cid[len("roll:"):]
+        proj, _, board = key.partition("|")
+        roll_members = [c for c in contexts
+                        if str(c.get("projectKey") or c.get("projectName") or "") == proj
+                        and str(c.get("boardId") or c.get("boardName") or "") == board]
+        if not roll_members:
+            return None
+        latest = max(roll_members, key=lambda c: str(c.get("endDate") or ""))
+        ctx = dict(latest)
+        ctx["sprintName"] = "All %d sprints" % len(roll_members)
+    if ctx is None:
+        return None
+    members, slice_label = team_slice(contexts, ctx)
+    member_ids = {c["id"] for c in members}
+    team_issues = [i for i in issues if i.get("contextId") in member_ids]
+    # Remaining work is the selected context's, never the team's — the sample is
+    # wide, the outstanding count is narrow. A rollup's "selected context" is
+    # every sprint it spans.
+    remaining_ids = ({c["id"] for c in roll_members} if roll_members else {cid})
+    remaining = len([i for i in issues
+                     if i.get("contextId") in remaining_ids
+                     and (i.get("statusCategory") or "") != "Done"])
+    as_of = ctx.get("asOfDate") or ctx.get("endDate")
+    meta = {"sprintName": ctx.get("sprintName"), "startDate": ctx.get("startDate"),
+            "endDate": ctx.get("endDate"), "asOfDate": as_of,
+            "workingDays": ctx.get("workingDays")}
+    ds = {"issues": team_issues, "meta": meta,
+          "releases": (byContext.get(cid) or {}).get("releases", [])}
+    out = FC.build(ds, as_of=as_of, remaining=remaining, target=ctx.get("endDate"))
+    resolved = sorted(x for x in (FC._d(i["resolved"]) for i in team_issues
+                                  if i.get("resolved")) if x)
+    out["sampled_from"] = {
+        "slice": slice_label,
+        "contexts": len(members),
+        "first_resolved": resolved[0].isoformat() if resolved else None,
+        "last_resolved": resolved[-1].isoformat() if resolved else None,
+    }
+    return out
 
 
 # --------------------------------------------------------------- backends
@@ -47,6 +130,7 @@ class BundleBackend:
     def __init__(self, path):
         self.path = pathlib.Path(path)
         self.data = json.loads(self.path.read_text())
+        self._fc = {}   # forecasts, per context id, for the process lifetime
         self.label = "bundle file %s" % self.path.name
         self.source = (self.data.get("meta") or {}).get("source", "bundle")
 
@@ -65,6 +149,13 @@ class BundleBackend:
             "burndown": by.get("burndown", []), "history": by.get("history", []),
             "releases": by.get("releases", []), "dora": by.get("dora"),
         }
+
+    def forecast(self, cid):
+        if cid not in self._fc:
+            self._fc[cid] = forecast_for(self.data.get("contexts", []),
+                                         self.data.get("issues", []),
+                                         self.data.get("byContext") or {}, cid)
+        return self._fc[cid]
 
 
 class JiraBackend:
@@ -136,6 +227,28 @@ class JiraBackend:
         self._cache[cid] = out
         return out
 
+    def forecast(self, cid):
+        """Unlike the bundle, this has to fetch. A forecast needs the team's
+        whole history, so every sprint on the team is pulled — slow the first
+        time, cached after, and the reason the endpoint can take a few seconds
+        against live Jira."""
+        if not hasattr(self, "_fc"):
+            self._fc = {}
+        if cid in self._fc:
+            return self._fc[cid]
+        all_ctx = self.contexts()
+        ctx = next((c for c in all_ctx if c["id"] == cid), None)
+        if ctx is None:
+            return None
+        members, _ = team_slice(all_ctx, ctx)
+        issues = []
+        for m in members:
+            got = self.context(m["id"])
+            if got:
+                issues.extend(got["issues"])
+        self._fc[cid] = forecast_for(all_ctx, issues, {}, cid)
+        return self._fc[cid]
+
 
 # ---------------------------------------------------------------- handler
 class Handler(SimpleHTTPRequestHandler):
@@ -156,6 +269,12 @@ class Handler(SimpleHTTPRequestHandler):
         if path in ("api/contexts", "dist/api/contexts"):
             b = self.backend
             return self._json({"source": b.source, "label": b.label, "contexts": b.contexts()})
+        if path in ("api/forecast", "dist/api/forecast"):
+            cid = urllib.parse.parse_qs(u.query).get("id", [""])[0]
+            got = self.backend.forecast(cid)
+            if got is None:
+                return self._json({"error": "unknown context %r" % cid}, 404)
+            return self._json(got)
         if path in ("api/context", "dist/api/context"):
             cid = urllib.parse.parse_qs(u.query).get("id", [""])[0]
             got = self.backend.context(cid)

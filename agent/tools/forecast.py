@@ -131,6 +131,24 @@ def throughput_samples(issues, window_days: int = 90, as_of: Optional[str] = Non
     return [per_day.get(day, 0) for day in working_days(start, end)]
 
 
+def full_history_days(issues, as_of: Optional[str] = None) -> int:
+    """Every day of imported history, for callers that want the whole record
+    rather than the trailing window.
+
+    The 90-day default above is right for "how is this team going lately". It is
+    wrong when the question is "use everything we have", because it discards
+    older sprints silently — a smaller sample, and one that can drop under the
+    refusal thresholds for no stated reason. Callers that want the full record
+    ask for it explicitly and report the span they used.
+    """
+    resolved = [_d(i["resolved"]) for i in issues if i.get("resolved")]
+    resolved = [r for r in resolved if r]
+    if not resolved:
+        return 0
+    end = _d(as_of) if as_of else max(resolved)
+    return max((end - min(resolved)).days, 0)
+
+
 def cycle_times(issues):
     """Active working days from start to resolution, for completed items."""
     out = []
@@ -479,7 +497,12 @@ def score_calibration(forecast_log):
 
 
 # ------------------------------------------------------------------ assembly
-def build(dataset, as_of=None, remaining=None, target=None, snapshots=None):
+def build(dataset, as_of=None, remaining=None, target=None, snapshots=None,
+          window_days=None):
+    """window_days=None means every day of imported history, which is the
+    default here because a forecast should use the whole record it was given.
+    Pass an integer to restrict it. The window actually used is reported in
+    `inputs`, so a wide sample is visible rather than implied."""
     issues = dataset["issues"]
     meta = dataset.get("meta", {})
     as_of = as_of or meta.get("asOfDate") or date.today().isoformat()
@@ -487,7 +510,9 @@ def build(dataset, as_of=None, remaining=None, target=None, snapshots=None):
     open_items = [i for i in issues if (i.get("statusCategory") or "") != "Done"]
     remaining = remaining if remaining is not None else len(open_items)
 
-    samples = throughput_samples(issues, as_of=as_of)
+    if window_days is None:
+        window_days = full_history_days(issues, as_of)
+    samples = throughput_samples(issues, window_days=window_days, as_of=as_of)
     growth = scope_growth_history(snapshots)
 
     def out(x):
@@ -500,6 +525,7 @@ def build(dataset, as_of=None, remaining=None, target=None, snapshots=None):
             "open_items": len(open_items),
             "throughput_observations": len(samples),
             "items_completed_in_window": sum(samples),
+            "window_days": window_days,
             "scope_growth_samples": len(growth),
         },
         "sprint_completion": out(forecast_completion(

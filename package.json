@@ -1,6 +1,6 @@
 {
   "name": "delivery-value-dashboard",
-  "version": "1.9.2",
+  "version": "1.10.0",
   "description": "Single-file, drill-down delivery dashboard for Jira and Asana data. No runtime dependencies.",
   "license": "MIT",
   "private": true,
