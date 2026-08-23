@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.12.5
+
+**Two rows of the tile grid did not add up to 12, and the page had the holes to prove it.** The grid is twelve columns and every row is meant to fill them. The bottom band did not: *Release quality* at 4 columns beside *Team load* at 3 came to 7, so roughly 600x360px of empty page sat to the right of them at any desktop width. Both tiles are now 6, which is the whole fix at that size.
+
+**Between 761 and 1180px it was worse, and for a subtler reason.** That breakpoint promoted every wide tile to full width and halved every narrow one — a span-7 going to 12 strands the span-5 it was paired with alone on a half-empty row. Four tiles were orphaned that way and the page ran a third taller than its content needed. It now halves everything instead of promoting anything, so the pairs stay pairs: 4557px of page becomes 3848px on the demo sprint, with no row left short.
+
+**Cards stretch to their row rather than stopping where their content runs out.** *Releases & milestones* holds two releases and ended 128px above the bottom of the card beside it, and the gap read as a hole in the page rather than as a card with room in it. The contents stay top-aligned; only the box grows. Grid gaps and card padding came down slightly with it.
+
+**The check is arithmetic, not a screenshot.** `tests/e2e.py` now sums the column span of every visible tile per row at 1500, 1100 and 700px and requires 12. Against the previous build it fails and names the rows — *rows [5] are [7]* at 1500, *rows [3, 9] are [6, 6]* at 1100 — which is how the second bug was found at all; nobody had looked at the page at that width.
+
+The first version of that check read `grid-column-end`, which computes to `auto` when the span is written as `grid-column: span 7`. Every tile scored the fallback 12, so every two-tile row summed to 24 and the check could not have passed on any layout, correct or not. It reads `grid-column-start` now. A test that fails for a reason unrelated to the thing it is testing is worth as little as one that passes for the wrong reason.
+
+
 ## 1.12.4
 
 **The theme button lied on a machine that prefers dark.** The opening theme comes from `prefers-color-scheme`, and that branch set the attribute directly instead of going through `setTheme()` — so on a dark-preferring machine the page opened dark under a button still reading *"Dark"*. The label names the theme pressing it switches **to**, and it is also the control's accessible name, so the one user who cannot see which theme is showing was told the opposite of what the control does. The preference branch now sets the label alongside the attribute; it still bypasses `render()`, which has no data to draw at that point in load.

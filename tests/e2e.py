@@ -332,6 +332,36 @@ def main():
               "% of simulations" not in fb and "Confidence" not in fb, fb[:90])
         check("the offline tile names how to get one", "make serve-live" in fb, fb[-80:])
 
+        # ---------- the grid leaves no holes ----------
+        # A row of tiles whose spans sum to less than 12 leaves a hole as wide
+        # as the columns it skipped and as tall as the row. The bottom band
+        # summed to 7 and put roughly 600x360px of empty page beside Team load,
+        # and the 761-1180px band orphaned four tiles on half-empty rows. The
+        # arithmetic is easy to get wrong by hand and invisible until someone
+        # looks at the page on the right size of screen, so it is asserted.
+        row_spans = """() => {
+          const g = document.getElementById('grid'), rows = {};
+          [...g.children].filter(c => !c.classList.contains('hidden')).forEach(c => {
+            const top = Math.round(c.offsetTop);
+          // The span lands on grid-column-start in the computed style;
+          // grid-column-end reads 'auto' and silently scores every tile 12.
+            const cs = getComputedStyle(c);
+            const raw = /span/.test(cs.gridColumnStart) ? cs.gridColumnStart : cs.gridColumnEnd;
+            const m = String(raw).match(/\\d+/);
+            rows[top] = (rows[top] || 0) + (m ? +m[0] : 12);
+          });
+          return Object.keys(rows).sort((a, b) => a - b).map(k => rows[k]);
+        }"""
+        for width in (1500, 1100, 700):
+            page.set_viewport_size({"width": width, "height": 1000})
+            page.wait_for_timeout(300)
+            spans = page.evaluate(row_spans)
+            short = [i for i, n in enumerate(spans) if n != 12]
+            check("every tile row fills all 12 columns at %dpx" % width, not short,
+                  "rows %s are %s" % (short, [spans[i] for i in short]) if short else "")
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(300)
+
         check("no console errors", not console, console[:3])
         page.screenshot(path=str(ROOT / "tests" / "last-run.png"), full_page=True)
         b.close()

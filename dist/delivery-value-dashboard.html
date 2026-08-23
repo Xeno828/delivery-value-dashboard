@@ -79,9 +79,17 @@ a{color:var(--link)}
 .fchip button{border:none;background:none;padding:0;line-height:1;font-size:14px;color:var(--text-secondary)}
 
 /* ---------- layout ---------- */
-.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px;align-items:start}
+/* Every row of tiles has to add up to 12, at every breakpoint. A row that sums
+   to less leaves a hole the width of the columns it did not use, and the hole
+   is as tall as the row: the bottom band summed to 7 and put roughly 600x360px
+   of nothing beside Team load. Redo the arithmetic whenever a tile is added or
+   a span changes — tests/e2e.py asserts it at three widths. */
+/* Cards stretch to their row rather than stopping where their content does, so
+   a short tile next to a tall one reads as a card with room in it instead of a
+   gap in the page. Their contents stay top-aligned; only the box grows. */
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:10px;align-items:stretch}
 .card{background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);
-  padding:14px 16px 16px;box-shadow:var(--shadow);min-width:0;display:flex;flex-direction:column}
+  padding:12px 14px 14px;box-shadow:var(--shadow);min-width:0;display:flex;flex-direction:column}
 /* Wraps rather than overflows. A header whose tools cannot wrap sets the card's
    minimum width, and one control wider than the viewport fails WCAG 1.4.10 for
    the whole page — which is exactly what a three-button segmented control did
@@ -102,7 +110,14 @@ a{color:var(--link)}
 .span3{grid-column:span 3}.span4{grid-column:span 4}.span5{grid-column:span 5}
 .span6{grid-column:span 6}.span7{grid-column:span 7}.span8{grid-column:span 8}
 .span9{grid-column:span 9}.span12{grid-column:span 12}
-@media(max-width:1180px){.span3,.span4,.span5{grid-column:span 6}.span7,.span8,.span9{grid-column:span 12}}
+/* Halve everything instead of promoting the wide tiles to full width. Sending
+   a span-7 to 12 strands its span-5 partner alone on a half-empty row, which
+   is what made 761-1180px the emptiest the page ever looked: four orphaned
+   tiles and a page a third taller than it needed to be. */
+@media(max-width:1180px){
+  .span3,.span4,.span5,.span7,.span8{grid-column:span 6}
+  .span9{grid-column:span 12}
+}
 @media(max-width:760px){
   .grid > *{grid-column:span 12 !important}
   /* Give the tools their own row instead of squeezing them beside the title,
@@ -494,7 +509,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
       <div id="forecast-body"></div>
     </div>
 
-    <div class="card span4" id="c-dora">
+    <div class="card span6" id="c-dora">
       <div class="card-hd">
         <div><h2>Release quality &amp; speed <span class="info" data-tip="dora">i</span></h2>
         <div class="cap">Four industry-standard measures of how safely the team ships.</div></div>
@@ -502,7 +517,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
       <div id="dora-body"></div>
     </div>
 
-    <div class="card span3" id="c-load">
+    <div class="card span6" id="c-load">
       <div class="card-hd">
         <div><h2>Team load <span class="info" data-tip="load">i</span></h2>
         <div class="cap">Started-but-unfinished work, and how much arrived after planning. Both from issue status &mdash; no hours, no timesheets.</div></div>
