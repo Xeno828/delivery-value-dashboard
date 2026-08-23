@@ -29,13 +29,83 @@ function safeUrl(u) {
   return /^https?:\/\//i.test(t) ? t : null;
 }
 const iso = dt => dt.toISOString().slice(0, 10);
-/** Weekdays between two ISO dates, inclusive. Swap in a holiday calendar here
- *  if the team observes one — every elapsed-time figure keys off this list. */
-function workingDays(start, end) {
+
+/* ---------------------------------------------------------- organisation config
+   Which statuses mean done, which days are worked, which of those are holidays
+   and how long a sprint is. It arrives inside the dataset as `orgConfig`, put
+   there by whatever produced the file, and this is a mirror of
+   agent/tools/orgconfig.py rather than a second opinion: the Python tools and
+   this page must categorise a status and count a working day identically or the
+   facts pack and the dashboard report different numbers for the same sprint.
+   tests/test_agent.py asserts the two agree, including under a config that is
+   not the default. Change one, change both.
+   ------------------------------------------------------------------------- */
+const ORG_DEFAULTS = {
+  statuses: {
+    done: ["Done", "Closed", "Resolved", "Complete", "Completed", "Shipped"],
+    inProgress: ["In Progress", "In Review", "Review", "Testing", "Test", "QA", "Doing"]
+  },
+  workingWeek: ["mon", "tue", "wed", "thu", "fri"],
+  holidays: [],
+  sprintLengthDays: 14
+};
+const DAY_INDEX = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+const normStatus = s => String(s == null ? "" : s).trim().replace(/\s+/g, " ").toLowerCase();
+
+/** Merge a dataset's block over the defaults, one level down, as the Python does.
+ *  A config naming only `done` keeps the default `inProgress` list — an empty
+ *  list would claim no status is in progress, which nobody means by omission. */
+function orgConfigOf(d) {
+  const o = (d && d.orgConfig) || {};
+  const st = Object.assign({}, ORG_DEFAULTS.statuses, o.statuses || {});
+  return {
+    statuses: st,
+    workingWeek: o.workingWeek || ORG_DEFAULTS.workingWeek,
+    holidays: o.holidays || ORG_DEFAULTS.holidays,
+    sprintLengthDays: o.sprintLengthDays || ORG_DEFAULTS.sprintLengthDays
+  };
+}
+
+/** The active config. Set by normalise(); never read from anywhere else. */
+function ORG() { return (S.data && S.data.orgConfig) || ORG_DEFAULTS; }
+
+/** One line naming the rules behind every working-day figure. Mirrors
+ *  orgconfig.summary() so the page and the facts pack describe themselves the
+ *  same way — a reader comparing the two should not have to translate. */
+function orgSummary(c) {
+  const week = (c.workingWeek || []).map(normStatus).filter(d => DAY_INDEX[d] !== undefined);
+  const hol = (c.holidays || []).length;
+  return week.length + "-day working week (" + week.join(", ") + "), " +
+    hol + " holiday" + (hol === 1 ? "" : "s") + ", " +
+    c.sprintLengthDays + "-day sprints; done = " +
+    ((c.statuses && c.statuses.done || []).join(", ") || "nothing");
+}
+
+function statusCategoryOf(name, cfg) {
+  const c = cfg || ORG_DEFAULTS, n = normStatus(name);
+  if (n && (c.statuses.done || []).some(x => normStatus(x) === n)) return "Done";
+  if (n && (c.statuses.inProgress || []).some(x => normStatus(x) === n)) return "In Progress";
+  if (/done|closed|resolved|complete|shipped/.test(n)) return "Done";
+  if (/progress|review|test|doing|qa/.test(n)) return "In Progress";
+  return "To Do";
+}
+
+/** Working days between two ISO dates, inclusive, per the config's week and
+ *  holiday list. Holidays shorten *working* time only — reported ages stay in
+ *  calendar days, because an item raised 21 days ago is 21 days old whether or
+ *  not the office was shut. */
+function workingDays(start, end, cfg) {
   if (!start || !end) return [];
+  const c = cfg || ORG();
+  const mask = {}; (c.workingWeek || []).forEach(d => {
+    const i = DAY_INDEX[normStatus(d)]; if (i !== undefined) mask[i] = true;
+  });
+  const hol = {}; (c.holidays || []).forEach(h => { hol[String(h).slice(0, 10)] = true; });
   const out = []; const a = D(start), b = D(end);
-  for (let t = new Date(a); t <= b; t.setUTCDate(t.getUTCDate() + 1))
-    if (t.getUTCDay() !== 0 && t.getUTCDay() !== 6) out.push(iso(t));
+  for (let t = new Date(a); t <= b; t.setUTCDate(t.getUTCDate() + 1)) {
+    const day = iso(t);
+    if (mask[t.getUTCDay()] && !hol[day]) out.push(day);
+  }
   return out;
 }
 
@@ -75,6 +145,9 @@ const S = {
   seqPending: {},
   drillOpener: null,
   live: null,          // set when a local live-mode server answers
+  /** True when the live server's organisation config replaced the one baked
+   *  into this file. Shown in the footer rather than swapped in silently. */
+  orgFromServer: false,
   filters: { assignee: "", epic: "", type: "", status: "", q: "" },
   tables: {},
   lastDrill: []
@@ -163,17 +236,16 @@ const STAGE = () => [
  */
 /** Coerce one raw issue. Extracted so live-loaded issues can be cleaned without
  *  going through normalise(), which would re-tag their contextId. */
-function normaliseIssue(i, meta) {
+function normaliseIssue(i, meta, cfg) {
   const o = Object.assign({}, i);
   o.storyPoints = Number(o.storyPoints) || 0;
   o.businessValue = Number(o.businessValue) || 0;
   o.flagged = o.flagged === true || o.flagged === "true";
   o.addedMidSprint = o.addedMidSprint === true || o.addedMidSprint === "true";
-  if (!o.statusCategory) {
-    const t = (o.status || "").toLowerCase();
-    o.statusCategory = /done|closed|resolved|complete/.test(t) ? "Done"
-      : /progress|review|test|doing/.test(t) ? "In Progress" : "To Do";
-  }
+  // Only when the producer did not resolve it. A file that already carries a
+  // category was categorised under its own config, and re-deriving it here
+  // against a different one is how two answers appear for one issue.
+  if (!o.statusCategory) o.statusCategory = statusCategoryOf(o.status, cfg);
   o.labels = Array.isArray(o.labels) ? o.labels
     : (typeof o.labels === "string" && o.labels ? o.labels.split(/[;,|]\s*/) : []);
   const base = safeUrl(meta && meta.baseUrl);
@@ -182,7 +254,8 @@ function normaliseIssue(i, meta) {
 }
 
 function normalise(d) {
-  d.issues = (d.issues || []).map(i => normaliseIssue(i, d.meta));
+  d.orgConfig = orgConfigOf(d);
+  d.issues = (d.issues || []).map(i => normaliseIssue(i, d.meta, d.orgConfig));
   d.meta = d.meta || {};
 
   if (!Array.isArray(d.contexts) || !d.contexts.length) {
@@ -2032,6 +2105,11 @@ function render() {
     S.data.issues.length + " issues across " + nctx + " sprint" + (nctx === 1 ? "" : "s") +
     " · showing " + S.view.issues.length + " · measured in " + U().label +
     " · rendered " + new Date().toLocaleString() +
+    // Sprint elapsed-percentage, the ideal burndown line and the forecast are
+    // all shares of working days. Which days those were belongs on the page,
+    // not only in the config file someone else edited.
+    "<br>" + esc(orgSummary(ORG())) +
+    (S.orgFromServer ? " — from the live server, replacing the calendar baked into this file." : "") +
     "<br>Every figure on this page traces back to an issue. Click anything that looks wrong.";
 }
 addEventListener("resize", () => { clearTimeout(rafT); rafT = setTimeout(render, 180); });
@@ -2055,6 +2133,16 @@ async function probeLive() {
     const j = await r.json();
     if (!j || !Array.isArray(j.contexts)) return;
     S.live = { source: j.source || "server", label: j.label || "live server" };
+
+    // The server computes forecasts with its own config. If this file was baked
+    // with a different one, the page and the tile would report the same sprint
+    // under two calendars — so adopt the server's, and say on the page that it
+    // was adopted rather than swapping it silently.
+    if (j.orgConfig) {
+      const next = orgConfigOf({ orgConfig: j.orgConfig });
+      S.orgFromServer = JSON.stringify(next) !== JSON.stringify(S.data.orgConfig);
+      S.data.orgConfig = next;
+    }
 
     // Merge in sprints the bundle does not contain, as stubs. Their issues are
     // fetched only when someone selects them — pulling six months of every
@@ -2082,7 +2170,7 @@ async function loadContext(id) {
     const ctx = S.data.contexts.find(c => c.id === id);
     if (ctx) { Object.assign(ctx, j.context || {}); delete ctx.stub; }
     const fresh = (j.issues || []).map(i => {
-      const o = normaliseIssue(i, S.data.meta);
+      const o = normaliseIssue(i, S.data.meta, S.data.orgConfig);
       o.contextId = id;                       // never let normalise() re-tag these
       return o;
     });
@@ -2126,6 +2214,11 @@ window.DVD = {
   esc: esc, D: D, days: days, fmtD: fmtD, sum: sum, uniq: uniq, n1: n1,
   toCSV: toCSV, download: download, issuesCSV: issuesCSV, ISSUE_COLS: ISSUE_COLS,
   workingDays: workingDays,
+  /* The import wizard recomputes working days and categorises statuses, and has
+     to do both under the same config as everything else. */
+  orgConfig: () => ORG(),
+  orgSummary: orgSummary,
+  statusCategoryOf: statusCategoryOf,
   /** Hooks for tests/perf.py. Not used by the page itself. */
   debug: {
     contexts: () => selectableContexts(),

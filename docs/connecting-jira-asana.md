@@ -9,7 +9,74 @@ Two hard constraints, neither of which has a clever workaround:
 
 So live data arrives via a small script that runs where the credentials already live. That is a feature: the credential boundary is explicit and auditable, rather than hidden in a page someone might email.
 
-## Route 1 — the fetcher script
+## Route 0 — OAuth 2.0 (3LO), for a customer's site
+
+The fetcher below authenticates with a personal API token. That is right for
+your own board and wrong for anyone else's: the token carries the permissions
+of whoever generated it, cannot be scoped, and is revoked only by deleting it.
+A customer connecting their Jira needs a grant they consented to, that is
+scoped to what you asked for, and that they can withdraw without telling you.
+
+### One-time setup
+
+This part cannot be automated, and the credentials should not pass through
+anyone else's hands:
+
+1. **developer.atlassian.com → Console → Create → OAuth 2.0 integration**
+2. **Permissions → Jira API →** add `read:jira-work` and `read:jira-user`.
+   Read-only, deliberately. An app that asks for write access to close a deal
+   is an app whose consent screen makes the buyer's security reviewer stop and
+   read.
+3. **Authorization → Callback URL:** `http://127.0.0.1:8721/callback`
+4. **Settings →** copy the client id and secret into your environment:
+
+```bash
+export JIRA_OAUTH_CLIENT_ID=…
+export JIRA_OAUTH_CLIENT_SECRET=…
+```
+
+### Connecting
+
+```bash
+python3 scripts/jira_auth.py login      # opens a browser, stores the grant
+python3 scripts/jira_auth.py status     # sites, scopes, expiry — never the token
+python3 scripts/jira_auth.py logout     # forgets it locally
+```
+
+Then the fetcher uses it automatically:
+
+```bash
+python3 scripts/fetch_delivery_data.py --jira-board 42 --out data/dashboard-data.json
+```
+
+`--auth auto` (the default) prefers a stored grant and falls back to the API
+token. Which one it used is printed on every run, because the two see different
+sets of issues and a file produced by the wrong one looks entirely legitimate.
+Force either with `--auth oauth` or `--auth token`.
+
+If a grant covers more than one Jira site the fetcher **refuses to guess** —
+name one with `--jira-site` or `JIRA_SITE`. Silently picking the first is how a
+report about the wrong company gets produced.
+
+### Where the grant lives
+
+`.jira-oauth.json`, created mode 0600, git-ignored alongside `.env`. It holds
+an access token and a rotating refresh token. Nothing prints either one; the
+security suite asserts that, along with the file being ignored, the redirect
+listener binding to loopback only, the `state` parameter being verified, and
+the scopes staying read-only.
+
+Revoking is the customer's to do, at **id.atlassian.com → Account settings →
+Connected apps**. `logout` only forgets the local copy.
+
+### What this is not
+
+This is the Connect/3LO half of the connection work — the half that lives in
+this repository. A Marketplace listing, its review and billing are Atlassian
+Console tasks with no code here. `forge/` holds a scaffold for the other route
+and a note on what porting to it would cost.
+
+## Route 1 — the fetcher script, with an API token
 
 ```bash
 pip install -r scripts/requirements.txt

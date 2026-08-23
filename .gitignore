@@ -2,6 +2,8 @@
 .env
 *.pem
 *.token
+# the OAuth grant: an access token and a rotating refresh token, mode 0600
+.jira-oauth.json
 
 # generated data pulled from Jira/Asana (contains issue titles)
 data/dashboard-data.json

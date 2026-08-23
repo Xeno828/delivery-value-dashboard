@@ -1,5 +1,44 @@
 # Changelog
 
+## 1.14.0
+
+Phase 1 of the commercial roadmap — *make it connectable*. Two items: a Jira connection a customer can consent to, and the assumptions that are true of exactly one company.
+
+**Jira connects over OAuth 2.0 (3LO).** `scripts/jira_auth.py` does the authorisation-code dance against a loopback listener, stores the grant, refreshes it, and resolves which granted site to query. The fetcher and the live server both use it: `--auth auto` prefers a stored grant and falls back to the API token, and **prints which one it used on every run** — the two see different sets of issues, and a file produced by the wrong one looks entirely legitimate.
+
+The API-token path is not deprecated. It needs no app registration and is the right thing for pulling your own board. What it cannot be is a customer's connection: it carries the permissions of whoever generated it, cannot be scoped, and is revoked only by deleting it.
+
+**A grant covering two sites is refused rather than resolved.** Silently picking the first is how a report about the wrong company gets produced, and it would look correct all the way to the meeting. Name one with `--jira-site` or `JIRA_SITE`.
+
+**Scopes are `read:jira-work` and `read:jira-user`, and the suite now fails if a write scope appears.** An app that asks for write access to close a deal is an app whose consent screen makes the buyer's security reviewer stop and read.
+
+**Which statuses mean done is configuration now, not code.** So are the working week, the holiday calendar and the sprint length — `config/organisation.json`, resolved by `agent/tools/orgconfig.py`. The heuristic that read "Done|Closed|Resolved" out of a status name is still there as a last resort, but a site with a *Signed off* column no longer reports every sprint as 0% complete.
+
+**The config travels inside the dataset, and that is the load-bearing decision.** Whatever produces a file resolves the config once and writes it in as `orgConfig`. The page, `metrics.py`, `forecast.py`, `intake.py` and the live server all read it from there; none of them opens the config file. A config each consumer read separately would be a third opinion arriving by a different route, and the first symptom would be a facts pack and a dashboard reporting different flow efficiency for the same sprint — which shipped here once, as 25% against 22%, and was a units disagreement of exactly this shape.
+
+The consequence is deliberate: an emailed copy carries the calendar it was built with. The numbers in it were computed under those rules.
+
+**A status the config has never seen is named, not swallowed.** At the end of every fetch: *"1 status matched no rule in the config and were inferred: 'Awaiting sign-off'"*. This is the whole point of the feature. A site adds a column, no rule mentions it, those issues read as To Do, the burndown flattens, and the dashboard is confidently wrong with nothing on screen to say why. That is a churn-in-week-two bug and the customer never tells you which number they stopped believing.
+
+**A bad config stops the run instead of falling back.** `workingWeek: ["mon", "funday"]` is refused by name, as is a status listed under both `done` and `inProgress`, a malformed holiday and a non-integer sprint length. A typo that quietly reverted to a five-day week would move every forecast in the product with nothing saying so.
+
+**Holidays shorten working time only.** The Monte Carlo horizon, the sprint elapsed-percentage and the ideal burndown line all move; reported ages do not. An item raised 21 days ago is 21 days old whether or not the office was shut, and a holiday that shortened it would be the same lie of convenience as skipping weekends. Both halves are pinned by tests.
+
+**A bug this found in the forecaster: it read `meta.workingDays` for one figure and recomputed the rest itself.** That field has carried an explicit list of working dates since it existed, and `metrics.py` has always honoured it. `forecast.py` honoured it in exactly one place — the next-sprint commitment, which used its length — while `throughput_samples`, `cycle_times`, `lead_times`, the percentile dates and the capacity horizon all built their own Monday-to-Friday span and ignored the list entirely. Nobody noticed because no producer had ever written a list that differed from Monday-to-Friday. The moment a holiday calendar could exist, one forecast output would have counted a sprint's working days differently from the four beside it, and all five would have been in the same JSON object. Same class as the 25%/22% bug, invisible in the same way. Everything now resolves through `orgconfig.py`.
+
+**Adopting any of this changes no number.** A dataset with no `orgConfig` resolves to defaults that reproduce what was hard-coded before, and `tests/test_agent.py` asserts that spelling the defaults out leaves every forecast percentile identical.
+
+**Two implementations, and a test that they agree.** `src/app.js` mirrors `orgconfig.py` because the browser cannot call Python. `tests/e2e.py` compares working days and status categories between them **under a config that is not the default** — a Sunday-to-Thursday week with two holidays and a custom status list — because two implementations of Monday-to-Friday agree by accident.
+
+**The page says which calendar it used.** In the footer, in the same words `metrics.py` puts in the facts pack, so a reader comparing the two does not have to translate. When the live server's config differs from the one baked into the file, the server's wins — it computed the forecasts — and the footer says it was replaced rather than swapping it silently.
+
+**The security suite stopped covering the credential path, and said so.** Its check was pinned to `os.environ.get("JIRA_TOKEN")` appearing in `serve_live.py`; that reading moved into the fetcher and the OAuth client, so the check would have passed while covering nothing. It now checks every script that can hold a credential, and adds six: the grant is git-ignored, created 0600 rather than widened afterwards, never printed, the redirect verifies `state`, the listener is loopback-only, and no write scope is requested.
+
+**`forge/` is a scaffold and is marked as one.** Manifest, scopes and a resolver that returns refusals rather than numbers. It exists so the Forge-versus-Connect decision stays a decision: Forge runs Node and cannot call the Python tools, so taking that route means either hosting the Python anyway or writing a second Monte Carlo — and this project already refused the second implementation once, which is why the forecast tile shows an offline notice in an emailed file.
+
+Not included, and not automatable from here: registering the Atlassian app and the Marketplace listing. Both need an Atlassian account and credentials that should not pass through anyone else's hands.
+
+
 ## 1.13.0
 
 **The tiles can be put in your own order.** Each row of the **Tiles** popover has an up and a down arrow, and the order travels the way the tile selection already did: `?order=` in the URL, a `data-order` attribute on a saved copy, and nothing in browser storage — the file still has to survive being emailed. **Default order** puts it back.

@@ -1,0 +1,52 @@
+# Forge app manifest — SCAFFOLD, NOT WIRED UP.
+#
+# This is the second of the two routes in roadmap item 1. The working route is
+# OAuth 2.0 (3LO) in scripts/jira_auth.py, which is live and tested. This
+# directory exists so the Forge option stays a decision rather than a rewrite,
+# and so the scope list and the resolver boundary are written down while the
+# reasons are fresh.
+#
+# It has never been deployed. `forge deploy` against this file will not produce
+# a working app: the resolvers below return the shape the UI expects and no
+# data. See forge/README.md for what porting actually costs.
+
+modules:
+  jira:projectPage:
+    - key: delivery-value-dashboard
+      resource: main
+      resolver:
+        function: resolver
+      title: Delivery & Value
+
+  function:
+    - key: resolver
+      handler: index.handler
+
+  # A scheduled trigger is what roadmap item 3 (scheduled delivery) would hang
+  # off. Declared here because the permission it needs is easier to argue for
+  # once, at listing time, than to add later.
+  scheduledTrigger:
+    - key: weekly-brief
+      function: resolver
+      interval: week
+
+resources:
+  - key: main
+    path: static/dashboard/build
+
+permissions:
+  scopes:
+    # Read-only, and the shortest list that produces the dashboard. Matches
+    # SCOPES in scripts/jira_auth.py — if one changes, change both, or the two
+    # routes will quietly see different issues.
+    - read:jira-work
+    - read:jira-user
+
+app:
+  runtime:
+    name: nodejs20.x
+
+# Deliberately absent: an `id`. Running `forge register` writes one, and it ties
+# this manifest to one developer's Atlassian account. Committing that id would
+# hand everyone who clones the repository a manifest pointing at somebody
+# else's app.

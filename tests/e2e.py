@@ -404,6 +404,71 @@ def main():
               "% of simulations" not in fb and "Confidence" not in fb, fb[:90])
         check("the offline tile names how to get one", "make serve-live" in fb, fb[-80:])
 
+        # ---------- the page and the tools agree about the calendar ----------
+        # The page mirrors agent/tools/orgconfig.py in JavaScript, because the
+        # browser cannot call Python. That duplication is accepted here the same
+        # way derive() duplicating metrics.py is accepted — on condition that a
+        # test proves they agree, and under a config that is NOT the default,
+        # since two implementations of "Mon to Fri" agree by accident.
+        sys.path.insert(0, str(ROOT / "agent" / "tools"))
+        import orgconfig as OC  # noqa: E402
+
+        cfg = OC.merge(OC.DEFAULTS, {
+            "workingWeek": ["sun", "mon", "tue", "wed", "thu"],
+            "holidays": ["2026-08-05", "2026-08-12"],
+            "sprintLengthDays": 10,
+            "statuses": {"done": ["Signed off", "Shipped"],
+                         "inProgress": ["With QA", "In Review"]},
+        })
+        ds = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        ds["orgConfig"] = cfg
+        page.goto(DIST.as_uri())
+        page.wait_for_timeout(700)
+        page.evaluate("d => window.DVD.applyDataset(d)", ds)
+        page.wait_for_timeout(700)
+
+        check("the page adopts the config the dataset carries",
+              page.evaluate("() => window.DVD.orgConfig().sprintLengthDays") == 10,
+              page.evaluate("() => window.DVD.orgConfig()"))
+
+        js_days = page.evaluate(
+            "a => window.DVD.workingDays(a[0], a[1], window.DVD.orgConfig())",
+            ["2026-08-01", "2026-08-16"])
+        py_days = OC.working_days_iso("2026-08-01", "2026-08-16", cfg)
+        check("the page's working days match orgconfig.py exactly",
+              js_days == py_days, {"js": js_days, "py": py_days})
+
+        NAMES = ["Signed off", "signed OFF", "Shipped", "With QA", "In Review",
+                 "Done", "To Do", "Awaiting legal", ""]
+        js_cat = page.evaluate(
+            "ns => ns.map(n => window.DVD.statusCategoryOf(n, window.DVD.orgConfig()))", NAMES)
+        py_cat = [OC.Statuses(cfg).category(n) for n in NAMES]
+        check("the page categorises statuses exactly as orgconfig.py does",
+              js_cat == py_cat, list(zip(NAMES, js_cat, py_cat)))
+
+        check("the page describes the calendar in the same words the tools use",
+              page.evaluate("() => window.DVD.orgSummary(window.DVD.orgConfig())")
+              == OC.summary(cfg),
+              (page.evaluate("() => window.DVD.orgSummary(window.DVD.orgConfig())"),
+               OC.summary(cfg)))
+
+        # A reader comparing the page against a written brief should not have to
+        # guess which days were counted.
+        check("the calendar is stated on the page, not only in the config file",
+              "5-day working week" in page.text_content("#foot"),
+              page.text_content("#foot")[-140:])
+
+        # A file with no config keeps the behaviour it had before the feature.
+        plain = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        page.evaluate("d => window.DVD.applyDataset(d)", plain)
+        page.wait_for_timeout(500)
+        check("a dataset with no config falls back to a plain five-day week",
+              page.evaluate("a => window.DVD.workingDays(a[0], a[1])",
+                            ["2026-08-03", "2026-08-09"])
+              == ["2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07"],
+              page.evaluate("a => window.DVD.workingDays(a[0], a[1])",
+                            ["2026-08-03", "2026-08-09"]))
+
         # ---------- the grid leaves no holes ----------
         # A row of tiles whose spans sum to less than 12 leaves a hole as wide
         # as the columns it skipped and as tall as the row. The bottom band

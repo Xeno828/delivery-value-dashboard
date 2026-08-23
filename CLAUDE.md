@@ -23,7 +23,7 @@ The browser suites need Playwright (`pip install playwright && playwright instal
 
 ## Architecture in one paragraph
 
-`src/` is four files assembled by `build.py` into a single self-contained HTML file. `agent/tools/` is three dependency-free Python modules — `metrics.py` (facts), `forecast.py` (Monte Carlo on work that exists), `intake.py` (forecasting an ask before any of it exists). `agent/SKILL.md` is the agent definition; it narrates what the tools return and computes nothing. `scripts/` fetches and generates data. `tests/` is four suites.
+`src/` is four files assembled by `build.py` into a single self-contained HTML file. `agent/tools/` is four dependency-free Python modules — `metrics.py` (facts), `forecast.py` (Monte Carlo on work that exists), `intake.py` (forecasting an ask before any of it exists), `orgconfig.py` (the per-organisation assumptions the other three read out of the dataset). `agent/SKILL.md` is the agent definition; it narrates what the tools return and computes nothing. `scripts/` fetches and generates data. `tests/` is four suites. `forge/` is a scaffold, not wired up.
 
 ---
 
@@ -41,9 +41,11 @@ These are product decisions, not style. Violating one is a bug even when the tes
 
 **The built file makes zero network calls and uses zero browser storage.** No CDN, no fonts, no analytics, no `localStorage`, no cookies. The threat model is that this file gets emailed. The security suite asserts all of it.
 
-**Credentials live only in the fetcher's environment.** `.env` is git-ignored. So is `data/dashboard-data.json`, because it contains real issue titles. Check both survive any `.gitignore` edit. The live-mode server binds to `127.0.0.1` only.
+**Credentials live only in the fetcher's environment.** `.env` is git-ignored. So is `.jira-oauth.json`, the OAuth grant, which holds a rotating refresh token and is created mode 0600. So is `data/dashboard-data.json`, because it contains real issue titles. Check all three survive any `.gitignore` edit. The live-mode server and the OAuth redirect listener both bind to `127.0.0.1` only, and the OAuth scopes stay read-only. The security suite asserts every one of these by name.
 
 **Refusals are printed verbatim, never softened.** When a tool returns a refusal, the agent quotes the sentence as written. *"Not enough data"* and *"wide interval"* are different statements and only one of them is true. The refusal sentences all end with some form of *the evidence is absent, not noisy* — that clause is the point, do not trim it.
+
+**The organisation config travels inside the data, never beside it.** Which statuses mean done, which days are worked, the holiday calendar and the sprint length are resolved once by whatever produced the file and written into it as `orgConfig`. The page, the three tools and the live server all read it from there; none of them opens `config/organisation.json`. A config read separately by each consumer is a third opinion arriving by a different route, and its first symptom is the facts pack and the dashboard disagreeing about the same sprint. `src/app.js` mirrors `orgconfig.py` in JavaScript because the browser cannot call Python — `tests/e2e.py` asserts the two agree under a *non-default* config, since two implementations of Mon–Fri agree by accident. Change one, change both.
 
 **Every figure carries its unit.** Reported elapsed time is in **calendar days** (an item raised 21 days ago is 21 days old; saying 15 because of weekends is a lie of convenience). Simulated time is in **working days** (nothing completes on a Saturday). These two disagreeing silently is a real bug that shipped once — the facts pack and the dashboard reported 25% and 22% flow efficiency for the same sprint.
 
@@ -84,6 +86,8 @@ These are product decisions, not style. Violating one is a bug even when the tes
 | Forecasting an ask before it exists | `docs/product-intake.md` |
 | The agent definition itself | `agent/SKILL.md` |
 | Why each rule above exists | `CHANGELOG.md` |
+| What "done" means here, and which days count | `docs/organisation-config.md` |
+| Connecting a customer's Jira with OAuth | `docs/connecting-jira-asana.md` |
 | What a term means, and which words to avoid | `CONTEXT.md` |
 | The decisions behind the constraints above | `docs/adr/` |
 

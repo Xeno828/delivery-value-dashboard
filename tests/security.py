@@ -238,8 +238,44 @@ def server_checks():
     src = (ROOT / "scripts" / "serve_live.py").read_text()
     check("binds to loopback only, never 0.0.0.0",
           '"127.0.0.1"' in src and "0.0.0.0" not in src)
-    check("credentials are read from the environment, never hard-coded",
-          'os.environ.get("JIRA_TOKEN")' in src and not re.search(r'JIRA_TOKEN\s*=\s*["\']\S', src))
+    # Every file that can hold a credential, not just this one. The live server
+    # used to read JIRA_TOKEN itself; that moved into the fetcher and the OAuth
+    # client, and a check pinned to one filename would have gone quiet at the
+    # exact moment the credential surface grew.
+    CRED_FILES = ["serve_live.py", "fetch_delivery_data.py", "jira_auth.py"]
+    CRED_KEYS = ["JIRA_TOKEN", "ASANA_TOKEN", "JIRA_OAUTH_CLIENT_SECRET",
+                 "JIRA_OAUTH_CLIENT_ID"]
+    hard = []
+    for fn in CRED_FILES:
+        text = (ROOT / "scripts" / fn).read_text()
+        for key in CRED_KEYS:
+            if re.search(key + r'\s*=\s*["\']\S', text):
+                hard.append(fn + ":" + key)
+    check("no credential is hard-coded in any script that handles one", hard == [], hard)
+
+    fetch_src = (ROOT / "scripts" / "fetch_delivery_data.py").read_text()
+    auth_src = (ROOT / "scripts" / "jira_auth.py").read_text()
+    check("credentials are read from the environment",
+          'os.environ.get("JIRA_TOKEN")' in fetch_src and
+          'os.environ.get("JIRA_OAUTH_CLIENT_SECRET")' in auth_src)
+
+    # The OAuth grant is a rotating refresh token on disk. Three properties, and
+    # all three have to hold at once: git-ignored, created 0600 rather than
+    # chmod-ed afterwards, and never printed.
+    gi_all = (ROOT / ".gitignore").read_text()
+    check("the OAuth grant is git-ignored", ".jira-oauth.json" in gi_all)
+    check("the grant file is created 0600, not widened later",
+          "0o600" in auth_src and "os.O_CREAT" in auth_src)
+    check("no token is ever printed",
+          not re.search(r'print\([^)]*\b(access_token|refresh_token)\b', auth_src))
+    # An authorisation code accepted without checking `state` turns the loopback
+    # listener into something anyone reaching localhost can feed.
+    check("the OAuth redirect verifies the state parameter",
+          "compare_digest" in auth_src)
+    check("the redirect listener binds to loopback only",
+          '"127.0.0.1"' in auth_src and "0.0.0.0" not in auth_src)
+    check("the OAuth scopes stay read-only",
+          not re.search(r'"write:[^"]*"|"manage:[^"]*"|"delete:[^"]*"', auth_src))
 
     port = 8765
     proc = subprocess.Popen(

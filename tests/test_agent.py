@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT / "agent" / "tools"))
 import forecast as F          # noqa: E402
 import intake as I            # noqa: E402
 import metrics as M           # noqa: E402
+import orgconfig as OC        # noqa: E402
 
 failures = []
 
@@ -599,6 +600,91 @@ def test_full_history_window():
     check("full_history_days reports the real span", span == 77, span)
 
 
+# =====================================================================
+# organisation config — the assumptions that differ per customer
+# =====================================================================
+def test_org_config():
+    """Three things have to hold: nothing changes when the config is absent,
+    the right things change when it is present, and a wrong config is refused
+    rather than half-applied."""
+
+    # ---- absent means unchanged. This is the whole adoption story: every file
+    # that predates the config keeps producing the number it produced before.
+    ds = json.loads((ROOT / "data" / "sample-multi-sprint.json").read_text())
+    before = F.build(json.loads(json.dumps(ds)))
+    tagged = json.loads(json.dumps(ds))
+    tagged["orgConfig"] = json.loads(json.dumps(OC.DEFAULTS))
+    after = F.build(tagged)
+    check("spelling out the defaults changes no forecast figure",
+          before["sprint_completion"]["percentiles"] == after["sprint_completion"]["percentiles"],
+          (before["sprint_completion"]["percentiles"], after["sprint_completion"]["percentiles"]))
+
+    # ---- present means applied. A shorter week must move the dates, or the
+    # config is decorative and nobody finds out until a customer complains.
+    short = json.loads(json.dumps(ds))
+    short["orgConfig"] = {"workingWeek": ["mon", "tue", "wed", "thu"]}
+    moved = F.build(short)
+    check("a four-day week pushes the forecast out",
+          moved["sprint_completion"]["percentiles"][85] >
+          before["sprint_completion"]["percentiles"][85],
+          (before["sprint_completion"]["percentiles"][85],
+           moved["sprint_completion"]["percentiles"][85]))
+    check("the forecast names the calendar it used",
+          "4-day working week" in moved["inputs"]["calendar"], moved["inputs"]["calendar"])
+
+    # ---- holidays are working-day only. An item raised 21 days ago is 21 days
+    # old whether or not the office was shut. A holiday that shortened an age
+    # would be the same lie of convenience as skipping weekends, and a silent
+    # disagreement between these two units has shipped here once already.
+    hol = OC.merge(OC.DEFAULTS, {"holidays": ["2026-08-05", "2026-08-06"]})
+    check("holidays come out of the working week",
+          len(OC.working_days("2026-08-03", "2026-08-07", hol)) == 3,
+          OC.working_days_iso("2026-08-03", "2026-08-07", hol))
+    check("holidays do not touch calendar elapsed time",
+          M.elapsed_days("2026-08-03", "2026-08-07") == 4,
+          M.elapsed_days("2026-08-03", "2026-08-07"))
+    check("add_working_days skips holidays too",
+          OC.add_working_days("2026-08-04", 1, hol).isoformat() == "2026-08-07",
+          OC.add_working_days("2026-08-04", 1, hol).isoformat())
+
+    # ---- statuses
+    st = OC.Statuses(OC.merge(OC.DEFAULTS, {"statuses": {"done": ["Signed off"]}}))
+    check("a configured status maps to done", st.category("Signed off") == "Done")
+    check("matching ignores case and spacing", st.category("  signed   OFF ") == "Done")
+    check("the inProgress list survives naming only done",
+          st.category("In Review") == "In Progress", st.category("In Review"))
+    # The quiet failure this exists to prevent: a column nobody configured, read
+    # as To Do, flattening the burndown with nothing on screen to say why.
+    st.category("Awaiting legal")
+    check("an unknown status is recorded, not swallowed",
+          st.unmatched == ["Awaiting legal"], st.unmatched)
+    check("the tracker's own category is trusted over the fallback regex",
+          OC.Statuses(OC.DEFAULTS).category("Parked", "Done") == "Done")
+
+    # ---- refusing a bad config. Each of these has to be named rather than
+    # silently corrected: a typo that fell back to a five-day week would move
+    # every forecast in the product with nothing saying so.
+    bad = [
+        ({"workingWeek": []}, "workingWeek"),
+        ({"workingWeek": ["mon", "funday"]}, "funday"),
+        ({"holidays": ["not-a-date"]}, "not-a-date"),
+        ({"sprintLengthDays": 0}, "sprintLengthDays"),
+        ({"sprintLengthDays": 14.5}, "sprintLengthDays"),
+        ({"statuses": {"done": ["Done"], "inProgress": ["done"]}}, "both"),
+    ]
+    for override, needle in bad:
+        problems = OC.validate(OC.merge(OC.DEFAULTS, override))
+        check("a bad config is refused and says why: %s" % needle,
+              any(needle in p for p in problems), problems or "accepted")
+    check("the shipped config is valid",
+          OC.validate(OC.load(str(ROOT / "config" / "organisation.json"))) == [])
+
+    # ---- the facts pack states its calendar, as the forecast does
+    f = M.facts(json.loads((ROOT / "data" / "sample-sprint.json").read_text()))
+    check("the facts pack names its calendar",
+          "working week" in (f["meta"].get("calendar") or ""), f["meta"].get("calendar"))
+
+
 if __name__ == "__main__":
     print("facts pack vs the dashboard")
     test_facts()
@@ -634,6 +720,8 @@ if __name__ == "__main__":
     test_intake_sequencing()
     print("backtest")
     test_backtest()
+    print("organisation config")
+    test_org_config()
 
     print()
     if failures:

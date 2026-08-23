@@ -67,6 +67,25 @@ Then drop that file onto the upload panel, or `make serve` and open `?data=data/
 
 The script derives two things a CSV export cannot give you: **cycle time**, from the first transition into an in-progress status in the Jira changelog, and **mid-sprint additions**, from when the sprint field was set.
 
+For a Jira that is not your own, connect it with OAuth instead of a personal API token — a grant the customer consented to, scoped read-only, and revocable by them:
+
+```bash
+python3 scripts/jira_auth.py login          # one-time, after registering the app
+python3 scripts/fetch_delivery_data.py --jira-board 42
+```
+
+Both paths stay supported and the fetcher prints which one it used. Setup, scopes and where the grant is stored: [docs/connecting-jira-asana.md](docs/connecting-jira-asana.md).
+
+### Telling it what "done" means
+
+Which statuses count as finished, which days are worked, the holiday calendar and the sprint length live in `config/organisation.json` — they used to be assumptions written into the code. The resolved config is written **into** the dataset, so the page, the agent's tools and the live server all read the same one and cannot describe a sprint under two different calendars.
+
+```bash
+python3 agent/tools/orgconfig.py config/organisation.json     # validate it
+```
+
+Statuses the config has never seen are named at the end of every run rather than quietly read as *To Do*. Adopting the file changes no number: its defaults are what was hard-coded before. Full reference: [docs/organisation-config.md](docs/organisation-config.md).
+
 ### 3. MCP connectors — once the format has proved itself
 
 Connect the Atlassian and Asana connectors in Claude and ask in plain language: *"pull Sprint 25 and rebuild the dashboard data."* Same JSON contract, nothing to run. Keep the fetcher for scheduled refreshes.
@@ -112,6 +131,7 @@ Because it needs the local server, this tile shows an offline notice rather than
 │   └── templates/                       CSV + JSON starting points
 ├── scripts/
 │   ├── fetch_delivery_data.py           Jira + Asana → JSON
+│   ├── jira_auth.py                     OAuth 2.0 (3LO) login, refresh, sites
 │   ├── rebuild_burndown.py              recompute a burndown in both units
 │   ├── make_sample_bundle.py            random bundle, for load testing
 │   ├── make_demo_bundle.py              authored bundle, for the demo
@@ -123,7 +143,8 @@ Because it needs the local server, this tile shows an offline notice rather than
 │   ├── dashboard-review.md              why it is built this way
 │   ├── importing-data.md                the upload pipeline
 │   ├── data-format.md                   every field and what it drives
-│   ├── connecting-jira-asana.md         live data, and why not from the page
+│   ├── connecting-jira-asana.md         live data, OAuth, and why not from the page
+│   ├── organisation-config.md           what "done" means, and which days count
 │   ├── contexts-and-live-mode.md        project/board/sprint filtering
 │   ├── product-intake.md                forecasting an ask before it exists
 │   ├── agent-executive-summary.md       the agent, for a leadership audience
@@ -135,6 +156,7 @@ Because it needs the local server, this tile shows an offline notice rather than
 │   ├── tools/metrics.py                 deterministic facts pack
 │   ├── tools/forecast.py                Monte Carlo forecasting
 │   ├── tools/intake.py                  product-intake sizing and forecasting
+│   ├── tools/orgconfig.py               the per-organisation assumptions
 │   ├── templates/                       exec brief + team report + intake brief
 │   └── snapshots/                       facts packs, scope history, forecast log
 ├── tests/

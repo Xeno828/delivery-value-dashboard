@@ -18,14 +18,35 @@ Install
 -------
     pip install requests
 
-Jira
-----
+Jira — two ways in
+------------------
+**OAuth (a customer's site).** A consented, scoped, revocable grant. Register
+the app once, then:
+
+    python fetch_delivery_data.py --jira-board 42        # uses the stored grant
+
+See scripts/jira_auth.py for the one-time setup. If the grant covers more than
+one site, name it with --jira-site; the script refuses to guess.
+
+**API token (your own board).** No app registration, unchanged, still fine:
+
     export JIRA_URL=https://your-domain.atlassian.net
     export JIRA_EMAIL=you@company.com
     export JIRA_TOKEN=...        # id.atlassian.com > Security > API tokens
 
     python fetch_delivery_data.py --jira-board 42 --out dashboard-data.json
     python fetch_delivery_data.py --jira-jql 'project = BLC AND sprint in openSprints()'
+
+`--auth auto` (the default) prefers a stored grant and falls back to the token.
+Whichever it used is printed, because the two see different sets of issues.
+
+Organisation config
+-------------------
+Which statuses mean done, which days are worked, the holiday calendar and the
+sprint length come from config/organisation.json (--org-config to point
+elsewhere). The resolved config is written into the output as `orgConfig` so
+the dashboard and the agent's tools read the same one — see
+docs/organisation-config.md.
 
 Asana
 -----
@@ -46,17 +67,36 @@ if your site names them unusually.
 import argparse
 import json
 import os
-import re
+import pathlib
 import sys
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 try:
     import requests
 except ImportError:
     sys.exit("Install the dependency first:  pip install requests")
 
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "agent" / "tools"))
+sys.path.insert(0, str(ROOT / "scripts"))
+
+import orgconfig as OC  # noqa: E402
+
 TIMEOUT = 45
+
+# The organisation config for this run, resolved once in main(). Module state is
+# safe here in a way it would not be in agent/tools: this is a single-shot CLI
+# that pulls one site and exits, whereas the tools are imported by a server that
+# handles several datasets in one process and must be handed their config.
+CFG = OC.DEFAULTS
+STATUSES = OC.Statuses(CFG)
+
+
+def configure(cfg):
+    global CFG, STATUSES
+    CFG = cfg
+    STATUSES = OC.Statuses(cfg)
 
 
 # --------------------------------------------------------------------------
@@ -70,38 +110,57 @@ def d(value):
 
 
 def working_days(start, end):
-    """Weekdays between two ISO dates, inclusive. Replace with your own
-    calendar if the team observes public holidays."""
+    """Working days between two ISO dates, inclusive, per the organisation
+    config — including its holiday calendar. Written into the dataset as
+    `meta.workingDays` so every consumer reads the same list rather than
+    recomputing it against a calendar of its own."""
     if not start or not end:
         return []
-    a, b, out = date.fromisoformat(start), date.fromisoformat(end), []
-    while a <= b:
-        if a.weekday() < 5:
-            out.append(a.isoformat())
-        a += timedelta(days=1)
-    return out
+    return OC.working_days_iso(start, end, CFG)
+
+
+def report_unmatched():
+    """Name every status the config did not cover.
+
+    This is the quiet failure mode of the whole feature. A site adds an
+    "Awaiting sign-off" column, no rule mentions it, those issues read as To Do,
+    the burndown flattens, and the dashboard is confidently wrong with nothing
+    on screen to say so. Printing the names costs one line and turns it into a
+    two-minute config edit.
+    """
+    names = STATUSES.unmatched
+    if not names:
+        return
+    print("  note: %d status%s matched no rule in the config and were inferred: %s"
+          % (len(names), "" if len(names) == 1 else "es", ", ".join(repr(n) for n in names)),
+          file=sys.stderr)
+    print("        add each to statuses.done or statuses.inProgress in your "
+          "organisation config, or confirm it belongs in To Do.", file=sys.stderr)
 
 
 def status_category(name, category=None):
-    if category:
-        c = category.lower()
-        if "done" in c or "complete" in c:
-            return "Done"
-        if "progress" in c:
-            return "In Progress"
-        return "To Do"
-    n = (name or "").lower()
-    if re.search(r"done|closed|resolved|complete|shipped", n):
-        return "Done"
-    if re.search(r"progress|review|test|doing|qa", n):
-        return "In Progress"
-    return "To Do"
+    """Which of To Do / In Progress / Done a tracker status means.
+
+    Configured per organisation, because "done" is a local word: a site with a
+    "Signed off" column and no "Done" column had every sprint reading 0%
+    complete. Names the config has never seen are recorded and printed at the
+    end of the run rather than quietly becoming To Do.
+    """
+    return STATUSES.category(name, category)
 
 
 # --------------------------------------------------------------------------
 # Jira
 # --------------------------------------------------------------------------
-class Jira:
+class _TokenTransport:
+    """The original path: a personal API token over HTTP basic auth.
+
+    Still here, still supported. It needs no app registration and is the right
+    thing for pulling your own board — but the token carries whoever generated
+    it and cannot be scoped or revoked per-integration, which is why a
+    customer's site is connected with OAuth instead.
+    """
+
     def __init__(self, url, email, token):
         self.url = url.rstrip("/")
         self.s = requests.Session()
@@ -112,6 +171,25 @@ class Jira:
         r = self.s.get(self.url + path, params=params, timeout=TIMEOUT)
         r.raise_for_status()
         return r.json()
+
+    def post(self, path, json=None):
+        return self.s.post(self.url + path, json=json, timeout=TIMEOUT)
+
+
+class Jira:
+    """The Jira surface this script needs, over either transport.
+
+    `url` is the *browsable* site — it goes into issue deep links and
+    `meta.baseUrl`. Under OAuth the requests go to api.atlassian.com instead,
+    which is not a URL a human can click, so the two are kept apart.
+    """
+
+    def __init__(self, transport, browse_url):
+        self.t = transport
+        self.url = (browse_url or "").rstrip("/")
+
+    def get(self, path, **params):
+        return self.t.get(path, **params)
 
     def find_fields(self, sp_hint=None, sprint_hint=None):
         """Locate the story-point and sprint custom fields by display name."""
@@ -138,11 +216,10 @@ class Jira:
     def search(self, jql, fields, expand="changelog"):
         out, start = [], 0
         while True:
-            page = self.s.post(
-                self.url + "/rest/api/3/search",
+            page = self.t.post(
+                "/rest/api/3/search",
                 json={"jql": jql, "startAt": start, "maxResults": 100,
                       "fields": fields, "expand": [expand]},
-                timeout=TIMEOUT,
             )
             page.raise_for_status()
             body = page.json()
@@ -153,14 +230,41 @@ class Jira:
         return out
 
 
-def jira_pull(args):
-    url = os.environ.get("JIRA_URL")
-    email = os.environ.get("JIRA_EMAIL")
-    token = os.environ.get("JIRA_TOKEN")
-    if not (url and email and token):
-        sys.exit("Set JIRA_URL, JIRA_EMAIL and JIRA_TOKEN before using --jira-*")
+def connect_jira(args=None):
+    """An OAuth grant if one is stored, otherwise the API token from the env.
 
-    j = Jira(url, email, token)
+    Which one was used is printed, because a run that quietly fell back to a
+    personal token would pull a different set of issues — everything that
+    account can see rather than everything the grant was scoped to — and the
+    resulting file looks exactly as legitimate.
+    """
+    site = getattr(args, "jira_site", None)
+    prefer_token = os.environ.get("JIRA_TOKEN") and os.environ.get("JIRA_EMAIL") \
+        and getattr(args, "auth", "auto") == "token"
+
+    if getattr(args, "auth", "auto") != "token":
+        import jira_auth
+        if jira_auth.TokenStore().read() or getattr(args, "auth", "auto") == "oauth":
+            sess = jira_auth.OAuthSession(site)
+            print("Jira: OAuth grant, site %s (%s)"
+                  % (sess.site.get("name") or sess.cloud_id, sess.url), file=sys.stderr)
+            return Jira(sess, sess.url)
+
+    url, email, token = (os.environ.get("JIRA_URL"), os.environ.get("JIRA_EMAIL"),
+                         os.environ.get("JIRA_TOKEN"))
+    if not (url and email and token):
+        sys.exit("No Jira connection. Either\n"
+                 "  python3 scripts/jira_auth.py login        (OAuth, for a customer site)\n"
+                 "or set JIRA_URL, JIRA_EMAIL and JIRA_TOKEN  (personal API token)")
+    if prefer_token:
+        print("Jira: API token (--auth token), %s" % url, file=sys.stderr)
+    else:
+        print("Jira: API token, %s" % url, file=sys.stderr)
+    return Jira(_TokenTransport(url, email, token), url)
+
+
+def jira_pull(args):
+    j = connect_jira(args)
     sp_field, sprint_field = j.find_fields(args.sp_field, args.sprint_field)
     if not sp_field:
         print("! No story-point field found — points will be 0. "
@@ -318,11 +422,7 @@ def jira_bundle(args):
     — a fetch per sprint — makes "show me the previous sprint" a round trip to
     a terminal, which is the thing that stops people looking.
     """
-    url, email, token = (os.environ.get("JIRA_URL"), os.environ.get("JIRA_EMAIL"),
-                         os.environ.get("JIRA_TOKEN"))
-    if not (url and email and token):
-        sys.exit("Set JIRA_URL, JIRA_EMAIL and JIRA_TOKEN")
-    j = Jira(url, email, token)
+    j = connect_jira(args)
     sp_field, sprint_field = j.find_fields(args.sp_field, args.sprint_field)
 
     boards = [b.strip() for b in (args.jira_boards or "").split(",") if b.strip()]
@@ -382,7 +482,7 @@ def jira_bundle(args):
         for k, ctx in enumerate([c for c in contexts if c["boardId"] == b]):
             by_ctx[ctx["id"]]["history"] = board_history[max(0, k - 5):k + 1]
 
-    return contexts, issues, by_ctx
+    return contexts, issues, by_ctx, j.url
 
 
 # --------------------------------------------------------------------------
@@ -490,7 +590,25 @@ def main():
     p.add_argument("--currency", default="USD")
     p.add_argument("--values-csv",
                    help="Optional CSV of key,businessValue,valueBasis to merge in")
+    p.add_argument("--org-config", default=str(ROOT / "config" / "organisation.json"),
+                   help="Which statuses mean done, the working week, holidays and "
+                        "sprint length (default config/organisation.json)")
+    p.add_argument("--auth", choices=("auto", "oauth", "token"), default="auto",
+                   help="auto uses a stored OAuth grant if there is one, else the "
+                        "API token in the environment")
+    p.add_argument("--jira-site", help="Which granted site to pull, by name, url or "
+                                       "cloudid — required when a grant covers several")
     args = p.parse_args()
+
+    # Resolved before anything is pulled, because it decides what "done" means
+    # and which days count. A config that cannot be read stops the run rather
+    # than silently reverting to the defaults and producing a plausible file.
+    if os.path.exists(args.org_config):
+        configure(OC.load(args.org_config))
+        print("Config: %s — %s" % (args.org_config, OC.summary(CFG)), file=sys.stderr)
+    else:
+        print("Config: %s not found, using defaults — %s"
+              % (args.org_config, OC.summary(CFG)), file=sys.stderr)
 
     if not (args.jira_board or args.jira_boards or args.jira_jql or args.asana_project):
         p.error("Give at least one of --jira-board, --jira-boards, --jira-jql, --asana-project")
@@ -498,18 +616,23 @@ def main():
     # ---- bundle mode ----
     if args.jira_boards:
         print("Building a bundle: %d sprint(s) per board" % args.sprints, file=sys.stderr)
-        contexts, issues, by_ctx = jira_bundle(args)
+        contexts, issues, by_ctx, base_url = jira_bundle(args)
         active = next((c for c in contexts if c["sprintState"] == "active"), contexts[-1])
         out = {
             "schemaVersion": "2.0",
             "meta": {
                 "organisation": args.org, "currency": args.currency,
-                "baseUrl": os.environ.get("JIRA_URL", "").rstrip("/"),
+                "baseUrl": base_url,
                 "source": "jira",
                 "sourceLabel": "Live: Jira boards %s, last %d sprints"
                                % (args.jira_boards, args.sprints),
                 "generatedAt": datetime.utcnow().isoformat() + "Z",
             },
+            # The config that produced these numbers ships inside them. A
+            # consumer that resolved its own would be a second opinion arriving
+            # by a different route, and the first sign of trouble would be the
+            # page and the facts pack disagreeing about the same sprint.
+            "orgConfig": CFG,
             "contexts": contexts,
             "defaultContextId": active["id"],
             "issues": issues,
@@ -519,6 +642,7 @@ def main():
             json.dump(out, fh, indent=1)
         print("Wrote %s — %d contexts, %d issues"
               % (args.out, len(contexts), len(issues)))
+        report_unmatched()
         return
 
     previous = {}
@@ -563,6 +687,7 @@ def main():
     out = {
         "schemaVersion": "1.0",
         "meta": meta,
+        "orgConfig": CFG,
         "issues": issues,
         "burndown": build_burndown(issues, meta),
         "history": build_history(issues, meta, previous),
@@ -583,6 +708,7 @@ def main():
     if all(not i.get("businessValue") for i in issues):
         print("  note: no business value on any issue — use --values-csv or an "
               "Asana number field to populate the value card.", file=sys.stderr)
+    report_unmatched()
 
 
 if __name__ == "__main__":

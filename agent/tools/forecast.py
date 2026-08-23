@@ -30,6 +30,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
 from typing import Optional
 
+import orgconfig as OC
+
 # ---------------------------------------------------------------- thresholds
 # Below these, the honest answer is "not enough data", not a wider interval.
 MIN_THROUGHPUT_SAMPLES = 8      # distinct periods with an observation
@@ -95,22 +97,20 @@ def _d(s):
     return date.fromisoformat(s[:10]) if s else None
 
 
-def working_days(start: date, end: date):
-    out, cur = [], start
-    while cur <= end:
-        if cur.weekday() < 5:
-            out.append(cur)
-        cur += timedelta(days=1)
-    return out
+# Working days come from the organisation config that travels in the dataset,
+# not from a rule written here. `cfg=None` means the defaults — a five-day week
+# and no holidays — so a file predating the config forecasts exactly as before.
+#
+# The config is threaded explicitly through every function that needs it rather
+# than held in module state. This module is imported by a long-lived server that
+# serves more than one dataset, and a forecast built with the previous request's
+# calendar is the kind of wrong answer that looks completely right.
+def working_days(start: date, end: date, cfg=None):
+    return OC.working_days(start, end, cfg or OC.DEFAULTS)
 
 
-def add_working_days(start: date, n: int) -> date:
-    cur, left = start, n
-    while left > 0:
-        cur += timedelta(days=1)
-        if cur.weekday() < 5:
-            left -= 1
-    return cur
+def add_working_days(start: date, n: int, cfg=None) -> date:
+    return OC.add_working_days(start, n, cfg or OC.DEFAULTS)
 
 
 def _pct(sorted_vals, p):
@@ -122,7 +122,7 @@ def _pct(sorted_vals, p):
 
 
 # ---------------------------------------------------------- sample extraction
-def throughput_samples(issues, window_days: int = 90, as_of: Optional[str] = None):
+def throughput_samples(issues, window_days: int = 90, as_of: Optional[str] = None, cfg=None):
     """Items completed per working day over the trailing window.
 
     Zero-throughput days are included deliberately. Dropping them is the most
@@ -137,7 +137,7 @@ def throughput_samples(issues, window_days: int = 90, as_of: Optional[str] = Non
     end = _d(as_of) if as_of else max(resolved)
     start = max(min(resolved), end - timedelta(days=window_days))
     per_day = Counter(resolved)
-    return [per_day.get(day, 0) for day in working_days(start, end)]
+    return [per_day.get(day, 0) for day in working_days(start, end, cfg)]
 
 
 def full_history_days(issues, as_of: Optional[str] = None) -> int:
@@ -158,17 +158,17 @@ def full_history_days(issues, as_of: Optional[str] = None) -> int:
     return max((end - min(resolved)).days, 0)
 
 
-def cycle_times(issues):
+def cycle_times(issues, cfg=None):
     """Active working days from start to resolution, for completed items."""
     out = []
     for i in issues:
         s, r = _d(i.get("started")), _d(i.get("resolved"))
         if s and r and r >= s:
-            out.append(len(working_days(s, r)))
+            out.append(len(working_days(s, r, cfg)))
     return sorted(out)
 
 
-def lead_times(issues):
+def lead_times(issues, cfg=None):
     """Working days from creation to resolution, for completed items.
 
     Kept separate from cycle time on purpose. The dashboard ages open work from
@@ -180,7 +180,7 @@ def lead_times(issues):
     for i in issues:
         c, r = _d(i.get("created")), _d(i.get("resolved"))
         if c and r and r >= c:
-            out.append(len(working_days(c, r)))
+            out.append(len(working_days(c, r, cfg)))
     return sorted(out)
 
 
@@ -207,7 +207,8 @@ def forecast_completion(remaining_items: int,
                         target_date: Optional[str] = None,
                         scope_growth=None,
                         trials: int = TRIALS,
-                        seed: int = SEED):
+                        seed: int = SEED,
+                        cfg=None):
     """When will `remaining_items` be finished? Percentiles, not a date."""
     if len(samples) < MIN_THROUGHPUT_SAMPLES or sum(samples) < MIN_COMPLETED_ITEMS:
         return Refusal(reason="too little completion history to sample from",
@@ -240,7 +241,7 @@ def forecast_completion(remaining_items: int,
     fc = DateForecast(
         remaining_items=remaining_items,
         days=pcts,
-        percentiles={p: add_working_days(begin, n).isoformat() for p, n in pcts.items()},
+        percentiles={p: add_working_days(begin, n, cfg).isoformat() for p, n in pcts.items()},
         scope_growth_applied=(statistics.mean(growth) - 1.0) if growth else 0.0,
         samples=len(samples),
         unfinished_fraction=round(unfinished / float(trials), 4),
@@ -253,20 +254,20 @@ def forecast_completion(remaining_items: int,
                    % (100.0 * unfinished / float(trials), HORIZON)) if unfinished else "")),
     )
     if target_date:
-        budget = len(working_days(begin, _d(target_date))) - 1
+        budget = len(working_days(begin, _d(target_date), cfg)) - 1
         fc.target_date = target_date
         fc.prob_by_target = round(sum(1 for d in day_counts if d <= budget) / len(day_counts), 3)
     return fc
 
 
 def forecast_count_by_date(samples, start_from: str, target_date: str,
-                           trials: int = TRIALS, seed: int = SEED):
+                           trials: int = TRIALS, seed: int = SEED, cfg=None):
     """How much will be finished by a fixed date? The capacity question."""
     if len(samples) < MIN_THROUGHPUT_SAMPLES or sum(samples) < MIN_COMPLETED_ITEMS:
         return Refusal(reason="too little completion history to sample from",
                        have=sum(samples), need=MIN_COMPLETED_ITEMS)
     begin, end = _d(start_from), _d(target_date)
-    horizon = max(len(working_days(begin, end)) - 1, 0)
+    horizon = max(len(working_days(begin, end, cfg)) - 1, 0)
     if horizon <= 0:
         return Refusal(reason="the target date is not in the future", have=0, need=1)
 
@@ -285,7 +286,7 @@ def forecast_count_by_date(samples, start_from: str, target_date: str,
     )
 
 
-def item_risk(issues, as_of: str):
+def item_risk(issues, as_of: str, cfg=None):
     """Per-item completion risk from the empirical cycle-time distribution.
 
     For each open, started item: of historically completed items, what share
@@ -294,8 +295,8 @@ def item_risk(issues, as_of: str):
     without intervention. It is not a hazard model and must not be described
     as a probability of completion.
     """
-    cyc = cycle_times(issues)
-    lead = lead_times(issues)
+    cyc = cycle_times(issues, cfg)
+    lead = lead_times(issues, cfg)
     if len(cyc) < MIN_CYCLE_SAMPLES:
         return Refusal(reason="too few items with both a start and an end date",
                        have=len(cyc), need=MIN_CYCLE_SAMPLES)
@@ -308,8 +309,8 @@ def item_risk(issues, as_of: str):
         if (i.get("statusCategory") or "") == "Done":
             continue
         s, c = _d(i.get("started")), _d(i.get("created"))
-        active = (len(working_days(s, today)) - 1) if s else None
-        alive = (len(working_days(c, today)) - 1) if c else None
+        active = (len(working_days(s, today, cfg)) - 1) if s else None
+        alive = (len(working_days(c, today, cfg)) - 1) if c else None
         if active is None and alive is None:
             continue
         longer = (sum(1 for v in cyc if v > active) / len(cyc)) if active is not None else None
@@ -391,7 +392,7 @@ def recommend_commitment(samples, sprint_working_days: int,
     }
 
 
-def size_stability(issues, as_of=None, window_days: int = 120):
+def size_stability(issues, as_of=None, window_days: int = 120, cfg=None):
     """Is item-count forecasting still safe for this team?
 
     Counting items assumes items are roughly interchangeable in size. That
@@ -425,15 +426,15 @@ def size_stability(issues, as_of=None, window_days: int = 120):
     halves = (inwin[:mid], inwin[mid:])
     stats = []
     for half in halves:
-        cyc = sorted(len(working_days(_d(i["started"]), _d(i["resolved"]))) for i in half)
-        span = max(1, len(working_days(_d(half[0]["resolved"]), _d(half[-1]["resolved"]))))
+        cyc = sorted(len(working_days(_d(i["started"]), _d(i["resolved"]), cfg)) for i in half)
+        span = max(1, len(working_days(_d(half[0]["resolved"]), _d(half[-1]["resolved"]), cfg)))
         stats.append({"n": len(half), "median_cycle": _pct(cyc, 50),
                       "p85_cycle": _pct(cyc, 85), "items_per_day": round(len(half) / span, 3)})
     a, b = stats
     cycle_change = (b["median_cycle"] - a["median_cycle"]) / a["median_cycle"] if a["median_cycle"] else 0
     rate_change = (b["items_per_day"] - a["items_per_day"]) / a["items_per_day"] if a["items_per_day"] else 0
 
-    all_cyc = sorted(len(working_days(_d(i["started"]), _d(i["resolved"]))) for i in inwin)
+    all_cyc = sorted(len(working_days(_d(i["started"]), _d(i["resolved"]), cfg)) for i in inwin)
     p50, p85 = _pct(all_cyc, 50), _pct(all_cyc, 85)
     spread = (p85 / p50) if p50 else None
 
@@ -520,6 +521,9 @@ def build(dataset, as_of=None, remaining=None, target=None, snapshots=None,
     `inputs`, so a wide sample is visible rather than implied."""
     issues = dataset["issues"]
     meta = dataset.get("meta", {})
+    # Resolved once, from the dataset, and passed down. Nothing below re-reads
+    # it and nothing reaches for a file of its own.
+    cfg = OC.from_dataset(dataset)
     as_of = as_of or meta.get("asOfDate") or date.today().isoformat()
     target = target or meta.get("endDate")
     open_items = [i for i in issues if (i.get("statusCategory") or "") != "Done"]
@@ -527,7 +531,7 @@ def build(dataset, as_of=None, remaining=None, target=None, snapshots=None,
 
     if window_days is None:
         window_days = full_history_days(issues, as_of)
-    samples = throughput_samples(issues, window_days=window_days, as_of=as_of)
+    samples = throughput_samples(issues, window_days=window_days, as_of=as_of, cfg=cfg)
     growth = scope_growth_history(snapshots)
 
     def out(x):
@@ -542,22 +546,26 @@ def build(dataset, as_of=None, remaining=None, target=None, snapshots=None,
             "items_completed_in_window": sum(samples),
             "window_days": window_days,
             "scope_growth_samples": len(growth),
+            # Named in the output because two forecasts of the same board under
+            # different calendars are different forecasts, and the difference is
+            # otherwise invisible.
+            "calendar": OC.summary(cfg),
         },
         "sprint_completion": out(forecast_completion(
-            remaining, samples, as_of, target_date=target, scope_growth=growth)),
-        "capacity_to_target": out(forecast_count_by_date(samples, as_of, target))
+            remaining, samples, as_of, target_date=target, scope_growth=growth, cfg=cfg)),
+        "capacity_to_target": out(forecast_count_by_date(samples, as_of, target, cfg=cfg))
         if target and target > as_of else
         out(Refusal(reason="the target date has passed", have=0, need=1)),
-        "item_risk": out(item_risk(issues, as_of)),
+        "item_risk": out(item_risk(issues, as_of, cfg=cfg)),
         "next_commitment": out(recommend_commitment(
             samples, len(meta.get("workingDays") or working_days(
-                _d(meta.get("startDate")), _d(meta.get("endDate")))) or 10)),
-        "size_stability": out(size_stability(issues, as_of)),
+                _d(meta.get("startDate")), _d(meta.get("endDate")), cfg)) or 10)),
+        "size_stability": out(size_stability(issues, as_of, cfg=cfg)),
         "releases": [
             {"name": r["name"], "target": r["targetDate"],
              "forecast": out(forecast_completion(
                  max((r.get("scopeIssues") or 0) - (r.get("doneIssues") or 0), 0),
-                 samples, as_of, target_date=r["targetDate"], scope_growth=growth))}
+                 samples, as_of, target_date=r["targetDate"], scope_growth=growth, cfg=cfg))}
             for r in dataset.get("releases", [])
         ],
     }

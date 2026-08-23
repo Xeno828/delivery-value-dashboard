@@ -61,7 +61,30 @@ Separately, and not affected by the toggle: **elapsed time is reported in calend
 }
 ```
 
-`sourceLabel` is shown in the header badge and in the footer. The badge is green when `source` is anything other than `demo`. `workingDays` is recomputed on upload; weekends are excluded and holidays are not — edit `workingDays()` in `src/app.js` if your team observes them.
+`sourceLabel` is shown in the header badge and in the footer. The badge is green when `source` is anything other than `demo`. `workingDays` is recomputed on upload from the organisation config — the working week and the holiday calendar both come from `orgConfig` below, and no longer from a rule written in `src/app.js`.
+
+### `orgConfig`
+
+```json
+{
+  "version": 1,
+  "statuses": {
+    "done": ["Done", "Closed", "Resolved", "Complete", "Completed", "Shipped"],
+    "inProgress": ["In Progress", "In Review", "Review", "Testing", "Test", "QA", "Doing"]
+  },
+  "workingWeek": ["mon", "tue", "wed", "thu", "fri"],
+  "holidays": [],
+  "sprintLengthDays": 14
+}
+```
+
+Top-level, a sibling of `meta` — not inside it, because `meta.organisation` is already the company's name.
+
+The assumptions that differ per customer, resolved once by whatever produced the file and written into it. Every consumer — the page, `metrics.py`, `forecast.py`, `intake.py`, the live server — reads it from here rather than from a config file of its own, so the tools and the dashboard cannot end up describing the same sprint under two different calendars. Full reference in [organisation-config.md](organisation-config.md).
+
+Absent means the defaults above, which reproduce what was hard-coded before the block existed, so every file that predates it reads exactly as it did.
+
+Holidays shorten **working** time only. Reported elapsed time stays in calendar days — see Units above.
 
 ### `burndown[]`
 

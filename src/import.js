@@ -417,7 +417,7 @@ function buildBurndown(issues, meta) {
      and the forecasting agent works in items — a burndown that only exists in
      story points is the two-tools-disagree problem baked into the data.
      Mirrors scripts/rebuild_burndown.py and the fetcher's build_burndown(). */
-  const days = API.workingDays(meta.startDate, meta.endDate);
+  const days = API.workingDays(meta.startDate, meta.endDate, API.orgConfig());
   if (!days.length) return [];
   const planned = issues.filter(i => !i.addedMidSprint);
   const baseP = planned.reduce((t, i) => t + (i.storyPoints || 0), 0);
@@ -523,7 +523,12 @@ function assemble() {
     sourceLabel: "Uploaded: " + W.filename,
     generatedAt: new Date().toISOString()
   });
-  meta.workingDays = API.workingDays(meta.startDate, meta.endDate);
+  // The organisation's calendar is a property of the organisation, not of the
+  // file someone happened to drop in. A CSV carries no config, so an upload
+  // keeps the one already in play rather than silently reverting a customer's
+  // four-day week and holiday list to a default Mon-Fri.
+  const org = API.orgConfig();
+  meta.workingDays = API.workingDays(meta.startDate, meta.endDate, org);
 
   const history = (prev.history || []).filter(h => h.sprint !== meta.sprintName)
     .concat([buildHistoryRow(merged, meta, prev.history)]).slice(-6);
@@ -532,6 +537,9 @@ function assemble() {
     dataset: {
       schemaVersion: "1.0",
       meta,
+      // Carried into the new dataset so the calendar the burndown above was
+      // built with is the same one everything downstream reads.
+      orgConfig: org,
       issues: merged,
       burndown: buildBurndown(merged, meta),
       history,

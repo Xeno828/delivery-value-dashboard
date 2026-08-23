@@ -27,21 +27,21 @@ import json
 from collections import defaultdict
 from datetime import date, timedelta
 
+import orgconfig as OC
+
 
 # ------------------------------------------------------------------- helpers
 def _d(s):
     return date.fromisoformat(s[:10]) if s else None
 
 
-def working_days(a, b):
-    if not a or not b or b < a:
-        return []
-    out, cur = [], a
-    while cur <= b:
-        if cur.weekday() < 5:
-            out.append(cur)
-        cur += timedelta(days=1)
-    return out
+def working_days(a, b, cfg=None):
+    """Working dates, per the organisation config the dataset carries.
+
+    `cfg=None` is a five-day week with no holidays, which is what was written
+    here before the config existed — a file predating it computes as before.
+    """
+    return OC.working_days(a, b, cfg or OC.DEFAULTS)
 
 
 def elapsed_days(a, b):
@@ -102,6 +102,10 @@ def in_sprint(i, start):
 # --------------------------------------------------------------------- facts
 def facts(ds, previous=None, scope="sprint"):
     meta = ds.get("meta", {})
+    # One resolution, from the file, shared by everything below. The dashboard
+    # reads the same block out of the same file, which is what keeps this pack
+    # and the page from disagreeing about which days were worked.
+    cfg = OC.from_dataset(ds)
     as_of = meta.get("asOfDate") or meta.get("endDate") or date.today().isoformat()
     end = meta.get("endDate")
     start = meta.get("startDate")
@@ -125,7 +129,7 @@ def facts(ds, previous=None, scope="sprint"):
     cyc = [c for c in cyc if c is not None]
     lead = [l for l in lead if l is not None]
 
-    wdays = meta.get("workingDays") or [d.isoformat() for d in working_days(_d(start), _d(end))]
+    wdays = meta.get("workingDays") or [d.isoformat() for d in working_days(_d(start), _d(end), cfg)]
     elapsed = pct(wdays.index(as_of) + 1, len(wdays)) if as_of in wdays else (1.0 if wdays else None)
 
     ages = {}
@@ -160,6 +164,9 @@ def facts(ds, previous=None, scope="sprint"):
             "scope": scope,
             "issues_in_scope": len(issues),
             "issues_in_file": len(all_issues),
+            # Stated, not assumed. Sprint elapsed-percentage below is a share of
+            # working days, so the calendar behind it belongs in the pack.
+            "calendar": OC.summary(cfg),
         },
         "delivery": {
             "items_total": len(issues), "items_done": len(done),

@@ -46,6 +46,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "agent" / "tools"))
 import forecast as FC  # noqa: E402
 import intake as IN    # noqa: E402
+import orgconfig as OC  # noqa: E402
 
 ASKS_DIR = ROOT / "data" / "asks"
 
@@ -78,7 +79,7 @@ def team_slice(contexts, ctx):
             "board %s/%s" % (ctx.get("projectKey"), ctx.get("boardId")))
 
 
-def forecast_for(contexts, issues, byContext, cid, items=None, target=None):
+def forecast_for(contexts, issues, byContext, cid, items=None, target=None, org_cfg=None):
     """Run the real forecaster for one context. Returns None for an unknown id.
 
     The slice is the thing to get right, and getting it wrong produces a
@@ -122,7 +123,11 @@ def forecast_for(contexts, issues, byContext, cid, items=None, target=None):
     meta = {"sprintName": ctx.get("sprintName"), "startDate": ctx.get("startDate"),
             "endDate": ctx.get("endDate"), "asOfDate": as_of,
             "workingDays": ctx.get("workingDays")}
+    # The bundle's own config, carried onto the slice. Building this dict
+    # without it would forecast the customer's board against a calendar they do
+    # not keep — a different answer, arrived at silently, from the same data.
     ds = {"issues": team_issues, "meta": meta,
+          "orgConfig": org_cfg or {},
           "releases": (byContext.get(cid) or {}).get("releases", [])}
     eff_target = target or ctx.get("endDate")
     out = FC.build(ds, as_of=as_of, remaining=remaining, target=eff_target)
@@ -204,6 +209,9 @@ class BundleBackend:
         self.label = "bundle file %s" % self.path.name
         self.source = (self.data.get("meta") or {}).get("source", "bundle")
 
+    def org_config(self):
+        return OC.from_dataset(self.data)
+
     def contexts(self):
         return [{k: v for k, v in c.items() if k != "workingDays"}
                 for c in self.data.get("contexts", [])]
@@ -215,6 +223,7 @@ class BundleBackend:
             return None
         return {
             "context": ctx,
+            "orgConfig": OC.from_dataset(self.data),
             "issues": [i for i in self.data["issues"] if i.get("contextId") == cid],
             "burndown": by.get("burndown", []), "history": by.get("history", []),
             "releases": by.get("releases", []), "dora": by.get("dora"),
@@ -231,7 +240,8 @@ class BundleBackend:
             self._fc[key] = forecast_for(self.data.get("contexts", []),
                                          self.data.get("issues", []),
                                          self.data.get("byContext") or {},
-                                         cid, items, target)
+                                         cid, items, target,
+                                         org_cfg=OC.from_dataset(self.data))
         return self._fc[key]
 
 
@@ -239,14 +249,14 @@ class JiraBackend:
     """Queries Jira on demand. Sprint lists are cheap; issues are fetched only
     when a sprint is actually selected, and cached for the process lifetime."""
 
-    def __init__(self, board_ids, sprints):
+    def __init__(self, board_ids, sprints, cfg=None, site=None, auth="auto"):
         import fetch_delivery_data as F
         self.F = F
-        url, email, token = (os.environ.get("JIRA_URL"), os.environ.get("JIRA_EMAIL"),
-                             os.environ.get("JIRA_TOKEN"))
-        if not (url and email and token):
-            sys.exit("Set JIRA_URL, JIRA_EMAIL and JIRA_TOKEN (or use --bundle)")
-        self.j = F.Jira(url, email, token)
+        self.cfg = cfg or OC.DEFAULTS
+        # The server and the fetcher categorise statuses the same way because
+        # they are the same code, configured once, here.
+        F.configure(self.cfg)
+        self.j = F.connect_jira(argparse.Namespace(jira_site=site, auth=auth))
         self.boards = [b.strip() for b in board_ids.split(",") if b.strip()]
         self.sprints = sprints
         self.source = "jira"
@@ -296,13 +306,16 @@ class JiraBackend:
         meta["workingDays"] = self.F.working_days(ctx["startDate"], ctx["endDate"])
         meta["asOfDate"] = ctx["asOfDate"] or ctx["endDate"]
         out = {
-            "context": meta, "issues": issues,
+            "context": meta, "orgConfig": self.cfg, "issues": issues,
             "burndown": self.F.build_burndown(issues, meta),
             "history": [], "releases": [], "dora": None,
         }
         ctx["issueCount"] = len(issues)
         self._cache[cid] = out
         return out
+
+    def org_config(self):
+        return self.cfg
 
     def sequence(self, cid):
         """Sequencing sizes asks against the board's completed epics and its
@@ -335,7 +348,8 @@ class JiraBackend:
             got = self.context(m["id"])
             if got:
                 issues.extend(got["issues"])
-        self._fc[key] = forecast_for(all_ctx, issues, {}, cid, items, target)
+        self._fc[key] = forecast_for(all_ctx, issues, {}, cid, items, target,
+                                     org_cfg=self.cfg)
         return self._fc[key]
 
 
@@ -357,7 +371,8 @@ class Handler(SimpleHTTPRequestHandler):
         path = u.path.lstrip("/")
         if path in ("api/contexts", "dist/api/contexts"):
             b = self.backend
-            return self._json({"source": b.source, "label": b.label, "contexts": b.contexts()})
+            return self._json({"source": b.source, "label": b.label,
+                               "orgConfig": b.org_config(), "contexts": b.contexts()})
         if path in ("api/forecast", "dist/api/forecast"):
             qs = urllib.parse.parse_qs(u.query)
             cid = qs.get("id", [""])[0]
@@ -413,18 +428,27 @@ def main():
     ap.add_argument("--jira-boards", help="comma-separated Jira board ids, queried live")
     ap.add_argument("--sprints", type=int, default=6, help="sprints per board to offer")
     ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--org-config", default=str(ROOT / "config" / "organisation.json"),
+                    help="organisation config for live Jira mode; a bundle carries its own")
+    ap.add_argument("--auth", choices=("auto", "oauth", "token"), default="auto")
+    ap.add_argument("--jira-site", help="which granted site to serve, when a grant covers several")
     a = ap.parse_args()
 
     if a.bundle:
+        # A bundle carries the config it was built with. Overriding it here
+        # would report the file under rules it was not produced under.
         Handler.backend = BundleBackend(a.bundle)
     elif a.jira_boards:
-        Handler.backend = JiraBackend(a.jira_boards, a.sprints)
+        cfg = OC.load(a.org_config) if os.path.exists(a.org_config) else OC.DEFAULTS
+        Handler.backend = JiraBackend(a.jira_boards, a.sprints, cfg=cfg,
+                                      site=a.jira_site, auth=a.auth)
     else:
         ap.error("give --bundle or --jira-boards")
 
     os.chdir(ROOT)
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), Handler)
     print("Serving %s" % Handler.backend.label)
+    print("  calendar: %s" % OC.summary(Handler.backend.org_config()))
     print("  http://127.0.0.1:%d/dist/delivery-value-dashboard.html" % a.port)
     print("  %d contexts offered" % len(Handler.backend.contexts()))
     print("Ctrl-C to stop.")

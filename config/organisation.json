@@ -1,0 +1,12 @@
+{
+  "version": 1,
+
+  "statuses": {
+    "done": ["Done", "Closed", "Resolved", "Complete", "Completed", "Shipped"],
+    "inProgress": ["In Progress", "In Review", "Review", "Testing", "Test", "QA", "Doing"]
+  },
+
+  "workingWeek": ["mon", "tue", "wed", "thu", "fri"],
+  "holidays": [],
+  "sprintLengthDays": 14
+}

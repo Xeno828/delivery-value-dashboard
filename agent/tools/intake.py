@@ -51,6 +51,7 @@ from typing import Optional
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import forecast as F  # noqa: E402
+import orgconfig as OC  # noqa: E402
 
 TRIALS = 20_000
 SEED = 20260816
@@ -289,7 +290,7 @@ def queue_ahead(issues, as_of):
 
 def capacity(dataset, issues, as_of, scenario):
     """Throughput samples available to a new ask under one scenario."""
-    samples = F.throughput_samples(issues, as_of=as_of)
+    samples = F.throughput_samples(issues, as_of=as_of, cfg=OC.from_dataset(dataset))
     if len(samples) < F.MIN_THROUGHPUT_SAMPLES or sum(samples) < F.MIN_COMPLETED_ITEMS:
         return Refusal(reason="too little delivery history on this team to forecast against",
                        have=sum(samples), need=F.MIN_COMPLETED_ITEMS)
@@ -386,6 +387,7 @@ def attribute_uncertainty(size_samples, thr_samples, queue_items, trials=6000, s
 
 def forecast_ask(dataset, ask, board=None, as_of=None, start_from=None, trials=TRIALS):
     issues, ctx = board_issues(dataset, board)
+    cfg = OC.from_dataset(dataset)
     as_of = as_of or (ctx or {}).get("asOfDate") or (dataset.get("meta") or {}).get("asOfDate") \
         or date.today().isoformat()
     start_from = start_from or as_of
@@ -421,10 +423,10 @@ def forecast_ask(dataset, ask, board=None, as_of=None, start_from=None, trials=T
             "interruption_discount": cap["discount"],
             "basis": cap["basis"],
             "working_days": pcts,
-            "dates": {p: F.add_working_days(begin, n).isoformat() for p, n in pcts.items()},
+            "dates": {p: F.add_working_days(begin, n, cfg).isoformat() for p, n in pcts.items()},
         }
         if ask.get("neededBy"):
-            budget = len(F.working_days(begin, _d(ask["neededBy"]))) - 1
+            budget = len(F.working_days(begin, _d(ask["neededBy"]), cfg)) - 1
             entry["needed_by"] = ask["neededBy"]
             entry["prob_by_needed"] = round(sum(1 for d in days if d <= budget) / len(days), 3)
         out["scenarios"][scenario] = entry
@@ -453,6 +455,7 @@ def sequence(dataset, asks, board=None, as_of=None, trials=8000):
     alongside.
     """
     issues, ctx = board_issues(dataset, board)
+    cfg = OC.from_dataset(dataset)
     as_of = as_of or (ctx or {}).get("asOfDate") or date.today().isoformat()
     cap = capacity(dataset, issues, as_of, "realistic")
     if isinstance(cap, Refusal):
@@ -481,7 +484,7 @@ def sequence(dataset, asks, board=None, as_of=None, trials=8000):
             days = _simulate(s.samples, cap["samples"], queue, trials, SEED)
             p85 = int(round(_pct(days, 85)))
             seq.append({"id": a.get("id"), "title": a.get("title"),
-                        "p85_days": p85, "p85_date": F.add_working_days(begin, p85).isoformat(),
+                        "p85_days": p85, "p85_date": F.add_working_days(begin, p85, cfg).isoformat(),
                         "value": (a.get("valueEstimate") or {}).get("amount"),
                         "valueBasis": (a.get("valueEstimate") or {}).get("basis"),
                         "neededBy": a.get("neededBy")})
