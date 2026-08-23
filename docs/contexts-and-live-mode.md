@@ -127,11 +127,18 @@ Additive to the v1.0 schema. **v1.0 single-sprint files still load unchanged** �
 Two endpoints, same shapes:
 
 ```
-GET api/contexts          -> { source, label, contexts: [ …context objects… ] }
-GET api/context?id=<id>   -> { context, issues, burndown, history, releases, dora }
+GET api/contexts          -> { source, label, orgConfig, contexts: [ …context objects… ] }
+GET api/context?id=<id>   -> { context, orgConfig, issues, burndown, history, releases, dora }
 ```
 
 Implement these against anything you like — the page does not care what is behind them.
+
+`orgConfig` is the organisation's calendar and status rules (see
+[organisation-config.md](organisation-config.md)). **The server's copy wins.** It computed
+the forecasts, so a page opened from a file baked with a different calendar adopts the
+server's and says so in the footer — the alternative is the tile and the rest of the page
+describing one sprint under two sets of rules. If your implementation omits it, the page
+keeps the calendar it already had.
 
 ---
 
@@ -184,7 +191,8 @@ structure the CLI prints with `--json`, plus a `sampled_from` block naming the s
 
 ```
 {
-  "inputs":      { "throughput_observations": 55, "window_days": 76, ... },
+  "inputs":      { "throughput_observations": 55, "window_days": 76,
+                   "calendar": "5-day working week (mon…fri), 0 holidays, …", ... },
   "sprint_completion": { "percentiles": {"50": "2026-08-17", "85": "2026-08-20"}, ... },
   "capacity_to_target": { "percentiles": {"85": 1}, ... },
   "next_commitment":    { "recommended": 5, "note": "...", ... },
@@ -209,6 +217,12 @@ exactly like an answer to the one asked.
 
 An unknown id returns `404` with `{"error": "unknown context '<id>'"}`, the same shape
 as `api/context`.
+
+**The calendar is named in `inputs.calendar`,** because two forecasts of one board under
+different working weeks are different forecasts and the difference is otherwise invisible.
+Note that a shorter working week also means fewer throughput observations, so a board that
+forecast happily under five days can return a refusal under four. That is the correct
+answer, not a regression.
 
 **The simulation horizon.** A single trial is abandoned after 400 working days. The share
 of trials that hit it comes back as `sprint_completion.unfinished_fraction`, and is named

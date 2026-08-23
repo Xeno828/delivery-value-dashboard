@@ -125,6 +125,8 @@ Because it needs the local server, this tile shows an offline notice rather than
 │   └── import.js         file parsing + the upload wizard
 ├── dist/
 │   └── delivery-value-dashboard.html    ← built output, committed
+├── config/
+│   └── organisation.json                what "done" means, which days are worked
 ├── data/
 │   ├── sample-sprint.json               demo dataset and worked example
 │   ├── asks/                            worked product-intake requests
@@ -153,7 +155,7 @@ Because it needs the local server, this tile shows an offline notice rather than
 │   ├── data-format.md                   every field and what it drives
 │   ├── connecting-jira-asana.md         live data, OAuth, and why not from the page
 │   ├── organisation-config.md           what "done" means, and which days count
-│   ├── adr/0008-…-calculator.md         why Forge would call hosted Python
+│   ├── adr/                             eight decision records, indexed in adr/README.md
 │   ├── contexts-and-live-mode.md        project/board/sprint filtering
 │   ├── product-intake.md                forecasting an ask before it exists
 │   ├── agent-executive-summary.md       the agent, for a leadership audience
@@ -169,13 +171,14 @@ Because it needs the local server, this tile shows an offline notice rather than
 │   ├── templates/                       exec brief + team report + intake brief
 │   └── snapshots/                       facts packs, scope history, forecast log
 ├── tests/
-│   ├── e2e.py                           browser suite, 92 checks
-│   ├── test_agent.py                    facts, forecast, refusals, backtest
+│   ├── e2e.py                           browser suite, 101 checks
+│   ├── test_agent.py                    facts, forecast, intake, org config
+│   ├── test_service.py                  the calculator: projection, refusals
 │   ├── perf.py                          timing harness, four bundle sizes
 │   ├── a11y.py                          WCAG 2.2 AA, both themes
 │   ├── security.py                      hostile-data, secrets and server checks
 │   └── fixtures/                        realistic Jira/Asana/XLSX exports
-├── build.py                             the whole build, ~60 lines
+├── build.py                             the whole build, ~80 lines
 └── Makefile
 ```
 
@@ -275,11 +278,13 @@ Single-file HTML sits on the right rung: no infrastructure, no licences, works o
 
 ## Security & accessibility
 
-Both are tested, not asserted. `make test` runs all four suites; `make test-a11y` and `make test-security` run them individually.
+Both are tested, not asserted. `make test` runs all five suites; `make test-a11y` and `make test-security` run them individually. Every one of them runs on every push.
 
 **Accessibility** — WCAG 2.2 AA against the rendered page in both themes, including states a static scan misses (the drill-down panel, the import wizard). Covers accessible names, heading order, form labels, table twins for every chart, colour-never-alone, computed text contrast, keyboard operation, focus order and return, focus visibility, reduced motion, and reflow at 380px.
 
 **Security** — the threat model is that this file gets emailed, and that its data comes from a tracker where any user can write an issue summary. The suite feeds it a dataset with an injection attempt in every string field and asserts nothing executes; checks prototype pollution, `javascript:` URLs, zero network calls, zero persistence; probes the live server for path traversal and non-loopback reachability; feeds the XLSX reader a workbook carrying an XXE, an entity-expansion bomb and a zip-slip filename; and scans the tree for committed credentials.
+
+**Credentials and egress** — the OAuth grant is git-ignored, created mode 0600 rather than widened afterwards, and never printed; the redirect listener verifies its `state` parameter and binds to loopback only; the requested scopes are asserted read-only, so adding a write scope fails the build. The hosted calculator is covered separately: it refuses free text rather than discarding it, and its field list is compared against the Forge resolver's so the side that decides what leaves a tenant and the side that decides what is accepted cannot drift apart.
 
 Both suites found real bugs on their first run. See the changelog.
 

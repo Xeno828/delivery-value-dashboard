@@ -116,7 +116,9 @@ Read-only against the trackers, by decision. The agent publishes documents; it n
 
 ## 4. Data contract
 
-Reuses the dashboard's schema unchanged (`docs/data-format.md`). Three additions:
+Reuses the dashboard's schema unchanged (`docs/data-format.md`), including the `orgConfig` block — which statuses mean done, the working week, the holiday calendar and the sprint length. The tools read it **from the dataset**, never from a config file of their own, so a facts pack and a forecast built from one file cannot be computed under two different calendars. Full reasoning in `docs/organisation-config.md`.
+
+Three additions on top of the schema:
 
 ```
 snapshots/
@@ -151,6 +153,10 @@ Two tools built on one dataset will disagree unless this is explicit:
 - **Simulated time is in working days.** No work completes on a Saturday.
 
 Every figure the agent emits carries its unit. This was found by a test asserting the facts pack matched the dashboard — the two disagreed on flow efficiency (25% vs 22%) purely on this, and would have disagreed in a meeting.
+
+**Which days are working days is now configurable, and the rule above is what keeps that safe.** The working week and the holiday calendar come from `orgConfig` and shorten *simulated* time only; a holiday never shortens an item's age. Both tools state the calendar they used — `meta.calendar` and `inputs.calendar` — so a report can name it rather than leaving the reader to assume Monday to Friday.
+
+One consequence worth anticipating in a report: **shortening the working week shortens the throughput sample**, and a team that had just enough completion history under five days can fall under the refusal threshold under four. The right output there is the refusal, not a thinner forecast. Print it verbatim as always.
 
 ---
 

@@ -47,14 +47,15 @@ There is no bundler, no `npm install`, no transpile step. `build.py` substitutes
 
 ## Rules the suites enforce
 
-Four suites run in CI and all must pass:
+Five suites run in CI and all must pass:
 
 | Suite | What it guards |
 |---|---|
-| `tests/e2e.py` | The product works: import, context switching, units, drill-downs |
-| `tests/test_agent.py` | The tools agree with the dashboard; the forecaster is honest and backtested |
+| `tests/e2e.py` | The product works: import, context switching, units, drill-downs, tile order |
+| `tests/test_agent.py` | The tools agree with the dashboard; the forecaster is honest and backtested; a config changes the right figures and nothing else |
 | `tests/a11y.py` | WCAG 2.2 AA in both themes, including post-interaction states |
-| `tests/security.py` | Hostile data cannot execute; nothing leaks; nothing persists |
+| `tests/security.py` | Hostile data cannot execute; nothing leaks; nothing persists; no credential is hard-coded |
+| `tests/test_service.py` | The hosted calculator computes nothing of its own, and no issue text can reach it |
 
 Two rules worth stating because both were broken once and caught here:
 
@@ -67,8 +68,11 @@ Two rules worth stating because both were broken once and caught here:
 
 ```bash
 pip install playwright && playwright install chromium
-make test          # all four suites
+make test          # all five suites
 make test-a11y     # accessibility only
 make test-security # security only
+make test-agent    # the tools — facts, forecast, intake, org config; no browser
+make test-service  # the hosted calculator — projection, refusals; no browser
 make perf          # timing at four bundle sizes (not part of `make test`)
+make serve-calc    # run the calculator locally, unauthenticated
 ```

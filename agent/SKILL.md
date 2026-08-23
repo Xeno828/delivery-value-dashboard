@@ -51,6 +51,8 @@ python3 agent/tools/intake.py <dataset> --board <id> --sequence 'asks/*.json'   
 
 All three emit JSON with `--json`. Run `metrics.py` first; its `meta.as_of` fixes the date every other statement is relative to. Intake method, thresholds and rationale: `docs/product-intake.md`.
 
+Both `metrics.py` and `forecast.py` now report the calendar they used — `meta.calendar` and `inputs.calendar` respectively, e.g. *"4-day working week (mon, tue, wed, thu), 2 holidays, 14-day sprints; done = Done, Signed off"*. It comes from the `orgConfig` block inside the dataset, so it is a property of the file rather than of the machine you ran on. Quote it in the basis line of any report whose figures depend on working days, and check the two agree before writing: if they ever differ, the two tools were handed different datasets and nothing below is comparable.
+
 `forecast.py` returns, alongside the completion forecasts: `next_commitment` (how many **items** to commit to next sprint, at each confidence level) and `size_stability` (whether item counting is still valid for this team). Read both before writing anything.
 
 ---
@@ -60,7 +62,7 @@ All three emit JSON with `--json`. Run `metrics.py` first; its `meta.as_of` fixe
 1. **Load and sanity-check.** Run `metrics.py`. If `meta.source` indicates demo data, or `as_of` is stale, that fact goes in the first line of both documents.
 2. **Diff.** If a previous facts pack exists, `changes.moved` and `changes.list_changes` are the spine of the report. A report that restates the same state each week gets skimmed, then ignored. **Movement is the news.**
 3. **Forecast.** Run `forecast.py`. If it returns a refusal, print the refusal sentence verbatim. Do not soften it into a wider range or a hedge; "not enough data" and "wide interval" are different statements and only one of them is true.
-4. **Reconcile.** Where the facts pack and the forecast appear to disagree, the cause is almost always units — reported elapsed time is in **calendar days**, simulated forecasts are in **working days**. Every figure you write carries its unit. If they still disagree after that, report the disagreement rather than choosing a side.
+4. **Reconcile.** Where the facts pack and the forecast appear to disagree, the cause is almost always units — reported elapsed time is in **calendar days**, simulated forecasts are in **working days**. Every figure you write carries its unit. Check `meta.calendar` against `inputs.calendar` while you are here; a mismatch means the two tools read different files. If they still disagree after that, report the disagreement rather than choosing a side.
 5. **Write both documents** from the templates in `agent/templates/`.
 6. **Log every probability you publish** to `snapshots/forecast-log.json` with its resolution criterion and date, so it can be scored later.
 7. **Score yourself.** If the log has ten or more resolved entries, run the calibration check and put the result in the exec brief's footer. If it says "not calibrated", stop quoting probabilities in the body and say why.
