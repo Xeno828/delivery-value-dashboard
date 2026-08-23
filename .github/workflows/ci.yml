@@ -38,6 +38,9 @@ jobs:
       - name: Security tests
         run: python3 tests/security.py
 
+      - name: Hosted calculator tests (projection, refusals, no arithmetic)
+        run: python3 tests/test_service.py
+
       - name: Python dependency audit
         run: |
           pip install pip-audit
