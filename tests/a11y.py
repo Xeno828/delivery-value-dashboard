@@ -313,6 +313,74 @@ def main():
                                               "!!e.getAttribute('aria-labelledby')"))
         page.keyboard.press("Escape")
 
+        # ---------- the tile picker, the other state a scan would miss ----------
+        # The popover is display:none until it is opened, so nothing above this
+        # line has looked inside it. It holds twenty-six move buttons whose
+        # accessible names are the only thing telling them apart.
+        print("tile picker")
+        page.click("#btn-view")
+        page.wait_for_selector("#view-pop:not(.hidden)", timeout=5000)
+        check("the picker's controls are all named",
+              page.evaluate(NAMES) == [], page.evaluate(NAMES)[:4])
+        # Switch themes the way the button does. Setting the attribute alone
+        # leaves the deltas and sparkline colours that render() writes inline in
+        # the previous theme's palette, and the failure that produces is the
+        # test's, not the page's.
+        for theme in ("light", "dark"):
+            page.evaluate("t => document.documentElement.dataset.theme = t", theme)
+            page.evaluate("() => window.DVD.debug.render()")
+            page.wait_for_timeout(300)
+            bad = page.evaluate(CONTRAST)
+            check("the picker's text meets WCAG AA in %s mode" % theme, bad == [],
+                  sorted(bad, key=lambda x: x["got"])[:4])
+        page.evaluate("() => document.documentElement.dataset.theme = 'light'")
+        page.evaluate("() => window.DVD.debug.render()")
+        page.wait_for_timeout(300)
+        check("the popover is a labelled dialog",
+              page.eval_on_selector("#view-pop", "e => e.getAttribute('role') === 'dialog' && "
+                                                 "!!e.getAttribute('aria-labelledby')"))
+
+        # 2.1.1 — reordering must not need a pointer. Drag and drop alone would
+        # have put this feature out of reach of anyone working from a keyboard,
+        # which is why the arrows are the mechanism and not a convenience.
+        before = page.evaluate("() => window.DVD.debug.order()")
+        page.focus('[data-move=down][data-move-id="%s"]' % before[0])
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(300)
+        after = page.evaluate("() => window.DVD.debug.order()")
+        check("a tile moves from the keyboard alone",
+              after[:2] == [before[1], before[0]], after[:3])
+
+        # 2.4.3 — the list is rebuilt around the button that was pressed. If
+        # focus is not put back, it falls to the body, and inside a popover that
+        # reads as the popover having closed.
+        active = lambda: page.evaluate(
+            "() => [document.activeElement.getAttribute('data-move-id'),"
+            " document.activeElement.getAttribute('data-move')]")
+        check("focus stays on the arrow that moved the tile",
+              active() == [before[0], "down"], active())
+
+        # At the end of the list that arrow is disabled, so focus goes to the one
+        # the tile can still travel on rather than nowhere.
+        page.evaluate("() => window.DVD.debug.setOrder(window.DVD.debug.tileIds())")
+        page.wait_for_timeout(250)
+        page.focus('[data-move=up][data-move-id="%s"]' % before[1])
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(300)
+        check("focus follows a tile that reaches the top of the list",
+              active() == [before[1], "down"], active())
+
+        # 4.1.3 — the tile that moved is somewhere down the page, usually behind
+        # the popover, so the move is invisible from where it was made.
+        check("the move is announced in a live region",
+              page.eval_on_selector("#vp-live", "e => e.getAttribute('aria-live') === 'polite'") and
+              "moved to position" in page.text_content("#vp-live"),
+              page.text_content("#vp-live"))
+
+        page.evaluate("() => window.DVD.debug.setOrder(window.DVD.debug.tileIds())")
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(250)
+
         # ---------- zoom / reflow (1.4.10) ----------
         print("1.4.10  reflow")
         # 320 CSS pixels is the width WCAG 1.4.10 actually specifies; 380 was the
@@ -344,6 +412,20 @@ def main():
             ok = not page.evaluate("() => document.documentElement.scrollWidth > window.innerWidth + 2")
             check("no horizontal scrolling at %dpx" % width, ok,
                   sw if ok else "%d — over the edge: %s" % (sw, page.evaluate(OVERFLOWERS)))
+
+        # The popover is anchored to the right edge and is wider than a narrow
+        # screen, so it is checked open as well as closed. Everything above this
+        # measured it as display:none, which costs nothing and proves nothing.
+        page.set_viewport_size({"width": 320, "height": 800})
+        page.click("#btn-view")
+        page.wait_for_selector("#view-pop:not(.hidden)", timeout=5000)
+        page.wait_for_timeout(400)
+        sw = page.evaluate("() => document.documentElement.scrollWidth")
+        ok = not page.evaluate("() => document.documentElement.scrollWidth > window.innerWidth + 2")
+        check("the open tile picker does not overflow a 320px screen", ok,
+              sw if ok else "%d — over the edge: %s" % (sw, page.evaluate(OVERFLOWERS)))
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(250)
 
         # A control that reaches the viewport edge passes today and fails on the
         # next machine. Assert the margin, not just the absence of a scrollbar.

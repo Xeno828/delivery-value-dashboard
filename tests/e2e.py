@@ -320,6 +320,78 @@ def main():
         check("an unrecognised tile list shows everything rather than a blank page",
               vis() == TIDS, len(vis()))
 
+        # ---------- tile order ----------
+        # The order is a property of the view exactly as the selection is, and
+        # it travels the same way. Two things matter beyond it working. The DOM
+        # order has to follow the visual order: a CSS `order` would move the
+        # picture and leave the tab order and the screen-reader reading order
+        # in the old sequence, so the page would read in an order nobody can
+        # see. And a garbled ?order= has to yield the whole page in an odd
+        # sequence rather than a page missing tiles.
+        page.goto(DIST.as_uri())
+        page.wait_for_timeout(800)
+        dom_order = lambda: page.eval_on_selector_all("#grid > *", "n => n.map(e => e.id)")
+        order = lambda: page.evaluate("() => window.DVD.debug.order()")
+        check("the default order is the source order", order() == TIDS, order()[:3])
+        check("the tiles sit in the DOM in that order", dom_order() == TIDS, dom_order()[:3])
+
+        open_picker(page)
+        check("the first tile cannot move up and the last cannot move down",
+              page.eval_on_selector('[data-move=up][data-move-id="%s"]' % TIDS[0], "e => e.disabled") and
+              page.eval_on_selector('[data-move=down][data-move-id="%s"]' % TIDS[-1], "e => e.disabled"))
+
+        kpi_pre_order = page.text_content("#kpis")
+        page.click('[data-move=up][data-move-id="c-risk"]')
+        page.click('[data-move=up][data-move-id="c-risk"]')
+        page.wait_for_timeout(300)
+        moved = order()
+        check("a tile moves up two places", moved.index("c-risk") == TIDS.index("c-risk") - 2,
+              moved[-4:])
+        check("the DOM order follows the visual order", dom_order() == moved, dom_order()[-4:])
+        # Same guarantee the tile picker makes: the view changes, the numbers
+        # behind it do not.
+        check("reordering does not change what is computed",
+              page.text_content("#kpis") == kpi_pre_order)
+        check("a custom order is named in the picker, not left to be noticed",
+              "Custom order" in page.text_content("#vp-count"), page.text_content("#vp-count")[-40:])
+        check("the order travels in the URL", "order=c-exec" in page.url, page.url[-70:])
+
+        page.click("#vp-order-reset")
+        page.wait_for_timeout(300)
+        check("the default order can be restored", order() == TIDS and dom_order() == TIDS, order()[:3])
+        check("restoring it drops the parameter rather than spelling out the default",
+              "order=" not in page.url, page.url[-40:])
+
+        page.goto(DIST.as_uri() + "?order=c-risk,c-exec,not-a-tile")
+        page.wait_for_timeout(800)
+        restored = order()
+        check("a partial order is honoured", restored[:2] == ["c-risk", "c-exec"], restored[:4])
+        check("an unrecognised id is dropped without dropping a tile",
+              sorted(restored) == sorted(TIDS), len(restored))
+        check("the DOM follows an order that arrived in the URL", dom_order() == restored)
+
+        # Selection and order are independent on purpose. Folding the order into
+        # ?tiles= would mean un-ticking a tile silently reshuffled the page.
+        page.evaluate("() => window.DVD.debug.setTiles(window.DVD.debug.presets().exec)")
+        page.wait_for_timeout(300)
+        check("hiding tiles leaves the order alone", order() == restored, order()[:3])
+
+        # The clone carries the tiles already in sequence, but the copy reorders
+        # itself on load — without data-order it would put them straight back.
+        with page.expect_download() as dl2:
+            open_picker(page)
+            page.click("#vp-save")
+        saved2 = ROOT / "tests" / "saved-order.tmp.html"
+        dl2.value.save_as(str(saved2))
+        p3 = b.new_page(viewport={"width": 1500, "height": 1000})
+        p3.goto(saved2.as_uri())
+        p3.wait_for_timeout(900)
+        check("a saved copy opens in the order it was saved in",
+              p3.eval_on_selector_all("#grid > *", "n => n.map(e => e.id)") == restored,
+              p3.eval_on_selector_all("#grid > *", "n => n.map(e => e.id)")[:3])
+        p3.close()
+        saved2.unlink()
+
         # ---------- the forecast tile offline ----------
         # Opened from disk there is no server, so the tile must say so rather
         # than showing a number, a spinner that never resolves, or a blank card.

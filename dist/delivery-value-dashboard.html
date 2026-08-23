@@ -303,7 +303,11 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
    The popover is anchored to its button rather than centred, because it is a
    refinement of the page and not a task that should take the page over. */
 .viewpick{position:relative;display:inline-flex}
-.vp-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:40;width:290px;text-align:left;
+/* Wide enough for a tile name beside its two arrows, but never wider than the
+   screen: the popover is anchored right:0, so on a 320px viewport a fixed width
+   would hang off the left edge of the page. */
+.vp-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:40;width:320px;text-align:left;
+  max-width:calc(100vw - 40px);
   background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);
   box-shadow:var(--shadow);padding:13px 14px}
 .vp-pop h4{margin:0 0 2px;font-size:13px;font-weight:650}
@@ -313,9 +317,23 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
   padding:5px 10px;font-size:12px;font-weight:550;color:var(--text-primary)}
 .vp-presets button:hover{background:var(--plane)}
 .vp-presets button[aria-pressed=true]{background:var(--accent-bg);border-color:var(--accent-bg);color:var(--on-accent)}
-.vp-list{display:flex;flex-direction:column;gap:1px;border-top:1px solid var(--grid);padding-top:9px}
-.vp-list label{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;padding:4px 2px;line-height:1.35}
+.vp-list{display:flex;flex-direction:column;gap:1px;border-top:1px solid var(--grid);padding-top:9px;
+  margin:0;padding-left:0;list-style:none}
+.vp-row{display:flex;align-items:center;gap:6px}
+.vp-list label{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;padding:4px 2px;
+  line-height:1.35;flex:1 1 auto;min-width:0}
 .vp-list input{margin:2px 0 0;flex:none}
+.vp-move{display:inline-flex;gap:2px;flex:none}
+.vp-move .icon-btn{width:22px;height:20px;font-size:8px;border-radius:6px}
+/* An arrow a tile cannot travel on is disabled rather than removed: dropping it
+   would shift the other arrow under the pointer mid-click, and the row would
+   change width as tiles reached the ends of the list. */
+.vp-move .icon-btn:disabled{opacity:.32;cursor:default}
+.vp-move .icon-btn:disabled:hover{background:var(--surface-1);color:var(--text-secondary)}
+/* Visible as well as announced. The tile that moved is somewhere down the page,
+   usually behind the popover, so a reorder confirms nothing on its own. */
+.vp-live{font-size:11.5px;color:var(--text-secondary);line-height:1.4}
+.vp-live:not(:empty){margin-top:9px}
 .vp-count{font-size:11.5px;color:var(--text-secondary);margin-top:10px;padding-top:9px;
   border-top:1px solid var(--grid)}
 .vp-actions{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
@@ -725,6 +743,9 @@ const S = {
    *  copy's data-tiles attribute; never from storage, which would not
    *  survive the file being emailed. */
   shown: null,
+  /** Tile ids in display order. Travels the same way S.shown does — the URL,
+   *  or a saved copy's data-order attribute. */
+  order: null,
   /** Forecasts from the live-mode tool, cached per context id. Never computed
    *  here: the page renders what forecast.py returned and nothing else. */
   forecasts: {},
@@ -2432,6 +2453,85 @@ function presetOf(shown) {
   return "custom";
 }
 
+/* ---------------------------------------------------------------------
+   tile order
+   ---------------------------------------------------------------------
+   The order is a property of the view, like the tile selection, and travels
+   the same way: ?order= in the URL, data-order on a saved copy, never
+   storage. Tiles keep their widths when they move, so an order of someone's
+   own can leave a row short of the grid's twelve columns — the default order
+   fills every row and tests/e2e.py holds it to that.
+   ------------------------------------------------------------------ */
+
+/** Unknown ids are dropped and any tile the list forgot is appended in its
+ *  default position. A truncated or hand-edited ?order= then yields the whole
+ *  page in an odd sequence rather than a page missing tiles, which is the same
+ *  bargain ?tiles= makes when it cannot read its input. */
+function normaliseOrder(ids) {
+  const seen = new Set(), out = [];
+  (ids || []).forEach(raw => {
+    const id = String(raw).trim();
+    if (TILE_IDS.indexOf(id) >= 0 && !seen.has(id)) { seen.add(id); out.push(id); }
+  });
+  TILE_IDS.forEach(id => { if (!seen.has(id)) out.push(id); });
+  return out;
+}
+
+const orderIsDefault = () => S.order.join() === TILE_IDS.join();
+
+/** Move the tiles themselves rather than setting a CSS `order`. Visual order
+ *  and DOM order have to remain the same thing: CSS reorders the picture and
+ *  leaves the tab order and the screen-reader reading order in the old
+ *  sequence, so the page would read in an order nobody can see. Appending in
+ *  sequence moves the existing nodes — charts, open table views and the
+ *  forecast tile's fetched state all survive it untouched. */
+function applyOrder() {
+  const g = $("#grid");
+  S.order.forEach(id => { const el = $("#" + id); if (el) g.appendChild(el); });
+}
+
+function moveTile(id, delta) {
+  const from = S.order.indexOf(id), to = from + delta;
+  if (from < 0 || to < 0 || to >= S.order.length) return;
+  S.order.splice(to, 0, S.order.splice(from, 1)[0]);
+  applyOrder();
+  syncTileUrl();
+  paintPicker();
+  const t = TILES.find(x => x.id === id);
+  announcePicker(t.label + " moved to position " + (to + 1) + " of " + S.order.length + ".");
+  focusMover(id, delta);
+}
+
+function resetOrder() {
+  const was = orderIsDefault();
+  S.order = TILE_IDS.slice();
+  applyOrder();
+  syncTileUrl();
+  paintPicker();
+  announcePicker(was ? "Already in the default order."
+                     : "Tile order restored to the default.");
+}
+
+/** Keep focus on the tile that just moved. Rebuilding the list replaces the
+ *  button that was pressed, and a control that disappears from under the
+ *  keyboard drops focus to the body — which, inside a popover, reads as the
+ *  popover having closed. When the tile has reached an end its arrow is now
+ *  disabled, so focus goes to the one it can still travel on. */
+function focusMover(id, delta) {
+  const on = d => $('[data-move="' + d + '"][data-move-id="' + id + '"]');
+  const first = on(delta < 0 ? "up" : "down"), other = on(delta < 0 ? "down" : "up");
+  const target = (first && !first.disabled) ? first : (other || first);
+  if (target) target.focus();
+}
+
+/** Says what just happened, in the popover and to a screen reader. A reorder
+ *  is invisible from here: the tile that moved is somewhere down the page,
+ *  usually off screen behind the popover. */
+function announcePicker(msg) {
+  const el = $("#vp-live");
+  if (el) el.textContent = msg;
+}
+
 function setShown(ids) {
   S.shown = new Set(ids.filter(id => TILE_IDS.indexOf(id) >= 0));
   applyTiles();
@@ -2460,11 +2560,12 @@ function applyTiles() {
 function syncTileUrl() {
   try {
     const u = new URL(location.href), name = presetOf(S.shown);
-    u.searchParams.delete("view"); u.searchParams.delete("tiles");
+    u.searchParams.delete("view"); u.searchParams.delete("tiles"); u.searchParams.delete("order");
     if (name !== "all") {
       if (name === "custom") u.searchParams.set("tiles", [...S.shown].join(","));
       else u.searchParams.set("view", name);
     }
+    if (!orderIsDefault()) u.searchParams.set("order", S.order.join(","));
     history.replaceState(null, "", u);
   } catch (e) { /* file:// — the attribute on a saved copy covers this */ }
 }
@@ -2474,30 +2575,57 @@ function buildPicker() {
   pop.innerHTML =
     '<h4 id="vp-h">Tiles in this view</h4>' +
     '<div class="note">Hiding a tile changes what is shown, never what is counted. ' +
-    'Both presets keep the narrative.</div>' +
+    'Both presets keep the narrative. The arrows reorder the page; tiles keep their ' +
+    'widths as they move, so an order of your own can leave a row short.</div>' +
     '<div class="vp-presets" role="group" aria-label="Preset views">' +
       Object.keys(PRESETS).map(k =>
         '<button type="button" data-preset="' + esc(k) + '" aria-pressed="false">' +
         esc(PRESET_LABEL[k]) + "</button>").join("") +
     "</div>" +
-    '<div class="vp-list">' +
-      TILES.map(t => '<label><input type="checkbox" data-tile="' + esc(t.id) + '">' +
-        "<span>" + esc(t.label) + "</span></label>").join("") +
-    "</div>" +
+    '<ul class="vp-list" id="vp-list"></ul>' +
     '<div class="vp-count" id="vp-count"></div>' +
     '<div class="vp-actions">' +
+      '<button type="button" class="btn" id="vp-order-reset">Default order</button>' +
       '<button type="button" class="btn" id="vp-save">Save this view as a file</button>' +
-    "</div>";
+    "</div>" +
+    '<div class="vp-live" id="vp-live" role="status" aria-live="polite"></div>';
 
   pop.querySelectorAll("[data-preset]").forEach(b =>
     b.onclick = () => setShown(PRESETS[b.dataset.preset]));
-  pop.querySelectorAll("[data-tile]").forEach(c =>
+  $("#vp-order-reset").onclick = resetOrder;
+  $("#vp-save").onclick = saveView;
+  buildPickerList();
+}
+
+/** The list is rebuilt only when the order changes. Rebuilding it on every
+ *  paint would be simpler and would throw focus off the checkbox someone is
+ *  tabbing through, because render() repaints the picker on every filter
+ *  change and every context switch. */
+let vpListOrder = null;
+function buildPickerList() {
+  const list = $("#vp-list"), last = S.order.length - 1;
+  list.innerHTML = S.order.map((id, i) => {
+    const t = TILES.find(x => x.id === id);
+    const arrow = (dir, glyph, off) =>
+      '<button type="button" class="icon-btn" data-move="' + dir + '" data-move-id="' + esc(id) + '"' +
+      (off ? " disabled" : "") + ' aria-label="Move ' + esc(t.label) + " " + dir + '">' +
+      '<span aria-hidden="true">' + glyph + "</span></button>";
+    return '<li class="vp-row">' +
+      '<label><input type="checkbox" data-tile="' + esc(id) + '">' +
+      "<span>" + esc(t.label) + "</span></label>" +
+      '<span class="vp-move">' + arrow("up", "\u25B2", i === 0) +
+                                 arrow("down", "\u25BC", i === last) + "</span></li>";
+  }).join("");
+
+  list.querySelectorAll("[data-tile]").forEach(c =>
     c.onchange = () => {
       const next = new Set(S.shown);
       c.checked ? next.add(c.dataset.tile) : next.delete(c.dataset.tile);
       setShown([...next]);
     });
-  $("#vp-save").onclick = saveView;
+  list.querySelectorAll("[data-move]").forEach(b =>
+    b.onclick = () => moveTile(b.dataset.moveId, b.dataset.move === "up" ? -1 : 1));
+  vpListOrder = S.order.slice();
 }
 
 /** Push state into the picker's controls. Split from applyTiles so the
@@ -2505,17 +2633,21 @@ function buildPicker() {
 function paintPicker() {
   const pop = $("#view-pop");
   if (!pop.firstChild) return;
+  if (!vpListOrder || vpListOrder.join() !== S.order.join()) buildPickerList();
   const name = presetOf(S.shown);
   pop.querySelectorAll("[data-preset]").forEach(b =>
     b.setAttribute("aria-pressed", String(b.dataset.preset === name)));
   pop.querySelectorAll("[data-tile]").forEach(c => { c.checked = S.shown.has(c.dataset.tile); });
-  const hidden = TILE_IDS.filter(id => !S.shown.has(id));
+  const hidden = S.order.filter(id => !S.shown.has(id));
   // Name what is hidden rather than only counting it. A view that quietly
-  // drops a tile reads as a complete page to whoever receives it.
-  $("#vp-count").innerHTML = hidden.length
+  // drops a tile reads as a complete page to whoever receives it. The same
+  // goes for the order: a page in someone else's sequence should say so
+  // rather than leave the recipient to wonder why it reads oddly.
+  $("#vp-count").innerHTML = (hidden.length
     ? "<b>" + hidden.length + " hidden:</b> " +
       esc(hidden.map(id => TILES.find(t => t.id === id).label).join(", "))
-    : "All " + TILE_IDS.length + " tiles shown.";
+    : "All " + TILE_IDS.length + " tiles shown.") +
+    (orderIsDefault() ? "" : "<br><b>Custom order.</b>");
 }
 
 function openPicker(on) {
@@ -2543,6 +2675,10 @@ addEventListener("mousedown", e => {
 function saveView() {
   const root = document.documentElement.cloneNode(true);
   root.setAttribute("data-tiles", [...S.shown].join(","));
+  // The clone already holds the tiles in their chosen sequence, but the copy
+  // reorders itself from this attribute on load — without it applyOrder()
+  // would put them straight back into the default order.
+  root.setAttribute("data-order", S.order.join(","));
   root.setAttribute("data-theme", document.documentElement.dataset.theme || "light");
 
   const seed = root.querySelector("#seed-data");
@@ -2685,6 +2821,9 @@ window.DVD = {
     tileIds: () => TILE_IDS.slice(),
     presets: () => PRESETS,
     setTiles: ids => setShown(ids),
+    order: () => S.order.slice(),
+    setOrder: ids => { S.order = normaliseOrder(ids); applyOrder(); syncTileUrl(); paintPicker(); },
+    moveTile: (id, d) => moveTile(id, d),
     selectContext: id => { S.ctx = id; render(); },
     setFilter: (k, v) => { S.filters[k] = v; render(); },
     setUnit: u => { S.unit = u; render(); },
@@ -2706,10 +2845,14 @@ S.data = normalise(JSON.parse(document.getElementById("seed-data").textContent))
 const qs = new URLSearchParams(location.search).get("data");
 S.ctx = S.data.defaultContextId;
 
-/* Which tiles to show. An explicit ?tiles= or ?view= wins, then a saved
- * copy's data-tiles attribute, then everything. An unrecognised or empty
- * selection falls back to everything on purpose: a blank page reads as a
- * broken file, not as a deliberate view. */
+/* Which tiles to show, and in what order. An explicit ?tiles= or ?view= wins,
+ * then a saved copy's data-tiles attribute, then everything. An unrecognised or
+ * empty selection falls back to everything on purpose: a blank page reads as a
+ * broken file, not as a deliberate view.
+ *
+ * Order is read separately from selection, and the two are independent: ?tiles=
+ * says which tiles, ?order= says in what sequence. Folding the sequence into
+ * ?tiles= would mean un-ticking a tile silently reordered the page. */
 (function initTiles() {
   const sp = new URLSearchParams(location.search);
   const t = sp.get("tiles"), v = sp.get("view");
@@ -2721,6 +2864,10 @@ S.ctx = S.data.defaultContextId;
   else ids = PRESETS.all;
   S.shown = new Set(ids.map(s => s.trim()).filter(id => TILE_IDS.indexOf(id) >= 0));
   if (!S.shown.size) S.shown = new Set(PRESETS.all);
+
+  const ord = sp.get("order") || document.documentElement.getAttribute("data-order") || "";
+  S.order = normaliseOrder(ord.split(",").filter(Boolean));
+  applyOrder();
   buildPicker();
 })();
 if (qs) {

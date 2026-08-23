@@ -209,7 +209,7 @@ Design outline, question inventory, guardrails, failure modes and rollout: [docs
 
 ### Sending one audience their own view
 
-The **Tiles** button chooses which of the twelve tiles a view contains. Two presets are built in, and both keep *What this sprint means* — a view without the narrative is the wall of charts this page exists to replace.
+The **Tiles** button chooses which of the thirteen tiles a view contains, and what order they appear in. Two presets are built in, and both keep *What this sprint means* — a view without the narrative is the wall of charts this page exists to replace.
 
 | Preset | Tiles | Shaped after |
 |---|---|---|
@@ -222,9 +222,17 @@ Three ways to send one:
 
 - **Save this view as a file** — writes a standalone HTML copy with the view *and the data currently loaded* baked in. This is the one to email.
 - **Print** — hidden tiles do not print, so the PDF matches what is on screen.
-- **A link** — the view travels as `?view=exec`, `?view=team` or `?tiles=c-exec,c-risk`, which is useful when the file is hosted rather than emailed.
+- **A link** — the view travels as `?view=exec`, `?view=team` or `?tiles=c-exec,c-risk`, which is useful when the file is hosted rather than emailed. A custom order rides along as `?order=c-risk,c-exec,...`.
 
-Hiding a tile changes what is shown and never what is counted: every figure still comes from the same computation over the same filtered issues. The picker names the tiles it has hidden rather than only counting them, because a view that quietly drops a tile reads as a whole page to whoever receives it.
+Hiding a tile changes what is shown and never what is counted: every figure still comes from the same computation over the same filtered issues. The picker names the tiles it has hidden rather than only counting them, because a view that quietly drops a tile reads as a whole page to whoever receives it. The same goes for a custom order, which the picker says it is using.
+
+### Putting the tiles in your own order
+
+Each row in the **Tiles** popover carries an up and a down arrow. They move the tile itself rather than setting a CSS `order`, so the tab order and the screen-reader reading order follow the picture — and they are ordinary buttons, so the whole feature works from the keyboard. Drag and drop would not have.
+
+Order and selection are separate: `?tiles=` says which tiles, `?order=` says in what sequence, and un-ticking a tile never reshuffles the page. **Default order** puts everything back.
+
+One thing to know: tiles keep their widths when they move. The grid is twelve columns wide and the default order fills every row of it, but an order of your own can leave a row short. The picker says when the order is custom; the page will not stop you.
 
 ## Why HTML rather than PowerPoint or a BI tool
 

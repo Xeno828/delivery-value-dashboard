@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.13.0
+
+**The tiles can be put in your own order.** Each row of the **Tiles** popover has an up and a down arrow, and the order travels the way the tile selection already did: `?order=` in the URL, a `data-order` attribute on a saved copy, and nothing in browser storage — the file still has to survive being emailed. **Default order** puts it back.
+
+**Arrows rather than drag and drop, and that is the feature rather than a shortcut.** Dragging is unusable from a keyboard, and this page is held to WCAG 2.2 AA. Two buttons per row are operable by anyone, and the accessibility suite now opens the popover — which nothing in it had ever done — and asserts a tile moves on `Enter` alone.
+
+**The tiles move, not a CSS `order`.** Setting `order` in CSS moves the picture and leaves the tab order and the screen-reader reading order in the old sequence, so the page would read in an order nobody can see. `applyOrder()` re-appends the nodes instead, which also leaves charts, open table views and the forecast tile's fetched state untouched. `tests/e2e.py` compares DOM order against the chosen order on every move, so a later switch to CSS would fail rather than quietly reintroduce it.
+
+**Focus survives the move, and the move is announced.** Reordering rebuilds the list, which destroys the button that was just pressed; without putting focus back it falls to the body, and inside a popover that reads as the popover having closed. When a tile reaches an end of the list its arrow is disabled and focus moves to the one it can still travel on. The tile that moved is somewhere down the page, usually behind the popover, so a live region says *"Team load moved to position 5 of 13"* — visibly as well as to a screen reader.
+
+**Order and selection stay independent.** `?tiles=` says which tiles, `?order=` says in what sequence. Folding one into the other would mean un-ticking a tile silently reshuffled the page.
+
+**A custom order can leave a row short, and the page says so rather than pretending otherwise.** Tiles keep their widths when they move; the twelve-column grid only fills exactly in orders that happen to add up. The default order does, and 1.12.5's check still holds it to that. The picker labels a custom order as custom; it does not refuse one.
+
+An unreadable `?order=` fails the way `?tiles=` does. Unknown ids are dropped and any tile the list forgot is appended in its default position, so a truncated or hand-edited parameter yields the whole page in an odd sequence rather than a page missing tiles.
+
+The popover went from 290px to 320px to fit a name beside two arrows, and it is anchored to the right edge — so the reflow check now measures it **open** at 320px as well as closed. Every check above it had measured it as `display:none`, which costs nothing and proves nothing.
+
+
 ## 1.12.5
 
 **Two rows of the tile grid did not add up to 12, and the page had the holes to prove it.** The grid is twelve columns and every row is meant to fill them. The bottom band did not: *Release quality* at 4 columns beside *Team load* at 3 came to 7, so roughly 600x360px of empty page sat to the right of them at any desktop width. Both tiles are now 6, which is the whole fix at that size.
