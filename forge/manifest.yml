@@ -6,9 +6,11 @@
 # and so the scope list and the resolver boundary are written down while the
 # reasons are fresh.
 #
-# It has never been deployed. `forge deploy` against this file will not produce
-# a working app: the resolvers below return the shape the UI expects and no
-# data. See forge/README.md for what porting actually costs.
+# It has never been deployed, and no app has been registered. The resolver it
+# points at is real — it projects, calls the calculator and re-attaches the
+# summaries — but the Forge-specific syntax below has never been run through
+# `forge lint`. Check it against current Atlassian docs before trusting it;
+# platform manifest schemas move. See forge/README.md.
 
 modules:
   jira:projectPage:
@@ -34,7 +36,22 @@ resources:
   - key: main
     path: static/dashboard/build
 
+# The hosted calculator — service/app.py. Forge cannot run agent/tools/, so it
+# posts the fields a calculation reads and gets the figures back, rather than a
+# second Monte Carlo being written in JavaScript. ADR 0008 has the reasoning and
+# the measurements. Declaring it as a `remote` rather than a bare egress URL is
+# what gets each call an Atlassian-issued invocation token, so the service can
+# tell which tenant is asking without this app holding a secret.
+remotes:
+  - key: calculator
+    baseUrl: https://calculator.example.invalid
+
 permissions:
+  external:
+    fetch:
+      backend:
+        - remote: calculator
+
   scopes:
     # Read-only, and the shortest list that produces the dashboard. Matches
     # SCOPES in scripts/jira_auth.py — if one changes, change both, or the two
@@ -46,6 +63,11 @@ app:
   runtime:
     name: nodejs20.x
 
+# Egress costs the "Runs on Atlassian" badge. That is a real marketing loss
+# with no engineering answer, and it is the price of not having two
+# implementations of the forecast. It is written down in ADR 0008 so the
+# trade is a decision rather than a discovery at listing time.
+#
 # Deliberately absent: an `id`. Running `forge register` writes one, and it ties
 # this manifest to one developer's Atlassian account. Committing that id would
 # hand everyone who clones the repository a manifest pointing at somebody

@@ -1,7 +1,7 @@
 BUNDLE ?= data/demo-intake-bundle.json
 BOARD  ?= 42
 
-.PHONY: build check test test-agent test-a11y test-security perf report intake intake-scale intake-sequence demo serve serve-live bundle fetch clean
+.PHONY: build check test test-agent test-a11y test-security test-service perf report intake intake-scale intake-sequence demo serve serve-live serve-calc bundle fetch clean
 
 build:            ## assemble dist/delivery-value-dashboard.html from src/
 	python3 build.py
@@ -9,11 +9,12 @@ build:            ## assemble dist/delivery-value-dashboard.html from src/
 check:            ## fail if dist/ is stale relative to src/
 	python3 build.py --check
 
-test: build       ## run every suite: browser, agent, accessibility, security
+test: build       ## run every suite: browser, agent, accessibility, security, service
 	python3 tests/e2e.py
 	python3 tests/test_agent.py
 	python3 tests/a11y.py
 	python3 tests/security.py
+	python3 tests/test_service.py
 
 test-a11y: build  ## accessibility only (WCAG 2.2 AA, both themes)
 	python3 tests/a11y.py
@@ -23,6 +24,9 @@ test-security: build ## security only (XSS, pollution, traversal, secrets, deps)
 
 test-agent:       ## agent tools only: facts, forecast, refusals, backtest
 	python3 tests/test_agent.py
+
+test-service:     ## the hosted calculator: projection, refusals, no arithmetic
+	python3 tests/test_service.py
 
 perf: build       ## measure load and interaction cost at four bundle sizes
 	@python3 scripts/make_sample_bundle.py --scale 7  --out /tmp/bundle-7.json  >/dev/null
@@ -58,6 +62,10 @@ serve: build      ## preview at http://localhost:8000/dist/
 
 serve-live: build ## serve with the live-mode API backed by the demo bundle
 	python3 scripts/serve_live.py --bundle data/sample-bundle.json
+
+serve-calc:       ## the hosted calculator, for local development only
+	@echo "Unauthenticated — local development only. See service/README.md."
+	python3 service/app.py --insecure
 
 bundle:           ## regenerate the demo bundles (delivery + intake reference class)
 	python3 scripts/make_sample_bundle.py

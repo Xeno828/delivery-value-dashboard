@@ -139,12 +139,21 @@ Because it needs the local server, this tile shows an offline notice rather than
 │   ├── serve_live.py                    optional live-mode server
 │   ├── refresh.sh                       cron-friendly wrapper
 │   └── requirements.txt
+├── service/                             the hosted calculator (Forge route)
+│   ├── app.py                           stdlib HTTP over agent/tools; computes nothing
+│   ├── Dockerfile                       non-root, no writes, no credentials baked in
+│   └── README.md                        routes, sizing, deployment
+├── forge/                               Forge app scaffold — never deployed
+│   ├── manifest.yml                     scopes, remote, egress
+│   ├── src/index.js                     projects, calls the calculator, re-attaches
+│   └── README.md                        what the route costs
 ├── docs/
 │   ├── dashboard-review.md              why it is built this way
 │   ├── importing-data.md                the upload pipeline
 │   ├── data-format.md                   every field and what it drives
 │   ├── connecting-jira-asana.md         live data, OAuth, and why not from the page
 │   ├── organisation-config.md           what "done" means, and which days count
+│   ├── adr/0008-…-calculator.md         why Forge would call hosted Python
 │   ├── contexts-and-live-mode.md        project/board/sprint filtering
 │   ├── product-intake.md                forecasting an ask before it exists
 │   ├── agent-executive-summary.md       the agent, for a leadership audience

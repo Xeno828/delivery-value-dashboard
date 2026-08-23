@@ -1,80 +1,181 @@
 /**
- * Forge resolver — SCAFFOLD, NOT WIRED UP.
+ * Forge resolver.
  *
- * The point of this file is the boundary it draws, not the code in it.
+ * Forge runs Node in Atlassian's sandbox and cannot execute agent/tools/. This
+ * does not reimplement them. It pulls the issues, strips them to the fields a
+ * calculation reads, posts that to the hosted calculator (service/app.py), and
+ * puts the summaries back on the way out.
  *
- * The dashboard's numbers come from three dependency-free Python modules in
- * agent/tools: metrics.py (facts), forecast.py (Monte Carlo) and intake.py
- * (sizing an ask). Forge runs Node in Atlassian's sandbox and cannot call
- * them. So a Forge build has exactly two honest options:
+ * The rule the whole product rests on — one implementation of every figure —
+ * survives that. Nothing in this file computes a number.
+ * See docs/adr/0008-forge-calls-a-hosted-calculator.md.
  *
- *   1. Forge fetches the issues and hands them to the same Python, running
- *      somewhere else. The app becomes a thin data path; the numbers stay in
- *      one implementation. This is the option the roadmap's risk section
- *      argues for — "keep the forecasting tools as dependency-free Python
- *      that the app calls, so the engine is portable even when the
- *      distribution is not".
- *
- *   2. Port the tools to JavaScript. That is a second implementation of a
- *      seeded Monte Carlo, and the moment it exists the tile and the written
- *      brief can disagree about the same sprint. The project already refused
- *      this once — it is why the forecast tile shows an offline notice in an
- *      emailed file rather than recomputing itself in the browser.
- *
- * Nothing here decides that. The resolvers return the shape the UI expects and
- * no data, so the decision stays visible instead of being made by whoever
- * writes the first working version.
+ * Status: the projection, re-attachment and call plumbing below are real and
+ * tested against the calculator (tests/test_service.py asserts the projection
+ * loses nothing). What has never run is Forge itself — no app has been
+ * registered and nothing has been deployed. Treat the manifest's Forge-specific
+ * syntax as needing a check against current Atlassian docs.
  */
 
 import Resolver from '@forge/resolver';
-import api, { route } from '@forge/api';
+import api, { route, fetch } from '@forge/api';
 
 const resolver = new Resolver();
 
-const NOT_WIRED = {
-  available: false,
-  sentence:
-    'This Forge app is a scaffold. The working connection is OAuth 2.0 (3LO) — ' +
-    'see scripts/jira_auth.py. Nothing here has been deployed.',
+/**
+ * The only issue fields a calculation reads. Verified empirically, not guessed:
+ * forecast.build() over a dataset stripped to these produces byte-identical
+ * figures to one with everything. The fields left behind — summary, assignee,
+ * epic, labels, url, valueBasis — are the sensitive half, and the calculator
+ * refuses the payload outright if any of them arrive.
+ */
+const CALC_FIELDS = [
+  'key', 'created', 'started', 'resolved', 'statusCategory', 'status',
+  'storyPoints', 'priority', 'dueDate', 'flagged', 'addedMidSprint',
+  'contextId', 'epicKey',
+];
+
+/** Everything the calculator must never see. Kept here so the two lists can be
+ *  compared by eye against service/app.py's FREE_TEXT_FIELDS. */
+const NEVER_SEND = ['summary', 'assignee', 'epic', 'labels', 'url', 'valueBasis'];
+
+const projectIssue = (issue) => {
+  const out = {};
+  for (const f of CALC_FIELDS) {
+    if (issue[f] !== undefined && issue[f] !== null) out[f] = issue[f];
+  }
+  return out;
 };
 
 /**
- * The one thing that is real: proof the scopes in manifest.yml are enough to
- * read a board's issues. Everything downstream depends on it and it is cheap
- * to check first.
+ * Belt and braces. The projection above is an allow-list, so a stray field
+ * cannot pass — but a future edit that turns it into a deny-list would, and
+ * this is the assertion that would catch it before a customer's issue titles
+ * left their tenant. Cheap, and it fails closed.
  */
-resolver.define('boardIssues', async ({ payload }) => {
-  const boardId = String(payload?.boardId ?? '').replace(/[^0-9]/g, '');
-  if (!boardId) return { ...NOT_WIRED, reason: 'no board id' };
+const assertNoFreeText = (projected) => {
+  for (const issue of projected) {
+    for (const f of NEVER_SEND) {
+      if (f in issue) {
+        throw new Error(
+          `refusing to send: projection leaked "${f}". Nothing was calculated.`,
+        );
+      }
+    }
+  }
+};
 
-  const res = await api
-    .asUser()
-    .requestJira(route`/rest/agile/1.0/board/${boardId}/issue?maxResults=50`);
-  if (!res.ok) return { ...NOT_WIRED, reason: `Jira returned ${res.status}` };
+/**
+ * Put the human-readable fields back, by key, from the copy Forge already
+ * holds. The calculator echoes issue keys inside item_risk; the summaries and
+ * assignees that belong beside them never left the tenant.
+ */
+const reattach = (result, byKey) => {
+  const items = result?.item_risk?.items;
+  if (!Array.isArray(items)) return result;
+  for (const item of items) {
+    const local = byKey.get(item.key);
+    if (!local) continue;
+    item.summary = local.summary ?? '';
+    item.assignee = local.assignee ?? null;
+  }
+  return result;
+};
 
-  const body = await res.json();
-  // Deliberately not categorised here. Which statuses mean done is organisation
-  // config (config/organisation.json, mirrored in agent/tools/orgconfig.py), and
-  // a third copy of that rule written in this file is exactly the divergence the
-  // config exists to prevent.
+/**
+ * One call to the calculator. `fetch` here is @forge/api's, which routes
+ * through the remote declared in manifest.yml and attaches an Atlassian-issued
+ * invocation token — that is what lets the service know the call came from this
+ * app and which tenant it is for, without this app holding a secret of its own.
+ */
+const callCalculator = async (path, body) => {
+  const res = await fetch(`${process.env.CALCULATOR_URL ?? ''}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // Never surface the body: a proxy error page is not something to render
+    // into a Jira panel.
+    return { available: false, sentence: `The calculator returned ${res.status}.` };
+  }
+  if (!res.ok || parsed.ok === false) {
+    return {
+      available: false,
+      sentence: parsed.error ?? `The calculator returned ${res.status}.`,
+    };
+  }
+  return parsed;
+};
+
+/** Pull one board's issues. The only place this app talks to Jira. */
+const fetchBoardIssues = async (boardId) => {
+  const id = String(boardId ?? '').replace(/[^0-9]/g, '');
+  if (!id) throw new Error('no board id');
+
+  const issues = [];
+  let startAt = 0;
+  for (;;) {
+    const res = await api
+      .asUser()
+      .requestJira(
+        route`/rest/agile/1.0/board/${id}/issue?startAt=${startAt}&maxResults=100`,
+      );
+    if (!res.ok) throw new Error(`Jira returned ${res.status}`);
+    const body = await res.json();
+    const page = body.issues ?? [];
+    for (const i of page) {
+      issues.push({
+        key: i.key,
+        summary: i.fields?.summary ?? '',
+        assignee: i.fields?.assignee?.displayName ?? null,
+        status: i.fields?.status?.name ?? null,
+        // Left uncategorised on purpose. Which statuses mean done is
+        // organisation config (config/organisation.json, resolved by
+        // agent/tools/orgconfig.py) and a third copy of that rule written here
+        // is exactly the divergence the config exists to prevent. The raw name
+        // goes in the payload; the calculator applies the config.
+        storyPoints: i.fields?.customfield_10016 ?? 0,
+        priority: i.fields?.priority?.name ?? null,
+        created: (i.fields?.created ?? '').slice(0, 10) || null,
+        resolved: (i.fields?.resolutiondate ?? '').slice(0, 10) || null,
+        dueDate: i.fields?.duedate ?? null,
+      });
+    }
+    startAt += page.length;
+    if (!page.length || startAt >= (body.total ?? 0)) break;
+  }
+  return issues;
+};
+
+const compute = async (path, { boardId, orgConfig, meta, extra }) => {
+  const local = await fetchBoardIssues(boardId);
+  const byKey = new Map(local.map((i) => [i.key, i]));
+
+  const projected = local.map(projectIssue);
+  assertNoFreeText(projected);
+
+  const answer = await callCalculator(path, {
+    dataset: { issues: projected, meta: meta ?? {}, orgConfig: orgConfig ?? {} },
+    ...(extra ?? {}),
+  });
+  if (answer.available === false) return answer;
+
   return {
     available: true,
-    total: body.total ?? 0,
-    issues: (body.issues ?? []).map((i) => ({
-      key: i.key,
-      summary: i.fields?.summary ?? '',
-      status: i.fields?.status?.name ?? null,
-      statusCategoryHint: i.fields?.status?.statusCategory?.name ?? null,
-      created: (i.fields?.created ?? '').slice(0, 10) || null,
-      resolved: (i.fields?.resolutiondate ?? '').slice(0, 10) || null,
-    })),
+    // Passed through so the panel can say which calendar produced the numbers,
+    // exactly as the dashboard footer and the facts pack do.
+    calendar: answer.calendar,
+    result: reattach(answer.result, byKey),
   };
-});
+};
 
-/** Would call forecast.py. Returns a refusal rather than a number. */
-resolver.define('forecast', async () => NOT_WIRED);
-
-/** Would call metrics.py. Same. */
-resolver.define('facts', async () => NOT_WIRED);
+resolver.define('forecast', ({ payload }) => compute('/v1/forecast', payload ?? {}));
+resolver.define('facts', ({ payload }) => compute('/v1/facts', payload ?? {}));
+resolver.define('sequence', ({ payload }) => compute('/v1/sequence', payload ?? {}));
 
 export const handler = resolver.getDefinitions();

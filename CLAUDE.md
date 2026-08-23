@@ -11,8 +11,9 @@ Read this before changing anything. Most of what follows is a constraint that wa
 ```bash
 make build         # assemble src/ into dist/delivery-value-dashboard.html
 make check         # fail if dist/ is stale — this is what CI runs
-make test          # all four suites: e2e, agent, a11y, security
+make test          # all five suites: e2e, agent, a11y, security, service
 make test-agent    # agent tools only, no browser needed
+make test-service  # the hosted calculator, no browser needed
 make report        # facts pack + delivery forecast for the sample data
 make intake ASK=data/asks/INTAKE-2026-014.json
 ```
@@ -23,7 +24,7 @@ The browser suites need Playwright (`pip install playwright && playwright instal
 
 ## Architecture in one paragraph
 
-`src/` is four files assembled by `build.py` into a single self-contained HTML file. `agent/tools/` is four dependency-free Python modules — `metrics.py` (facts), `forecast.py` (Monte Carlo on work that exists), `intake.py` (forecasting an ask before any of it exists), `orgconfig.py` (the per-organisation assumptions the other three read out of the dataset). `agent/SKILL.md` is the agent definition; it narrates what the tools return and computes nothing. `scripts/` fetches and generates data. `tests/` is four suites. `forge/` is a scaffold, not wired up.
+`src/` is four files assembled by `build.py` into a single self-contained HTML file. `agent/tools/` is four dependency-free Python modules — `metrics.py` (facts), `forecast.py` (Monte Carlo on work that exists), `intake.py` (forecasting an ask before any of it exists), `orgconfig.py` (the per-organisation assumptions the other three read out of the dataset). `agent/SKILL.md` is the agent definition; it narrates what the tools return and computes nothing. `scripts/` fetches and generates data. `service/` is a stateless HTTP wrapper over those same tools, for a Forge build that cannot run Python — it computes nothing of its own. `tests/` is five suites. `forge/` is a scaffold: the resolver is real and tested, Forge itself has never run.
 
 ---
 
@@ -36,6 +37,8 @@ These are product decisions, not style. Violating one is a bug even when the tes
 **Never rank or compare individuals.** Throughput is a property of the system, not the person. The data cannot support the claim, and the first report that makes it is the last report anyone reads. Ownership counts are fine; league tables are not.
 
 **Never compute a priority score.** No WSJF, no weighted shortest job first, no value-over-effort ratio, nothing of that family. They multiply an unvalidated value estimate by an unvalidated size estimate and present the product as arithmetic. The delivery consequence of an ordering is computable and must be returned; the relative worth of competing asks is a judgement that stays with the people accountable for it.
+
+**Nothing between the tools and a reader may do arithmetic either.** The rule below applies to the agent, and equally to `service/app.py` and the Forge resolver: they validate, delegate and pass figures through. `tests/test_service.py` asserts the service's answer equals the tool called directly, byte for byte. A wrapper that computes one percentage is a second implementation, and the day it disagrees, every number in the product becomes something to check rather than read.
 
 **The agent never does arithmetic.** Every figure in every report comes from a tool. This is enforced structurally — the tools emit numbers, the agent quotes them, the tests assert the tools agree with the dashboard. The moment the agent computes a percentage itself, nothing in the report is auditable and its entire value is gone.
 
@@ -89,6 +92,7 @@ These are product decisions, not style. Violating one is a bug even when the tes
 | What "done" means here, and which days count | `docs/organisation-config.md` |
 | Connecting a customer's Jira with OAuth | `docs/connecting-jira-asana.md` |
 | What a term means, and which words to avoid | `CONTEXT.md` |
+| Why Forge would call a hosted calculator | `docs/adr/0008-forge-calls-a-hosted-calculator.md` |
 | The decisions behind the constraints above | `docs/adr/` |
 
 ## Agent skills

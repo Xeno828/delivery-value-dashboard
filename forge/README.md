@@ -1,45 +1,79 @@
 # Forge scaffold
 
-**Not wired up. Never deployed.** The working Jira connection is OAuth 2.0
-(3LO) — `scripts/jira_auth.py`, with `--auth oauth` on the fetcher.
+**Not deployed. No app registered.** The working Jira connection is OAuth 2.0
+(3LO) — `scripts/jira_auth.py`, with `--auth oauth` on the fetcher. Nothing here
+is needed to use the product.
 
-## Why this directory exists
+## What this is for
 
-Roadmap item 1 says *"a Forge or Connect app"*, and the roadmap itself calls
-that the one genuinely open decision in phase 1. Writing the manifest down —
-the scopes, the module types, the resolver boundary — makes the decision
-cheaper to take later and keeps the argument from being settled by accident by
-whoever writes the first working version.
+Roadmap item 1 says *"a Forge or Connect app"*, and the roadmap calls that the
+one genuinely open decision in phase 1. This directory exists so choosing Forge
+later is a decision rather than a rewrite.
 
-## What porting actually costs
+## The functionality is not the problem
 
-The numbers come from three dependency-free Python modules. Forge runs Node in
-Atlassian's sandbox and cannot call them. That leaves two options:
+An earlier version of this file said the choice was "host the Python anyway or
+write a second Monte Carlo", and treated the first as a concession. That was too
+pessimistic, and measuring it settled the question — see
+[ADR 0008](../docs/adr/0008-forge-calls-a-hosted-calculator.md):
 
-| | What it means | What it costs |
-|---|---|---|
-| **Forge as a data path** | Forge pulls issues, the Python still computes | Needs somewhere for the Python to run, so the Marketplace listing stops being the whole deployment |
-| **Port the tools to JS** | A second Monte Carlo, a second facts pack | Two implementations of one number. The tile and the written brief will eventually disagree about the same sprint |
+- **The tools are already pure functions.** Every `open()` and `glob` in
+  `metrics.py`, `forecast.py` and `intake.py` is inside `main()`.
+- **A call is 16 KB and does not grow with the customer** — 16.2 KB for a
+  242-issue org, 16.3 KB for a 5,538-issue one, because a forecast needs one
+  team's history rather than the organisation's.
+- **No issue title has to leave Atlassian.** `forecast.build()` over a dataset
+  stripped to dates and status categories produces byte-identical figures. The
+  only fields that differed were `summary` and `assignee`, echoed back for
+  display, and this app re-attaches those by key from the copy it already holds.
 
-The project already refused option 2 once: the forecast tile shows an offline
-notice in an emailed file rather than recomputing itself in the browser,
-because the alternative was two simulations. The same reasoning applies here
-and is why nothing in `src/index.js` computes anything.
+So the Forge route keeps the full product. Forge pulls the issues and renders
+the panel; `service/app.py` runs the same Python everything else runs.
 
-## If you do pick this route
+## What it does cost
 
-1. `npm install -g @forge/cli && forge login`
-2. `forge register` — writes an app id into `manifest.yml`. **Do not commit
-   it**; it ties the manifest to one Atlassian account.
-3. Build the static resource into `static/dashboard/build`. `dist/` is a single
-   self-contained HTML file, so this is mostly a copy — but note that a Forge
-   iframe is not an emailed file, and the security suite's no-network,
-   no-storage assertions are about the file, not about this.
-4. Keep the scopes in `manifest.yml` identical to `SCOPES` in
+| | |
+|---|---|
+| **Runs on Atlassian badge** | Forfeited. Egress disqualifies it, and there is no engineering answer — only the choice not to have two forecasts |
+| **Marketplace review** | The egress declaration in `manifest.yml` will be read |
+| **Data residency** | Becomes yours, pinned per region. Roadmap item 6 moves earlier rather than appearing from nowhere |
+| **Operations** | You run a service. Stateless and sub-second, so scale-to-zero keeps the bill and the pager quiet |
+
+## What is real here and what is not
+
+**Real, and tested:** `src/index.js` — the projection, the free-text assertion,
+the call to the calculator and the re-attachment by key. `tests/test_service.py`
+asserts the projection loses nothing a calculation reads, using the same field
+list this file uses.
+
+**Never run:** Forge itself. No app registered, nothing deployed, and
+`manifest.yml` has not been through `forge lint`. Platform manifest schemas
+move — check the Forge-specific syntax against current Atlassian docs before
+trusting it, particularly the `remotes` block and the invocation-token contract
+the calculator's auth would key off.
+
+**Absent on purpose:** the app `id`. `forge register` writes one and it ties the
+manifest to a single Atlassian account.
+
+## If you take this route
+
+1. `npm install -g @forge/cli && forge login && forge register`
+2. Deploy `service/` somewhere and point `remotes[0].baseUrl` at it.
+3. Replace the calculator's shared-secret check with verification of the Forge
+   invocation token. `service/app.py` uses a bearer secret today, which is
+   honest and works, but the tenant-aware thing is the Atlassian-issued JWT.
+4. Build the dashboard into `static/dashboard/build`. `dist/` is a single
+   self-contained file so this is close to a copy — but a Forge iframe is not an
+   emailed file, and the security suite's no-network, no-storage assertions are
+   about the file, not about this.
+5. Keep the scopes in `manifest.yml` identical to `SCOPES` in
    `scripts/jira_auth.py`. Two routes seeing different issues is a bug that
-   looks like a data problem.
+   presents as a data problem.
+6. Keep `CALC_FIELDS` in `src/index.js` identical to `CALC_FIELDS` in
+   `service/app.py`. They are compared by eye today; if this route is taken,
+   pin them with a test.
 
-## What is not here
+## Still not here
 
-Nothing about the Marketplace listing, its review, or billing. That is Atlassian
-Console work with no code in this repository.
+The Marketplace listing, its review, and billing. Atlassian Console work with no
+code in this repository.

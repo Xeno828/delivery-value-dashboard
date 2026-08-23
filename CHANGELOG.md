@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.15.0
+
+**If we ship on Forge, the forecast comes with us.** Forge runs Node and cannot execute `agent/tools/`, and the previous note in `forge/README.md` framed that as a choice between hosting the Python "anyway" and writing a second Monte Carlo in JavaScript. Measuring it settled the question rather differently, and [ADR 0008](docs/adr/0008-forge-calls-a-hosted-calculator.md) records it.
+
+**The tools were already pure functions.** Every `open()` and `glob` in `metrics.py`, `forecast.py` and `intake.py` sits inside `main()`; the library entry points take a dict and return a dict. `service/app.py` is a second caller, not new logic — `serve_live.py` has been the first one since live mode shipped.
+
+**A call is 16 KB and does not grow with the customer.** 16.2 KB for a 242-issue organisation and 16.3 KB for a 5,538-issue one, against 158 KB and 3.6 MB for the whole datasets, because a forecast needs one team's history rather than the organisation's. Compute is 0.25s and 0.74s respectively; `intake.sequence` is the slow one at 3.07s and the only call within an order of magnitude of a request timeout.
+
+**No issue title has to leave Atlassian, and that is the finding the design rests on.** `forecast.build()` over a dataset stripped to `key, created, started, resolved, statusCategory, storyPoints, priority, dueDate, flagged, addedMidSprint` produces byte-identical figures. The only fields that differed were `summary` and `assignee`, echoed back inside `item_risk.items[]` for display — and the Forge app already holds those, so it re-attaches them by key after the call. Titles are the sensitive payload; it is why `data/dashboard-data.json` is git-ignored and most of what permission mirroring is about. `tests/test_service.py` asserts the projection rather than trusting the measurement to stay true.
+
+**Free text is refused, not ignored.** A payload carrying `summary` gets a `400` saying the text does not belong here and was not stored. Accepting and dropping it quietly would make the service a place customer text arrives, which is the one thing the projection exists to prevent. The resolver asserts the same thing before sending, so it fails closed at both ends, and a test compares the two field lists across the two languages — the resolver deciding what leaves and the service deciding what is accepted must not drift.
+
+**The service computes nothing and the suite proves it.** Its forecast output is compared byte for byte against `forecast.build()` called directly. A wrapper that computes one percentage is a second implementation, and the day it disagrees every number in the product becomes something a reader has to check rather than read. The rule that the agent never does arithmetic now says so about everything between the tools and a reader.
+
+**It refuses to start without a shared secret.** An open calculator is free compute for whoever finds it, and holding no data is not the same as needing no authentication. `--insecure` exists for local development and says so on every request. Oversized payloads get the limit named and nothing calculated — a forecast over half a team's history looks exactly like a forecast over all of it. Tracebacks go to the operator, never into a response, because they carry field values.
+
+**A refusal survives the trip.** Shortening a working week shortens the throughput sample, and a team that had just enough completion history under five days can fall under the threshold under four. The right answer there is *"too little completion history to sample from"*, not a thinner forecast, and the test pins that it reaches the caller with its sentence intact and its calendar named. Every response carries the calendar, because two forecasts of one board under different working weeks are different forecasts and the difference is otherwise invisible.
+
+**The security suite caught a credential in the tests it did not like, and it was right.** The service tests had a literal bearer token; a scanner cannot tell that from a real one. It is generated per run now. A test that needs a hard-coded credential is a test teaching a bad habit.
+
+**What is real and what is not.** The projection, the free-text assertion, the call and the re-attachment in `forge/src/index.js` are real and tested against the calculator. Forge itself has never run: no app registered, nothing deployed, and `manifest.yml` has not been through `forge lint`. The Forge-specific syntax needs checking against current Atlassian docs, particularly the `remotes` block and the invocation-token contract — the service authenticates with a bearer secret today, and the tenant-aware thing is the Atlassian-issued JWT.
+
+**Costs, written down rather than discovered at listing time.** Egress forfeits the *Runs on Atlassian* badge, with no engineering answer — only the choice not to have two forecasts. Data residency becomes ours, pinned per region, which brings roadmap item 6 forward. And we would be operating a service, though a stateless sub-second one suits scale-to-zero.
+
+Still not here, and still not automatable: registering the Atlassian app, and the Marketplace listing.
+
+
 ## 1.14.0
 
 Phase 1 of the commercial roadmap — *make it connectable*. Two items: a Jira connection a customer can consent to, and the assumptions that are true of exactly one company.
