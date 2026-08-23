@@ -247,6 +247,135 @@ def test_no_internals_leak():
           "Traceback" not in json.dumps(out) and "File \"" not in json.dumps(out), out)
 
 
+def test_auth_seam_fails_closed():
+    """Swapping the verifier must be a contained change that cannot fail open.
+
+    The shared secret is a placeholder for Atlassian's invocation token. The one
+    thing that must not happen during that swap is a configuration which serves
+    requests without checking anything — a calculator that came up
+    unauthenticated looks healthy to everything watching it.
+    """
+    import os
+    saved = dict(os.environ)
+    try:
+        # the mode that is not written yet must stop the process, not degrade
+        os.environ["SERVICE_AUTH"] = "forge-token"
+        problem = SVC.startup_problem()
+        check("an unimplemented auth mode refuses to start",
+              problem and "not implemented" in problem, problem)
+        check("and says where the specification lives",
+              problem and "forge-deployment" in problem, problem)
+        # even if the startup guard were removed, requests must not pass
+        check("the unimplemented verifier refuses every request",
+              SVC.authorised({"Authorization": "Bearer anything"}) is False)
+
+        os.environ["SERVICE_AUTH"] = "typo-mode"
+        problem = SVC.startup_problem()
+        check("an unknown auth mode refuses to start", bool(problem), problem)
+        check("an unknown auth mode refuses every request",
+              SVC.authorised({"Authorization": "Bearer anything"}) is False)
+
+        os.environ["SERVICE_AUTH"] = "shared-secret"
+        os.environ.pop("SERVICE_SHARED_SECRET", None)
+        check("the implemented mode still refuses to start with no secret",
+              bool(SVC.startup_problem()))
+        check("and refuses every request while unconfigured",
+              SVC.authorised({"Authorization": "Bearer anything"}) is False)
+
+        os.environ["SERVICE_SHARED_SECRET"] = SECRET
+        check("a configured service may start", SVC.startup_problem() is None)
+        check("every declared mode has a verifier",
+              sorted(SVC.VERIFIERS) == sorted(SVC.AUTH_MODES), sorted(SVC.VERIFIERS))
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+
+
+def test_forge_manifest_matches_the_code():
+    """`forge lint` needs a CLI nobody here has. These are the parts of the
+    manifest that have to agree with this repository, which a linter would not
+    check anyway — it validates schema, not whether the scopes match the OAuth
+    client or the egress rule points at a remote that exists."""
+    man = (ROOT / "forge" / "manifest.yml").read_text()
+
+    scopes = re.findall(r"^\s+- (read|write|manage|delete):([\w-]+)$", man, re.M)
+    scope_strs = sorted("%s:%s" % (a, b) for a, b in scopes)
+    auth_src = (ROOT / "scripts" / "jira_auth.py").read_text()
+    m = re.search(r"SCOPES\s*=\s*\[(.*?)\]", auth_src, re.S)
+    oauth = sorted(s for s in re.findall(r'"([^"]+)"', m.group(1))
+                   if s != "offline_access")   # OAuth-only; Forge has no refresh flow
+    check("the Forge scopes match the OAuth client's",
+          scope_strs == oauth, {"manifest": scope_strs, "jira_auth": oauth})
+    check("no write, manage or delete scope is requested",
+          not [s for s in scope_strs if not s.startswith("read:")], scope_strs)
+
+    declared = re.findall(r"^remotes:\s*$\n(?:\s+- key:\s*(\S+)\s*$)", man, re.M)
+    referenced = re.findall(r"^\s+- remote:\s*(\S+)\s*$", man, re.M)
+    check("the egress rule points at a remote that is declared",
+          referenced and set(referenced) <= set(declared),
+          {"declared": declared, "referenced": referenced})
+
+    # `forge register` writes an app id into the manifest. Committing it hands
+    # everyone who clones the repository a manifest aimed at one person's app.
+    check("no app id is committed", not re.search(r"^\s*id:\s*ari:", man, re.M))
+
+    # The scaffold must keep saying so; a manifest that quietly looks finished
+    # is one somebody deploys.
+    check("the manifest still declares itself a scaffold",
+          "SCAFFOLD" in man.upper(), man.splitlines()[0][:60])
+
+
+def test_dockerfile_copies_everything_the_service_imports():
+    """Reconstruct the image's filesystem from its COPY lines and boot from it.
+
+    The failure this catches is narrow and nasty: the Dockerfile stops copying a
+    module the service imports — a new file under agent/tools, say — and every
+    other suite in this repository still passes, because they all run against a
+    working tree where the file is present. The container then fails on its
+    first request in production.
+
+    CI builds the real image and smoke-tests it. This runs everywhere, including
+    on machines with no Docker, which is where the Dockerfile actually gets
+    edited.
+    """
+    import os, shutil, tempfile
+    df = (ROOT / "service" / "Dockerfile").read_text()
+    copies = re.findall(r"^COPY\s+(\S+)\s+(\S+)\s*$", df, re.M)
+    check("the Dockerfile has COPY instructions to check", len(copies) >= 2, copies)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = pathlib.Path(tmp)
+        for src, dst in copies:
+            s, d = ROOT / src, tmp / dst.lstrip("/").replace("app/", "", 1)
+            if s.is_dir():
+                shutil.copytree(s, d, dirs_exist_ok=True)
+            else:
+                d.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(s, d)
+
+        r = subprocess.run(
+            [sys.executable, "-c",
+             "import sys; sys.path.insert(0, 'service'); import app; "
+             "print(app.VERSION); print(sorted(app.VERIFIERS))"],
+            cwd=tmp, capture_output=True, text=True, timeout=60,
+            env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
+        check("the service imports cleanly from the image's files alone",
+              r.returncode == 0, (r.stderr or r.stdout)[-200:])
+
+        shipped = {p.relative_to(tmp).as_posix() for p in tmp.rglob("*") if p.is_file()}
+        needed = {"agent/tools/%s.py" % m for m in
+                  ("metrics", "forecast", "intake", "orgconfig")}
+        check("every tool module is in the image", needed <= shipped,
+              sorted(needed - shipped) or "all present")
+
+        # Nothing that could carry a credential or a customer's issue titles.
+        leaked = sorted(p for p in shipped
+                        if p.startswith(("data/", "dist/", ".env", "config/"))
+                        or p.endswith((".env", ".jira-oauth.json")))
+        check("no credential or dataset is baked into the image",
+              leaked == [], leaked)
+
+
 def test_refuses_to_start_unauthenticated():
     """A calculator that came up open would look perfectly healthy."""
     env = {k: v for k, v in __import__("os").environ.items()
@@ -274,6 +403,12 @@ if __name__ == "__main__":
     test_refusals()
     print("nothing internal leaks out")
     test_no_internals_leak()
+    print("the auth seam")
+    test_auth_seam_fails_closed()
+    print("the Forge manifest")
+    test_forge_manifest_matches_the_code()
+    print("the container image")
+    test_dockerfile_copies_everything_the_service_imports()
     print("startup")
     test_refuses_to_start_unauthenticated()
 

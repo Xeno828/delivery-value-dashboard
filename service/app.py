@@ -109,13 +109,34 @@ class Refused(Exception):
 
 
 # ------------------------------------------------------------------- auth
+#
+# Two modes, selected by SERVICE_AUTH, and a seam between them so swapping one
+# for the other is a contained change rather than surgery on every route.
+#
+#   shared-secret   implemented, tested, and what runs today
+#   forge-token     NOT IMPLEMENTED. Verifying an Atlassian-issued invocation
+#                   token needs RS256 and a JWKS fetch, and writing that without
+#                   a real token to test against would ship security code whose
+#                   correctness nobody has observed. The service refuses to
+#                   start in this mode rather than falling back to something
+#                   weaker — see docs/forge-deployment.md § 2 for what it has to
+#                   check and the harness to prove it.
+#
+# The property that matters: an unknown or unimplemented mode is a refusal to
+# start, never a request that sails through. Failing open here would be
+# invisible — the service would look perfectly healthy.
+AUTH_MODES = ("shared-secret", "forge-token")
+
+
+def _auth_mode():
+    return os.environ.get("SERVICE_AUTH") or "shared-secret"
+
+
 def _expected_secret():
     return os.environ.get("SERVICE_SHARED_SECRET") or ""
 
 
-def authorised(headers, insecure=False):
-    if insecure:
-        return True
+def _verify_shared_secret(headers):
     want = _expected_secret()
     if not want:
         return False
@@ -125,6 +146,52 @@ def authorised(headers, insecure=False):
     # Constant-time: a byte-by-byte comparison lets a caller find the secret one
     # character at a time by measuring how long the rejection took.
     return hmac.compare_digest(got[len("Bearer "):].strip(), want)
+
+
+def _verify_forge_token(headers):
+    # Unreachable: startup_problem() stops the process before any request in
+    # this mode. Present so the seam is visible, and refusing so that removing
+    # that guard fails closed instead of silently accepting every caller.
+    return False
+
+
+VERIFIERS = {"shared-secret": _verify_shared_secret, "forge-token": _verify_forge_token}
+
+
+def startup_problem(insecure=False):
+    """Why this configuration must not serve, or None if it may.
+
+    Checked before the socket is opened. A misconfigured deploy should fail to
+    come up; one that comes up unauthenticated looks healthy to every dashboard
+    that is watching it.
+    """
+    if insecure:
+        return None
+    mode = _auth_mode()
+    if mode not in AUTH_MODES:
+        return ("SERVICE_AUTH=%r is not a mode this service has. Use one of: %s"
+                % (mode, ", ".join(AUTH_MODES)))
+    if mode == "forge-token":
+        return ("SERVICE_AUTH=forge-token is not implemented yet, and this service "
+                "will not fall back to something weaker.\nImplement "
+                "_verify_forge_token() first — docs/forge-deployment.md section 2 "
+                "lists what it must check and how to test it.")
+    if not _expected_secret():
+        return ("Refusing to start without SERVICE_SHARED_SECRET.\n"
+                "An open calculator is free compute for whoever finds it, and\n"
+                "holding no data is not the same as needing no authentication.\n\n"
+                "  SERVICE_SHARED_SECRET=$(openssl rand -hex 32) python3 service/app.py\n"
+                "  python3 service/app.py --insecure     # local development only")
+    return None
+
+
+def authorised(headers, insecure=False):
+    if insecure:
+        return True
+    verify = VERIFIERS.get(_auth_mode())
+    if verify is None:
+        return False
+    return verify(headers)
 
 
 # ------------------------------------------------------------- validation
@@ -377,18 +444,15 @@ def main():
                     help="accept unauthenticated requests. Local development only.")
     a = ap.parse_args()
 
-    if not a.insecure and not _expected_secret():
-        sys.exit("Refusing to start without SERVICE_SHARED_SECRET.\n"
-                 "An open calculator is free compute for whoever finds it, and\n"
-                 "holding no data is not the same as needing no authentication.\n\n"
-                 "  SERVICE_SHARED_SECRET=$(openssl rand -hex 32) python3 service/app.py\n"
-                 "  python3 service/app.py --insecure     # local development only")
+    problem = startup_problem(a.insecure)
+    if problem:
+        sys.exit(problem)
     Handler.insecure = a.insecure
 
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     print("Calculator on http://%s:%d" % (a.host, a.port))
     print("  %s" % meta()["computes"])
-    print("  auth: %s" % ("NONE — --insecure" if a.insecure else "bearer shared secret"))
+    print("  auth: %s" % ("NONE — --insecure" if a.insecure else _auth_mode()))
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

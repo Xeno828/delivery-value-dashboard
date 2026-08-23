@@ -93,6 +93,7 @@ These are product decisions, not style. Violating one is a bug even when the tes
 | Connecting a customer's Jira with OAuth | `docs/connecting-jira-asana.md` |
 | What a term means, and which words to avoid | `CONTEXT.md` |
 | Why Forge would call a hosted calculator | `docs/adr/0008-forge-calls-a-hosted-calculator.md` |
+| Finishing the Forge route — the three unfinished pieces | `docs/forge-deployment.md` |
 | The decisions behind the constraints above | `docs/adr/` |
 
 ## Agent skills

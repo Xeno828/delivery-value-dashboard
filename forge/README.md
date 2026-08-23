@@ -57,6 +57,9 @@ manifest to a single Atlassian account.
 
 ## If you take this route
 
+Step-by-step runbooks for all of it, including what `forge lint` will not tell
+you: [docs/forge-deployment.md](../docs/forge-deployment.md).
+
 1. `npm install -g @forge/cli && forge login && forge register`
 2. Deploy `service/` somewhere and point `remotes[0].baseUrl` at it.
 3. Replace the calculator's shared-secret check with verification of the Forge

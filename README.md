@@ -155,6 +155,7 @@ Because it needs the local server, this tile shows an offline notice rather than
 │   ├── data-format.md                   every field and what it drives
 │   ├── connecting-jira-asana.md         live data, OAuth, and why not from the page
 │   ├── organisation-config.md           what "done" means, and which days count
+│   ├── forge-deployment.md              runbooks for the three unfinished pieces
 │   ├── adr/                             eight decision records, indexed in adr/README.md
 │   ├── contexts-and-live-mode.md        project/board/sprint filtering
 │   ├── product-intake.md                forecasting an ask before it exists

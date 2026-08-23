@@ -25,6 +25,22 @@ Accepting them quietly would make this a place customer text lives, which is
 the one thing the projection exists to prevent. Forge re-attaches summaries by
 key after the call, so nothing is missing from the rendered tile.
 
+## Authentication, and what replaces it
+
+Two modes, chosen with `SERVICE_AUTH`:
+
+| | |
+|---|---|
+| `shared-secret` | Implemented and tested. What runs today |
+| `forge-token` | **Not implemented.** The service refuses to start in this mode rather than falling back to something weaker |
+
+The shared secret is not tenant-aware: every installation presents the same
+string. The tenant-aware mechanism is the invocation token Forge attaches to a
+remote call, and `_verify_forge_token()` is the seam it goes in — every route
+already runs through `authorised()`, so nothing else changes. What it has to
+check, what to confirm from Atlassian's docs, and the token-forgery cases the
+tests must reject: [docs/forge-deployment.md](../docs/forge-deployment.md).
+
 ## Running it
 
 ```bash

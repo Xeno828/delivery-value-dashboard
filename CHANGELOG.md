@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.15.1
+
+The three things the Forge work left unfinished now have runbooks — and two of them turned out to be partly closable rather than only documentable. [docs/forge-deployment.md](docs/forge-deployment.md) is the guide.
+
+**The calculator's auth is a seam now, and the empty half fails closed.** `SERVICE_AUTH` selects between `shared-secret`, which is implemented and tested, and `forge-token`, which is not written yet and **refuses to start** rather than degrading to something weaker. An unknown mode refuses too. Both refuse every request as well as refusing to boot, so deleting the startup guard cannot quietly open the service — a calculator that came up unauthenticated would look healthy to everything watching it.
+
+The Forge verifier is still not written, deliberately. Verifying RS256 needs a crypto library and a real token to test against, and neither exists here; shipping security code whose correctness nobody has observed is worse than an honest placeholder. What it has to check is written down instead — algorithm pinning, `kid` lookup with JWKS caching and rotation, `exp`/`nbf`, `aud`, `iss`, and actually using the tenant claim — along with the eleven forgery cases the tests must reject, including the `alg: none` and HMAC-signed-with-the-public-key confusions. The five facts that must be confirmed from Atlassian's current documentation are listed as facts to confirm, not guessed at.
+
+**The Forge manifest is now checked against this repository on every push.** `forge lint` needs a CLI nobody here has, but it validates schema and would not check any of this: the manifest's scopes must match `SCOPES` in `jira_auth.py`, the egress rule must name a remote that is actually declared, no write or manage scope may appear, and no app id may be committed — `forge register` writes one, and committing it hands everyone who clones the repository a manifest aimed at somebody else's app.
+
+**The container image is built and smoke-tested in CI.** A new job builds it, then asserts it refuses to start with no secret, runs as uid 10001, refuses an unauthenticated request, returns a real forecast for an authenticated one, refuses issue text with the right sentence, and does not log issue text.
+
+**And a check that needs no Docker, because the Dockerfile is edited on machines that have none.** `tests/test_service.py` reconstructs the image's filesystem from the `COPY` lines and imports the service from it. The failure that catches is narrow and nasty: the Dockerfile stops copying a module the service imports, every other suite still passes because they run against a working tree where the file is present, and the container fails on its first request in production. It also asserts no dataset, config or credential file is baked in.
+
+**The security suite flagged a literal secret in the new CI job, and was right again.** Second time in three releases. It is minted per run now. A scanner cannot tell a placeholder from a real credential, and a workflow that needs a hard-coded one teaches the habit.
+
+Not closed, and not closable from here: registering the app, running `forge lint`, and building the image locally. All three need an account or a tool this machine does not have. Scheduled rebuilds for base-image CVEs are listed as a decision rather than a task — a scanner that fails the build on somebody else's feed needs a policy about what blocks a merge.
+
+
 ## 1.15.0
 
 **If we ship on Forge, the forecast comes with us.** Forge runs Node and cannot execute `agent/tools/`, and the previous note in `forge/README.md` framed that as a choice between hosting the Python "anyway" and writing a second Monte Carlo in JavaScript. Measuring it settled the question rather differently, and [ADR 0008](docs/adr/0008-forge-calls-a-hosted-calculator.md) records it.
