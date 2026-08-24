@@ -139,6 +139,14 @@ const fetchBoardIssues = async (boardId) => {
         // agent/tools/orgconfig.py) and a third copy of that rule written here
         // is exactly the divergence the config exists to prevent. The raw name
         // goes in the payload; the calculator applies the config.
+        // OPEN, and it returns a plausible wrong number rather than failing:
+        // the story-point custom field id differs per Jira site. The Python
+        // fetcher discovers it by display name via /rest/api/3/field; this
+        // hardcodes the common one. On a site that uses a different id every
+        // issue reads as zero points, the burndown flattens in points mode, and
+        // nothing says why. The connection check will show it — storyPoints
+        // absent from the projected payload means this id is wrong here.
+        // Fixing it needs a field-read scope, so it is a decision, not a patch.
         storyPoints: i.fields?.customfield_10016 ?? 0,
         priority: i.fields?.priority?.name ?? null,
         created: (i.fields?.created ?? '').slice(0, 10) || null,
@@ -217,13 +225,18 @@ resolver.define('probeBoardIssues', async ({ payload }) => {
     return { available: false, status: res.status, sentence: `Jira returned ${res.status}.` };
   }
   const body = await res.json();
+  // The same shape fetchBoardIssues builds, so what section 3 displays is the
+  // payload the product would really send rather than a thinner stand-in.
   const raw = (body.issues ?? []).map((i) => ({
     key: i.key,
     summary: i.fields?.summary ?? '',
     assignee: i.fields?.assignee?.displayName ?? null,
     status: i.fields?.status?.name ?? null,
+    storyPoints: i.fields?.customfield_10016 ?? 0,
+    priority: i.fields?.priority?.name ?? null,
     created: (i.fields?.created ?? '').slice(0, 10) || null,
     resolved: (i.fields?.resolutiondate ?? '').slice(0, 10) || null,
+    dueDate: i.fields?.duedate ?? null,
   }));
 
   const projected = raw.map(projectIssue);

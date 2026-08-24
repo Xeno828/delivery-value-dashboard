@@ -3,42 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Shipping Forecast — connection check</title>
-<style>
-  :root{
-    --paper:#fff; --ink:#172b4d; --muted:#626f86; --rule:#dfe1e6;
-    --ok:#216e4e; --ok-bg:#dcfff1; --bad:#ae2e24; --bad-bg:#ffecea;
-    --wait:#a54800; --wait-bg:#fff7d6;
-    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  }
-  @media (prefers-color-scheme:dark){
-    :root{ --paper:#1d2125; --ink:#c7d1db; --muted:#8c9bab; --rule:#2c333a;
-           --ok:#7ee2b8; --ok-bg:#1c3329; --bad:#fd9891; --bad-bg:#42221f;
-           --wait:#f5cd47; --wait-bg:#3b2f13; }
-  }
-  *{box-sizing:border-box}
-  body{margin:0;padding:20px;background:var(--paper);color:var(--ink);
-       font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-  h1{font-size:16px;margin:0 0 4px}
-  p.sub{margin:0 0 18px;color:var(--muted);font-size:13px;max-width:70ch}
-  section{border:1px solid var(--rule);border-radius:6px;padding:12px 14px;margin-bottom:12px}
-  h2{font-size:13px;margin:0 0 8px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
-  .verdict{display:inline-block;font-family:var(--mono);font-size:12px;font-weight:600;
-           padding:2px 8px;border-radius:3px;margin-bottom:8px}
-  .v-ok{background:var(--ok-bg);color:var(--ok)}
-  .v-bad{background:var(--bad-bg);color:var(--bad)}
-  .v-wait{background:var(--wait-bg);color:var(--wait)}
-  pre{font-family:var(--mono);font-size:12px;background:rgba(127,127,127,.08);
-      padding:9px 11px;border-radius:4px;overflow-x:auto;margin:8px 0 0;white-space:pre-wrap;
-      word-break:break-word}
-  form{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:2px 0 6px}
-  label{font-size:12px;color:var(--muted)}
-  input{font:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--rule);
-        border-radius:4px;background:transparent;color:inherit}
-  button{font:inherit;font-size:13px;padding:5px 11px;border:1px solid var(--rule);
-         border-radius:4px;background:transparent;color:inherit;cursor:pointer;margin:2px 4px 2px 0}
-  button:hover{background:rgba(127,127,127,.1)}
-  .note{font-size:12px;color:var(--muted);margin-top:8px}
-</style>
+<link rel="stylesheet" href="probe.css">
 </head>
 <body>
 <h1>Shipping Forecast — connection check</h1>
