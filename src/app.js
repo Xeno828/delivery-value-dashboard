@@ -348,6 +348,32 @@ function selectableContexts() {
   return real.concat(rolls);
 }
 
+/** A context's working days, derived when whatever produced it did not.
+ *
+ *  Over the Forge bridge every sprint arrives without them. `forge/src/jira.js`
+ *  declines to resolve which days are worked, on the grounds that it is
+ *  organisation config and resolving it in a resolver would be a fourth
+ *  opinion arriving by a fourth route — the same reason it leaves
+ *  `statusCategory` out. The page already derives that one under ORG(); this
+ *  is the same move for the same field, from the same single config, so it is
+ *  the first opinion rather than another one.
+ *
+ *  Until it did, `timeElapsed` was null for every sprint in a Forge tenant.
+ *  "Pace vs clock" read "—" and the health score's largest component was never
+ *  taken — across a whole install, for the one number the dashboard was built
+ *  to add. It also meant the two transports rendered different figures from
+ *  the same sprint, which is the thing ADR 0009 exists to prevent.
+ *
+ *  A rollup keeps its empty list on purpose. Its dates span every sprint in
+ *  it, so the working days between the first start and the last end are a real
+ *  list describing nothing — "how far through nineteen sprints are we" is not
+ *  a pace, and it would compute to a confident number. */
+function contextWorkingDays(ctx) {
+  if (ctx.workingDays && ctx.workingDays.length) return ctx.workingDays;
+  if (ctx.isRollup || !ctx.startDate || !ctx.endDate) return [];
+  return workingDays(ctx.startDate, ctx.endDate, ORG());
+}
+
 /** Resolve the active context into the shape every renderer reads. */
 function buildView() {
   const all = selectableContexts();
@@ -373,7 +399,7 @@ function buildView() {
       team: ctx.team || ctx.boardName, organisation: ctx.projectName || S.data.meta.organisation,
       boardName: ctx.boardName, projectKey: ctx.projectKey,
       startDate: ctx.startDate, endDate: ctx.endDate, asOfDate: ctx.asOfDate,
-      workingDays: ctx.workingDays || []
+      workingDays: contextWorkingDays(ctx)
     })
   };
 }
@@ -392,6 +418,21 @@ function filtered() {
 }
 
 /* ------------------------------------------------------------ derived stats */
+
+/** The sentence every zero-issue refusal on this page is built from.
+ *
+ *  A figure computed over zero issues is not zero — it is undefined, and the
+ *  guards that keep those ratios off a divide-by-zero (`items.length ? … : 0`,
+ *  `Math.max(items.length, 1)`) quietly hand the reader a number that was
+ *  never measured. That is this project's worst failure mode, because nothing
+ *  about the output looks wrong.
+ *
+ *  The closing clause is the point and is never trimmed. "No issues" and "no
+ *  risks" are different statements, and only one of them is true here.
+ *  See docs/adr/0010-an-empty-selection-is-a-refusal.md */
+const noItems = what =>
+  "No issues in this selection, so " + what + " — the evidence is absent, not noisy.";
+
 function derive(items) {
   const now = asOf(), end = S.view.meta.endDate;
   const done = items.filter(i => i.statusCategory === "Done");
@@ -409,7 +450,7 @@ function derive(items) {
   const m = {
     total: items.length,
     doneCount: done.length,
-    donePct: items.length ? done.length / items.length : 0,
+    donePct: items.length ? done.length / items.length : null,
     totalSP: sum(items, i => i.storyPoints),
     doneSP: sum(done, i => i.storyPoints),
     openSP: sum(open, i => i.storyPoints),
@@ -429,9 +470,16 @@ function derive(items) {
     valueItems: done.filter(i => i.businessValue > 0),
     prev, cur, avg3
   };
+  /* An empty selection is a refusal, not a zero. Everything downstream that
+     would state a figure over these items checks this rather than printing the
+     fallback it used to fall through to. Counts of an empty set that are
+     honestly nil keep their nil; shares, scores and claims about health do
+     not, because there is no denominator behind them. */
+  m.empty = items.length === 0;
   m.addedSP = sum(m.added, i => i.storyPoints);
   m.addedU = sum(m.added, U().val);
-  m.scopeAddedPct = (m.totalU - m.addedU) > 0 ? m.addedU / (m.totalU - m.addedU) : 0;
+  m.scopeAddedPct = m.empty ? null
+    : ((m.totalU - m.addedU) > 0 ? m.addedU / (m.totalU - m.addedU) : 0);
   m.value = sum(m.valueItems, i => i.businessValue);
   const totLead = sum(lead), totCyc = sum(cycle);
   m.flowEff = totLead > 0 ? totCyc / totLead : null;
@@ -444,18 +492,106 @@ function derive(items) {
   m.timeElapsed = wd.length ? (idx >= 0 ? (idx + 1) / wd.length : 1) : null;
   m.paceGap = (m.timeElapsed != null && m.totalU) ? (m.doneU / m.totalU) - m.timeElapsed : null;
 
-  // health score, fully disclosed
+  /* Why pace and scope could not be taken, when they could not — two different
+     reasons that both produced `paceGap == null` and were both reported as
+     "no sprint calendar". Over a dataset with no estimates, read in points,
+     the calendar is present and complete and the disclosure said it was
+     missing. A disclosure exists so a reader can argue with the method; one
+     that names the wrong cause sends them to fix the wrong thing. */
+  const noVolume = "nothing in this selection carries a figure in " + U().label;
+  const rollup = S.view.ctx && S.view.ctx.isRollup;
+  m.paceUnknown = m.timeElapsed == null
+    ? (rollup
+        ? "this view rolls up " + (S.view.ctx.members || []).length + " sprints, so there is no single " +
+          "clock to measure against — pick one sprint above"
+        : "this sprint's start and end dates are not in the data, so there is no clock to measure against")
+    : (!m.totalU ? noVolume : null);
+  /* The same fact in the width of a KPI sub-label. It used to read "no
+     calendar" for all three causes, including a rollup that has dates and a
+     points view of issues nobody estimated. */
+  m.paceUnknownShort = m.timeElapsed == null
+    ? (rollup ? "no single sprint clock" : "no sprint dates")
+    : (!m.totalU ? "no " + U().label + " recorded" : null);
+  /* Scope stability has the same hole and it fails the other way: with no
+     volume, `addedU` and `totalU` are both zero, the guard returns 0% growth
+     and the component scores full marks for a sprint nobody measured. */
+  m.scopeUnknown = m.totalU ? null : noVolume;
+
+  /* health score, fully disclosed — and withheld entirely over an empty
+     selection.
+
+     Every component below is a share of the selected issues, and the guards
+     that keep each one off a divide-by-zero score an empty sprint as full
+     marks: no blockers of nothing, no ageing work among nothing, no scope
+     growth on nothing. Delivery pace contributed its neutral zero and the four
+     weights summed to a confident-looking "Needs attention (66/100)" for a
+     selection that contained no issues at all.
+
+     That is the state the Forge build opens in — forge/seed.json carries no
+     issues and the dashboard renders before the bridge answers — and the state
+     it stays in if the bridge never answers. So it is the reading most likely
+     to be seen, and it was the one number on the page behind which there was
+     nothing. */
+  if (m.empty) {
+    m.healthParts = null;
+    m.health = null;
+    m.healthBand = null;
+    m.healthRefusal = noItems("there is no sprint health to score");
+    return m;
+  }
+  /* A component that could not be measured is dropped from the composition and
+     named, not scored zero. Delivery pace carries the largest weight of the
+     four, and scoring it 0/100 for a missing calendar took the sample sprint
+     from 52 and Amber to 22 and Off track — a verdict about delivery, produced
+     by the absence of two dates. A zero here is a finding, and "we do not know
+     when this sprint runs" is not a finding about delivery.
+
+     The measured components are re-weighted to sum to one, so the figure is
+     the honest score of what could be taken rather than that score capped by
+     the weight of what could not. It is therefore not comparable with a score
+     built from all four, and both the chip and the disclosure say how many
+     were taken. Below half the weight there is not enough composition left to
+     call anything "sprint health", and the whole score refuses. */
   const parts = [];
-  parts.push({ n: "Delivery pace", v: m.paceGap == null ? 0 : clamp(1 + m.paceGap * 2.2, 0, 1), w: 0.34,
-    d: m.paceGap == null ? "no sprint calendar" : (m.paceGap >= 0 ? "ahead of the time-elapsed line" : Math.round(-m.paceGap * 100) + " percentage points behind the time-elapsed line") });
-  parts.push({ n: "Scope stability", v: clamp(1 - m.scopeAddedPct * 4, 0, 1), w: 0.22,
-    d: m.addedU ? U().fmt(m.addedU) + " " + U().n(m.addedU) + " added mid-sprint (" + pct(m.scopeAddedPct) + " growth)" : "no mid-sprint additions" });
-  parts.push({ n: "Blockers", v: clamp(1 - (m.flagged.length / Math.max(items.length, 1)) * 6, 0, 1), w: 0.22,
-    d: m.flagged.length + " flagged of " + items.length });
-  parts.push({ n: "Ageing work", v: clamp(1 - (m.ages.filter(a => a.age > 14).length / Math.max(open.length, 1)), 0, 1), w: 0.22,
-    d: m.ages.filter(a => a.age > 14).length + " open items older than 14 days" });
+  const part = (n, w, why, v, d) => parts.push({ n: n, w: w, why: why || null,
+                                                 v: why ? null : v, d: why ? null : d });
+
+  part("Delivery pace", 0.34, m.paceUnknown,
+    m.paceGap == null ? 0 : clamp(1 + m.paceGap * 2.2, 0, 1),
+    m.paceGap >= 0 ? "ahead of the time-elapsed line"
+                   : Math.round(-m.paceGap * 100) + " percentage points behind the time-elapsed line");
+  part("Scope stability", 0.22, m.scopeUnknown,
+    clamp(1 - m.scopeAddedPct * 4, 0, 1),
+    m.addedU ? U().fmt(m.addedU) + " " + U().n(m.addedU) + " added mid-sprint (" + pct(m.scopeAddedPct) + " growth)"
+             : "no mid-sprint additions");
+  /* These two need only the issues, which by here there are some of. An open
+     list with nothing older than 14 days in it is a measurement, not a gap. */
+  part("Blockers", 0.22, null,
+    clamp(1 - (m.flagged.length / items.length) * 6, 0, 1),
+    m.flagged.length + " flagged of " + items.length);
+  part("Ageing work", 0.22, null,
+    clamp(1 - (m.ages.filter(a => a.age > 14).length / Math.max(open.length, 1)), 0, 1),
+    m.ages.filter(a => a.age > 14).length + " open items older than 14 days");
+
   m.healthParts = parts;
-  m.health = sum(parts, p => p.v * p.w);
+  const taken = parts.filter(p => !p.why);
+  m.healthTaken = taken.length;
+  m.healthWeight = sum(taken, p => p.w);
+  if (m.healthWeight < 0.5) {
+    /* Not a low score built from the remainder. Two of the four gone is most
+       of the method, and what is left — blockers and ageing work — describes
+       hygiene rather than whether the sprint is going to land. */
+    const why = uniq(parts.filter(p => p.why).map(p => p.why));
+    m.health = null;
+    m.healthBand = null;
+    m.healthRefusal = "Sprint health is built from four measures and only " + taken.length +
+      " of them could be taken here: " + why.join("; ") +
+      ". That is too little of the score to report a number for — the evidence is absent, not noisy.";
+    m.healthAdvice = m.totalU ? null
+      : "Switch the measure to items in the filter row, where these issues do carry a figure.";
+    return m;
+  }
+  m.health = sum(taken, p => p.v * p.w) / m.healthWeight;
   m.healthBand = m.health >= 0.72 ? "Green" : m.health >= 0.45 ? "Amber" : "Red";
   return m;
 }
@@ -508,17 +644,48 @@ function renderHeader(m) {
                  ". The connection is live; whether the data behind it is demo or real is the line above."
                : ".<br><br>Amber means this is not a live connection.");
 
+  /* One line per component, measured or not, with the weight that actually
+     multiplied it. When a component is dropped the others are re-weighted, so
+     printing the nominal 22% beside a figure that was multiplied by 33% would
+     be a disclosure that does not add up. */
+  const partLines = (m.healthParts || []).map(p => p.why
+    ? "· " + esc(p.n) + " — <b>not measured</b>: " + esc(p.why)
+    : "· " + esc(p.n) + " (" + Math.round((p.w / (m.healthWeight || 1)) * 100) + "% weight): " +
+      Math.round(p.v * 100) + "/100 — " + esc(p.d)).join("<br>");
+
+  const hc = $("#t-health");
+  if (m.health == null) {
+    /* Withheld, not floored. A 0/100 here would read as "this sprint is in
+       trouble" and the 66/100 it used to print read as "this sprint is fine" —
+       both are verdicts on evidence nobody has. The chip keeps its shape so
+       the header does not jump when data arrives. */
+    hc.style.background = CSSV("--info-wash"); hc.style.color = CSSV("--info-ink");
+    hc.innerHTML = '<span aria-hidden="true">—</span> Sprint health: not scored';
+    hc.dataset.tt = "<b>No sprint health score</b><br>" + esc(m.healthRefusal) +
+      (m.healthAdvice ? "<br><br>" + esc(m.healthAdvice) : "") +
+      (m.healthParts ? "<br><br>" + partLines : "") +
+      "<br><br>It is withheld rather than shown as a number, because a number here reads as " +
+      "a measurement.";
+    return;
+  }
+
   const band = m.healthBand;
   const map = { Green: ["--good-wash", "--good-ink", "●", "On track"],
                 Amber: ["--warn-wash", "--warn-ink", "▲", "Needs attention"],
                 Red:   ["--crit-wash", "--crit-ink", "■", "Off track"] };
   const [bg, ink, icon, word] = map[band];
-  const hc = $("#t-health");
+  const partial = m.healthTaken < m.healthParts.length;
   hc.style.background = CSSV(bg); hc.style.color = CSSV(ink);
-  hc.innerHTML = '<span aria-hidden="true">' + icon + "</span> Sprint health: " + word + " (" + Math.round(m.health * 100) + "/100)";
-  hc.dataset.tt = "<b>How this score is built</b><br>" +
-    m.healthParts.map(p => "· " + esc(p.n) + " (" + Math.round(p.w * 100) + "% weight): " +
-      Math.round(p.v * 100) + "/100 — " + esc(p.d)).join("<br>") +
+  hc.innerHTML = '<span aria-hidden="true">' + icon + "</span> Sprint health: " + word +
+    " (" + Math.round(m.health * 100) + "/100" +
+    // No silent caps. A score built from three of four measures is a different
+    // quantity from one built from all four, and the chip is where it is read.
+    (partial ? ", " + m.healthTaken + " of " + m.healthParts.length + " measures" : "") + ")";
+  hc.dataset.tt = "<b>How this score is built</b><br>" + partLines +
+    (partial ? "<br><br><b>Scored from " + m.healthTaken + " of the " + m.healthParts.length +
+      " measures.</b> The ones that could be taken are re-weighted to sum to 100, so this is the " +
+      "honest score of what was measured — and not comparable with a figure built from all four."
+     : "") +
     "<br><br>Green ≥ 72, Amber ≥ 45, otherwise Red. Scored on <b>" + U().label + "</b> — the delivery-pace and " +
     "scope components move with the measure, so the score does too. Shown so you can argue with the method " +
     "rather than the colour.";
@@ -646,6 +813,18 @@ function renderContextBar() {
    ================================================================== */
 function renderExec(m) {
   const meta = S.view.meta, cur = m.cur;
+  if (m.empty) {
+    /* Every sentence this card can build is a statement about issues. Over
+       none of them the opening line read "0 of 0 items are done (0%)" — a
+       percentage of nothing, set in bold, above an empty findings list. */
+    $("#exec-verdict").innerHTML = "<strong>" + esc(noItems("there is nothing to summarise")) + "</strong>";
+    $("#exec-basis").innerHTML = "Nothing loaded from " + esc(meta.sourceLabel || "the loaded dataset") +
+      ", as at " + fmtD(asOf()) + ". The findings below are generated from the issues on this page, " +
+      "so they are absent rather than clear.";
+    $("#exec-list").innerHTML = "";
+    $("#exec-list").onclick = null;
+    return;
+  }
   const behind = m.paceGap != null && m.paceGap < -0.05;
   const v = [];
   v.push("<strong>" + m.doneCount + " of " + m.total + " items are done (" + pct(m.donePct) + ")</strong>" +
@@ -752,6 +931,18 @@ function renderExec(m) {
    ================================================================== */
 function renderKpis(m) {
   const meta = S.view.meta;
+  if (m.empty) {
+    /* Eight tiles of zeros read as a measured sprint with nothing wrong in it,
+       which is the opposite of what an empty selection means. Four of the eight
+       are shares with an empty denominator; the rest are counts of a set
+       nobody has loaded anything into. The strip goes as one, because a mixed
+       row — some figures, some dashes — invites the reader to trust the ones
+       that still carry a number. */
+    $("#kpis").innerHTML = '<div class="kpi-none note">' +
+      esc(noItems("none of these figures were measured")) + "</div>";
+    $("#kpis").onclick = null;
+    return;
+  }
   const arrow = (v, goodUp) => {
     if (v == null || Math.abs(v) < 0.005) return { t: "no change", c: CSSV("--muted"), i: "→" };
     const good = goodUp ? v > 0 : v < 0;
@@ -772,7 +963,7 @@ function renderKpis(m) {
     // "pp" = percentage points. Never "pts" here — beside an item measure it
     // reads as story points, which is a different quantity entirely.
     { lab: "Pace vs clock", val: (m.paceGap == null ? "—" : (m.paceGap >= 0 ? "+" : "") + Math.round(m.paceGap * 100) + " pp"),
-      sub: m.timeElapsed != null ? pct(m.timeElapsed) + " elapsed · percentage points" : "no calendar",
+      sub: m.paceUnknownShort || (pct(m.timeElapsed) + " elapsed · percentage points"),
       barPct: m.timeElapsed || 0, barCol: CSSV("--muted"),
       tt: "Percentage of work complete (in " + U().label + ") minus percentage of the sprint elapsed. Negative means the burndown is behind the calendar. This is the single number the original dashboard was missing.",
       drill: { t: "Work not yet finished", items: m.open } },
@@ -1030,6 +1221,20 @@ function renderFlowTime(m, items) {
    ================================================================== */
 function renderAge(m) {
   const host = $("#age-chart");
+  if (m.empty) {
+    /* Zero in every band is not health, it is silence — and the note under the
+       chart used to say the quiet part out loud: "Nothing open has outlived a
+       sprint. That is the healthy state." over a selection with nothing in it.
+       With issues present but none open that sentence is true and still prints;
+       this branch is only for the case where there was never anything to age.
+       The table view is cleared with the chart: a stale row set behind the
+       toggle is the same wrong number one click further away. */
+    host.innerHTML = '<div class="note">' + esc(noItems("there is no open work to age")) + "</div>";
+    host.onclick = null;
+    S.tables.age = { cols: ["Age band", "Items", "Story points", "Keys"], rows: [] };
+    drawTable("age");
+    return;
+  }
   const bands = [{ l: "0–7 days", lo: 0, hi: 7 }, { l: "8–14 days", lo: 7, hi: 14 },
                  { l: "15–30 days", lo: 14, hi: 30 }, { l: "Over 30 days", lo: 30, hi: 1e9 }];
   const ramp = [CSSV("--seq-250"), CSSV("--seq-350"), CSSV("--seq-450"), CSSV("--seq-600")];
@@ -1244,6 +1449,15 @@ function renderLoad() {
    ================================================================== */
 function renderValue(m) {
   const host = $("#value-body"), cur = S.view.meta.currency;
+  if (m.empty) {
+    /* A "$0" hero over no issues is a claim that the sprint delivered nothing
+       worth anything, which is a different statement from "nothing here has
+       been priced". The floor-not-a-total footnote read "0 of the 0 completed
+       items carry no value estimate" underneath it. */
+    host.innerHTML = '<div class="note">' + esc(noItems("no value was closed, priced or left unpriced")) + "</div>";
+    host.onclick = null;
+    return;
+  }
   const h = S.view.history || [];
   const items = m.valueItems.slice().sort((a, b) => b.businessValue - a.businessValue);
   const unpriced = m.done.length - items.length;
@@ -1703,7 +1917,12 @@ function renderRisk(m, items) {
       " highest-ranked of " + risks.length + " risks. The " + cut.length + " not shown (" +
       Object.keys(rank).filter(k => cutTally[k]).map(k => cutTally[k] + " " + chip[k][2].toLowerCase()).join(", ") +
       ") rank below them: risks are ordered most severe first, and the ageing highest-priority items oldest first within that." +
-      "</div>" : "") || '<div class="note">No risks triggered against the current filters.</div>';
+      "</div>" : "") || '<div class="note">' + esc(m.empty
+    /* "No risks triggered" is a finding. Over an empty selection nothing was
+       examined, so there is no finding either way — every rule above reads the
+       issues on this page, and there are none to read. */
+    ? noItems("no risk could be triggered or ruled out")
+    : "No risks triggered against the current filters.") + "</div>";
   host.onclick = e => {
     const b = e.target.closest("[data-risk]"); if (!b) return;
     const r = risks[+b.dataset.risk];
@@ -2142,8 +2361,11 @@ function render() {
   renderBurn(m); renderDist(m, items); renderFlowTime(m, items); renderAge(m);
   renderPred(m); renderForecast(); renderDora(m); renderLoad(); renderValue(m); renderRel(m); renderRisk(m, items);
   applyTiles();
-  const empty = !S.view.issues.length && S.view.ctx && !S.view.ctx.isRollup;
-  $("#grid").style.opacity = empty ? "0.45" : "";
+  /* The grid used to be faded to 0.45 opacity over an empty context, as the
+     only signal that its zeros meant nothing. The tiles now say so in words,
+     and fading the sentence that explains the page is the one thing worse than
+     not printing it — at 0.45 the refusals were the only text on screen and
+     the only text failing AA contrast. */
   const nctx = (S.data.contexts || []).length;
   $("#foot").innerHTML = "Generated from " + esc(S.data.meta.sourceLabel || "loaded data") + " · " +
     S.data.issues.length + " issues across " + nctx + " sprint" + (nctx === 1 ? "" : "s") +

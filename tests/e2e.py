@@ -9,6 +9,7 @@ wizard with the fixture files, asserting the dashboard actually changes.
 
 import json
 import pathlib
+import re
 import sys
 
 from playwright.sync_api import sync_playwright
@@ -65,6 +66,255 @@ def open_picker(page):
     if not page.is_visible("#view-pop"):
         page.click("#btn-view")
     page.wait_for_selector("#view-pop:not(.hidden)", timeout=5000)
+
+
+def health_composition(b):
+    """A component that could not be measured is dropped, not scored zero.
+
+    Delivery pace carries the largest of the four weights. Over a sprint whose
+    dates were unknown it scored 0/100 and dragged the sample sprint from 52
+    and "Needs attention" to 22 and "Off track" — a verdict about delivery,
+    produced by the absence of two dates. The disclosure that exists so a
+    reader can argue with the method said "no sprint calendar", and said it for
+    all three causes, including a rollup that has dates and a points view of
+    issues nobody estimated.
+
+    Both halves are pinned here: that the page derives the calendar when
+    whatever produced the data did not, and that when it genuinely cannot the
+    component leaves the composition instead of scoring it.
+    """
+    print("\n  health composition")
+
+    CHIP = "() => document.getElementById('t-health').textContent.trim()"
+    TT = "() => document.getElementById('t-health').dataset.tt"
+
+    sample = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+    bundle = json.loads((ROOT / "data" / "demo-bundle.json").read_text())
+
+    def without(keys):
+        d = json.loads(json.dumps(sample))
+        for k in keys:
+            d["meta"].pop(k, None)
+        for c in d.get("contexts") or []:
+            for k in keys:
+                c.pop(k, None)
+        return d
+
+    page = b.new_page(viewport={"width": 1500, "height": 1000})
+    errs = []
+    page.on("pageerror", lambda e: errs.append(str(e)))
+    page.goto(DIST.as_uri())
+    page.wait_for_timeout(700)
+
+    # ---------- baseline ----------
+    page.evaluate("d => window.DVD.applyDataset(d)", sample)
+    page.wait_for_timeout(500)
+    full = page.evaluate(CHIP)
+    check("a sprint with a calendar scores from all four measures",
+          "/100)" in full and "measures" not in full, full)
+
+    # ---------- the calendar is derived, not demanded ----------
+    # forge/src/jira.js sends no workingDays on purpose — which days are worked
+    # is organisation config, and resolving it in a resolver would be a fourth
+    # opinion. The page derives it under ORG(), exactly as it already derives
+    # statusCategory, which is why the score must come out identical. Before it
+    # did, every sprint in a Forge tenant lost the largest component of its
+    # health score and the two transports rendered different figures from the
+    # same sprint.
+    page.evaluate("d => window.DVD.applyDataset(d)", without(["workingDays"]))
+    page.wait_for_timeout(500)
+    check("the page derives the working days the producer left out",
+          page.evaluate(CHIP) == full, (page.evaluate(CHIP), full))
+    js = page.evaluate("""() => {
+      const v = window.DVD.debug.view();
+      return [v.meta.workingDays,
+              window.DVD.workingDays(v.meta.startDate, v.meta.endDate, window.DVD.orgConfig())];
+    }""")
+    check("and derives exactly the list orgconfig.py would have written",
+          js[0] == js[1] and len(js[0]) > 0, js[0][:3])
+
+    # ---------- no dates at all: the component leaves the composition ----------
+    page.evaluate("d => window.DVD.applyDataset(d)",
+                  without(["workingDays", "startDate", "endDate"]))
+    page.wait_for_timeout(500)
+    chip, tt = page.evaluate(CHIP), page.evaluate(TT)
+    check("a sprint with no dates drops delivery pace rather than scoring it 0",
+          "Delivery pace — <b>not measured</b>" in tt, tt[:130])
+    check("the chip says how many measures the score was built from",
+          "3 of 4 measures" in chip, chip)
+    check("and the score is what the three measured, not that capped by the fourth",
+          "(33/100" in chip, chip)
+
+    # No silent caps: the weights a reader is shown must be the weights that
+    # multiplied, and they must add up. Printing the nominal 22% beside a
+    # figure that was multiplied by 33% is a disclosure that does not reconcile.
+    weights = [int(w) for w in re.findall(r"\((\d+)% weight\)", tt)]
+    check("the disclosed weights are the re-weighted ones and sum to 100",
+          len(weights) == 3 and 99 <= sum(weights) <= 101, weights)
+
+    # ---------- a rollup has dates and still has no clock ----------
+    page.evaluate("d => window.DVD.applyDataset(d)", bundle)
+    page.wait_for_timeout(500)
+    roll = [c for c in page.evaluate("() => window.DVD.debug.contexts().map(c => c.id)")
+            if c.startswith("roll:")][0]
+    page.evaluate("i => window.DVD.debug.selectContext(i)", roll)
+    page.wait_for_timeout(500)
+    tt = page.evaluate(TT)
+    check("a rollup drops delivery pace too",
+          "Delivery pace — <b>not measured</b>" in tt, tt[:130])
+    check("and says it is the rollup, not missing dates — it has dates",
+          "rolls up" in tt and "not in the data" not in tt, tt[:190])
+    check("the pace KPI names the same cause in its own words",
+          "no single sprint clock" in page.text_content("#kpis .kpi:nth-child(2)"),
+          page.text_content("#kpis .kpi:nth-child(2)"))
+
+    # ---------- a measure the data does not carry ----------
+    # Two of four components read work volume, so in points over an unestimated
+    # dataset both are undefined — and they failed in opposite directions:
+    # pace scored 0 for a calendar that was present and correct, scope
+    # stability scored 100/100 for "no mid-sprint additions" out of nothing.
+    unpriced = json.loads(json.dumps(sample))
+    for i in unpriced["issues"]:
+        i["storyPoints"] = 0
+    page.evaluate("d => window.DVD.applyDataset(d)", unpriced)
+    page.wait_for_timeout(500)
+    check("issues with no estimates still score in items",
+          "/100)" in page.evaluate(CHIP), page.evaluate(CHIP))
+    page.evaluate("() => window.DVD.debug.setUnit('points')")
+    page.wait_for_timeout(500)
+    chip, tt = page.evaluate(CHIP), page.evaluate(TT)
+    check("but reading them in points refuses rather than scoring half a method",
+          "not scored" in chip, chip)
+    check("the refusal names the measure, not the calendar",
+          "story points" in tt and "sprint calendar" not in tt, tt[:170])
+    check("it ends with the clause, untrimmed",
+          "the evidence is absent, not noisy" in tt, tt[:200])
+    check("and names the measure that would work",
+          "Switch the measure to items" in tt, tt[:260])
+    check("scope stability is not quietly given full marks for measuring nothing",
+          "Scope stability — <b>not measured</b>" in tt, tt[:260])
+    page.evaluate("() => window.DVD.debug.setUnit('items')")
+    page.wait_for_timeout(400)
+
+    check("no console errors while composing the score", not errs, errs[:2])
+    page.close()
+
+
+def empty_selection(b):
+    """Zero issues is a refusal, not a zero.
+
+    The case that shipped was the sprint health score. With no items, every
+    component of it fell to full marks or a neutral zero — no blockers among
+    nothing, no ageing work among nothing, no scope growth on nothing — and the
+    four weights summed to "Needs attention (66/100)". A figure that looks
+    computed, is not, and arrives with a colour and a verdict attached.
+
+    It is not a corner case. The Forge build opens in exactly this state:
+    forge/seed.json carries no issues, the page renders before the bridge
+    answers, and it stays there if the bridge never answers at all. So it is
+    the reading most likely to be seen by someone who has never seen the
+    product working.
+
+    What is asserted here is the *absence of a number*, not the presence of a
+    nicer one. A later change that reinstates any figure over an empty
+    selection fails on the digit sweep whether or not it kept these words.
+    """
+    print("\n  empty selection")
+
+    # The tiles that state a figure about the selected issues. Their refusals
+    # carry no digits at all, which is what makes the sweep below decisive.
+    FIGURE_TILES = ["#t-health", "#exec-verdict", "#kpis",
+                    "#age-chart", "#value-body", "#risk-body"]
+    CLAUSE = "the evidence is absent, not noisy"
+
+    seed = json.loads((ROOT / "forge" / "seed.json").read_text())
+    sample = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+
+    page = b.new_page(viewport={"width": 1500, "height": 1000})
+    errs = []
+    page.on("pageerror", lambda e: errs.append(str(e)))
+    page.goto(DIST.as_uri())
+    page.wait_for_timeout(700)
+
+    # ---------- the empty dataset the Forge build ships with ----------
+    page.evaluate("d => window.DVD.applyDataset(d)", seed)
+    page.wait_for_timeout(600)
+
+    health = " ".join((page.text_content("#t-health") or "").split())
+    check("the health score refuses over zero issues rather than scoring one",
+          "not scored" in health, health)
+    check("and prints no score beside the refusal",
+          "/100" not in health and not any(c.isdigit() for c in health), health)
+
+    for sel in FIGURE_TILES:
+        txt = " ".join((page.text_content(sel) or "").split())
+        digits = [c for c in txt if c.isdigit()]
+        check("no figure survives an empty selection in %s" % sel, not digits,
+              txt[:110])
+
+    # Verbatim, including the closing clause. Softening it to "no data yet"
+    # would leave the tile honest and the sentence useless — the clause is the
+    # part that says a wider window would not fill this in.
+    for sel in FIGURE_TILES:
+        txt = " ".join((page.text_content(sel) or "").split())
+        if sel == "#t-health":
+            continue  # the chip is a label; its sentence lives in the tooltip
+        check("the refusal in %s ends with the clause, untrimmed" % sel,
+              CLAUSE in txt, txt[-70:])
+    check("the health chip carries the refusal in its tooltip",
+          CLAUSE in (page.get_attribute("#t-health", "data-tt") or ""),
+          (page.get_attribute("#t-health", "data-tt") or "")[:110])
+
+    # The specific sentences that were wrong, named so a regression is legible
+    # rather than just a failing digit count.
+    kpis = " ".join((page.text_content("#kpis") or "").split())
+    check("the KPI strip goes as one, leaving no tile still carrying a figure",
+          page.eval_on_selector_all("#kpis .kpi", "n => n.length") == 0, kpis[:90])
+    age = " ".join((page.text_content("#age-chart") or "").split())
+    check("the ageing chart no longer calls an empty selection the healthy state",
+          "healthy state" not in age, age[:90])
+    risk = " ".join((page.text_content("#risk-body") or "").split())
+    check("the risk register does not report zero risks over zero issues",
+          "No risks triggered" not in risk, risk[:90])
+
+    # The page still says how many issues it has, and the tiles that were
+    # already refusing still refuse in their own words. A blanket "no data"
+    # banner over the whole grid would pass every check above and lose both.
+    check("the footer still reports the count it is refusing to score",
+          "showing 0" in page.text_content("#foot"), page.text_content("#foot")[:80])
+    check("the tiles that already refused keep their own sentences",
+          "No burndown series" in page.text_content("#burn-chart"),
+          page.text_content("#burn-chart")[:80])
+
+    # ---------- data arrives: the score comes back ----------
+    # Proving the refusal is a response to the evidence, not a switch someone
+    # left off. This is the half that catches an over-eager fix.
+    page.evaluate("d => window.DVD.applyDataset(d)", sample)
+    page.wait_for_timeout(600)
+    health = " ".join((page.text_content("#t-health") or "").split())
+    check("the score returns as soon as there are issues to score",
+          "/100" in health and "not scored" not in health, health)
+    check("and the KPI strip comes back with it",
+          page.eval_on_selector_all("#kpis .kpi", "n => n.length") == 8,
+          page.eval_on_selector_all("#kpis .kpi", "n => n.length"))
+
+    # ---------- a filter that matches nothing ----------
+    # The score is computed over the *filtered* items, not the context, so a
+    # filter matching nothing reaches the same undefined arithmetic by a route
+    # that has nothing to do with Forge.
+    page.evaluate("() => window.DVD.debug.setFilter('q', 'zzz-no-such-issue')")
+    page.wait_for_timeout(500)
+    health = " ".join((page.text_content("#t-health") or "").split())
+    check("filtering every issue out refuses the same way an empty file does",
+          "not scored" in health, health)
+    check("and the KPI strip refuses with it",
+          page.eval_on_selector_all("#kpis .kpi", "n => n.length") == 0,
+          " ".join((page.text_content("#kpis") or "").split())[:90])
+    page.evaluate("() => window.DVD.debug.setFilter('q', '')")
+    page.wait_for_timeout(400)
+
+    check("no console errors in the empty state", not errs, errs[:2])
+    page.close()
 
 
 def transports(b):
@@ -224,6 +474,59 @@ def transports(b):
             page.close()
         finally:
             seeded.unlink(missing_ok=True)
+
+        # ---------- the bridge, carrying what the bridge really carries ----------
+        # The hole in the check below, named by ADR 0010: it feeds the stub the
+        # loopback's own bodies, so any field the Forge resolver omits is
+        # invisible to it. `workingDays` was exactly that — absent over the
+        # bridge, supplied over loopback, and the page silently lost the
+        # largest component of its health score in every tenant.
+        #
+        # So this feeds the stub a body shaped the way the resolver really
+        # shapes one, and requires the same render anyway. What the page has to
+        # make up for is stated in the strip list, and each entry is a field the
+        # page is supposed to derive:
+        #
+        #   workingDays     derived from the sprint's dates under the config
+        #   statusCategory  derived from the raw status name under the config
+        #   contextId       tagged by loadContext(), never trusted from a body
+        #
+        # `started` is deliberately NOT stripped. The resolver does omit it, but
+        # that absence is a visible, stated degradation — the page prints "no
+        # completed items with both a start and a resolved date" — rather than
+        # something it silently makes good.
+        import copy
+        forge_shaped = copy.deepcopy(context_body)
+        forge_shaped["context"].pop("workingDays", None)
+        for issue in forge_shaped["issues"]:
+            for field in ("statusCategory", "contextId"):
+                issue.pop(field, None)
+
+        shaped_stub = """
+        window.__DVD_BRIDGE__ = { name: 'stub', invoke: (route, params) => {
+            const bodies = %s;
+            if (route === 'contexts') return Promise.resolve({status: 200, body: bodies.contexts});
+            if (route === 'context') return Promise.resolve({status: 200, body: bodies.context});
+            return Promise.resolve({status: 404, body: null}); } };
+        """ % json.dumps({"contexts": contexts_body, "context": forge_shaped})
+
+        page = b.new_page(viewport={"width": 1500, "height": 1000})
+        page.add_init_script(shaped_stub)
+        page.goto(url)
+        page.wait_for_timeout(400)
+        page.evaluate("id => window.DVD.debug.selectContext(id)", cid)
+        page.wait_for_timeout(1200)
+        shaped_print = page.evaluate(fingerprint)
+        wd = page.evaluate("() => window.DVD.debug.view().meta.workingDays.length")
+        page.close()
+
+        check("the page fills in the working days the resolver does not send",
+              wd > 0, wd)
+        for field in ("foot", "kpis", "contexts", "issues", "ctx"):
+            check("a Forge-shaped body renders the same %s as a served one" % field,
+                  loop_print[field] == shaped_print[field],
+                  {"served": str(loop_print[field])[:120],
+                   "forge-shaped": str(shaped_print[field])[:120]})
 
         # ---------- a transport that answered, and refused ----------
         # The failure this shipped with: `contexts` came back 404 with a
@@ -850,6 +1153,8 @@ def main():
 
         check("no console errors", not console, console[:3])
 
+        empty_selection(b)
+        health_composition(b)
         transports(b)
 
         b.close()

@@ -63,6 +63,8 @@ Separately, and not affected by the toggle: **elapsed time is reported in calend
 
 `sourceLabel` is shown in the header badge and in the footer. The badge is green when `source` is anything other than `demo`. `workingDays` is recomputed on upload from the organisation config — the working week and the holiday calendar both come from `orgConfig` below, and no longer from a rule written in `src/app.js`.
 
+`workingDays` is optional per context. When a context carries a start and an end date but no list — which is what a Forge resolver sends, because which days are worked is organisation config and a resolver is the wrong place to decide it — the page derives the list from those dates under the same `orgConfig`, exactly as it derives `statusCategory` for a status name nobody resolved. A rollup context is the one exception and keeps its empty list: its dates span every sprint in it, so a derived list would be real and would describe nothing.
+
 ### `orgConfig`
 
 ```json
