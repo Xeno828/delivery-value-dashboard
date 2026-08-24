@@ -84,42 +84,16 @@ async function main() {
   verdict($('v-bridge'), 'ok', 'reachable');
   show($('d-bridge'), ping.value);
 
-  // ---- 2. boards ---------------------------------------------------------
-  const boards = await call('boards', {});
-  if (!boards.ok || boards.value?.available === false) {
-    verdict($('v-boards'), 'bad', 'refused');
-    show($('d-boards'), boards.error || boards.value);
-    note($('d-boards'),
-      'A 403 here means read:board-scope:jira-software is missing or was not ' +
-      'granted at install. Re-run forge install after a scope change — Jira does ' +
-      'not widen an existing consent on its own.');
-    return;
-  }
-
-  const list = boards.value.boards || [];
-  verdict($('v-boards'), list.length ? 'ok' : 'bad',
-    list.length + ' board' + (list.length === 1 ? '' : 's'));
-  if (!list.length) {
-    note($('d-boards'), 'The call succeeded and returned nothing. The scope is fine; ' +
-      'this Jira site has no boards the app can see.');
-    return;
-  }
-
-  const buttons = document.createElement('div');
-  list.slice(0, 25).forEach((b) => {
-    const button = document.createElement('button');
-    button.textContent = b.name + '  #' + b.id;   // textContent: board names are free text
-    button.onclick = () => loadBoard(b.id);
-    buttons.appendChild(button);
+  // ---- 2. the board read is wired to the form, not run on load --------
+  $('f-board').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const id = $('board').value.trim();
+    if (id) loadBoard(id);
   });
-  $('d-boards').replaceChildren(buttons);
-  if (list.length > 25) {
-    note($('d-boards'), 'Showing 25 of ' + list.length + '. The rest are not hidden by ' +
-      'a permission problem, only by this page.');
-  }
+  $('board').focus();
 }
 
-// ---- 3 and 4. issues, and what the projection would send ------------------
+// ---- 2 and 3. the board read, and what the projection would send ----------
 async function loadBoard(boardId) {
   verdict($('v-issues'), 'wait', 'loading board ' + boardId);
   $('d-issues').replaceChildren();
@@ -131,9 +105,9 @@ async function loadBoard(boardId) {
     verdict($('v-issues'), 'bad', 'refused');
     show($('d-issues'), got.error || got.value);
     note($('d-issues'),
-      'A 403 here means read:issue-details:jira is missing or was not granted. ' +
-      'If boards worked and issues did not, that is the scope pair being wrong ' +
-      'rather than the install.');
+      'A 403 means read:issue-details:jira or read:board-scope:jira-software was ' +
+      'not granted. After changing scopes, re-run forge install — Jira does not ' +
+      'widen an existing consent on its own. A 404 means the board id is wrong.');
     return;
   }
 

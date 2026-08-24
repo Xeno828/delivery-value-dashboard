@@ -191,20 +191,18 @@ resolver.define('ping', () => ({
   at: new Date().toISOString(),
 }));
 
-/** Tests read:board-scope:jira-software on its own. Separating this from the
- *  issue read is the point: if boards work and issues do not, the scope pair is
- *  wrong rather than the install. */
-resolver.define('boards', async () => {
-  const res = await api.asUser().requestJira(route`/rest/agile/1.0/board?maxResults=50`);
-  if (!res.ok) {
-    return { available: false, status: res.status, sentence: `Jira returned ${res.status}.` };
-  }
-  const body = await res.json();
-  return {
-    available: true,
-    boards: (body.values ?? []).map((b) => ({ id: b.id, name: b.name ?? '' })),
-  };
-});
+/* There was a `boards` resolver here that listed every board, so the probe
+   could offer them as buttons. `forge lint` refused it: GET /rest/agile/1.0/board
+   needs read:project:jira, which nothing else in this app requires.
+   
+   Removed rather than granted. The product reads one named board and never
+   enumerates them, so the scope would have existed purely to make a diagnostic
+   more convenient — and it would have appeared on the consent screen of every
+   install, in an app whose pitch is that it asks for almost nothing. The probe
+   takes a board id instead.
+   
+   If the real context picker ever needs to enumerate boards, read:project:jira
+   is the price, and that is a decision to take on its own merits. */
 
 /** Tests read:issue-details:jira, and shows what the projection would send.
  *  One page, not the whole board — this is a check, not a pull. */

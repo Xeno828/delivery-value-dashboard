@@ -73,16 +73,19 @@ It proves the manifest is valid, the bundle builds and the static resources exis
 
 ### So there is a second page: the connection check
 
-The app installs two project pages. **Shipping Forecast — connection check** is not the product; it makes the four calls a deploy leaves untested:
+**Shipping Forecast — connection check** appears under Jira settings → Apps. It is not the product; it makes the calls a deploy leaves untested:
 
 | | Answers |
 |---|---|
 | **1 Bridge** | Can a static resource reach a resolver at all — touches no Jira API, so a failure is the manifest or the bundle, never a scope |
-| **2 Boards** | `read:board-scope:jira-software`, on its own |
-| **3 Issues** | `read:issue-details:jira`, on its own. If boards work and issues do not, the scope *pair* is wrong rather than the install |
-| **4 Projection** | Shows the exact payload one issue would become. No summary, no assignee — the claim the architecture rests on, displayed rather than asserted |
+| **2 Board read** | The exact call the product makes. Enter a board id; a 403 is a scope problem, a 404 is the wrong id |
+| **3 Projection** | Shows the exact payload one issue would become. No summary, no assignee — the claim the architecture rests on, displayed rather than asserted |
 
-Each failure names the likely cause. A 403 on boards after a scope change usually means the install needs re-running: Jira does not widen an existing consent on its own.
+A 403 after a scope change usually means the install needs re-running: Jira does not widen an existing consent on its own.
+
+It is an **admin** page, not a second project page, for two reasons. Forge permits only one `jira:projectPage` per app — `forge lint` rejects a second. And a page that dumps board contents and outbound payloads belongs behind the admin gate rather than in front of every project's team.
+
+**It asks for a board id rather than listing boards.** An earlier version offered them as buttons, and `forge lint` refused it: `GET /rest/agile/1.0/board` needs `read:project:jira`, which nothing else in this app requires. The scope was removed rather than granted — it would have existed purely to make a diagnostic more convenient, and it would have appeared on the consent screen of every install, in an app whose pitch is that it asks for almost nothing. If the real context picker ever needs to enumerate boards, that is the price, and it is a decision to take on its own merits.
 
 It also degrades honestly. Outside a Forge iframe `invoke()` neither resolves nor rejects — it waits — so every call has a fifteen-second timeout and says so. The first version sat on *checking* indefinitely, which is the least useful thing a diagnostic can do.
 

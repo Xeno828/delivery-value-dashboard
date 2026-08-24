@@ -20,9 +20,13 @@ modules:
         function: resolver
       title: Delivery & Value
 
-    # Connection check, not the product. Delete this module and forge/probe/
-    # once the real bridge exists — it answers the questions a deploy leaves
-    # open, and nothing after that.
+
+  # Connection check, not the product. Delete this module and forge/probe/ once
+  # the real bridge exists. It is an adminPage rather than a second projectPage
+  # because Forge permits only one of the latter — and because a page that dumps
+  # board contents and outbound payloads belongs behind Jira's admin gate rather
+  # than in front of every project's team.
+  jira:adminPage:
     - key: connection-check
       resource: probe
       resolver:

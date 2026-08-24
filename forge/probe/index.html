@@ -28,6 +28,10 @@
   pre{font-family:var(--mono);font-size:12px;background:rgba(127,127,127,.08);
       padding:9px 11px;border-radius:4px;overflow-x:auto;margin:8px 0 0;white-space:pre-wrap;
       word-break:break-word}
+  form{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:2px 0 6px}
+  label{font-size:12px;color:var(--muted)}
+  input{font:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--rule);
+        border-radius:4px;background:transparent;color:inherit}
   button{font:inherit;font-size:13px;padding:5px 11px;border:1px solid var(--rule);
          border-radius:4px;background:transparent;color:inherit;cursor:pointer;margin:2px 4px 2px 0}
   button:hover{background:rgba(127,127,127,.1)}
@@ -47,19 +51,22 @@ the tenant.</p>
 </section>
 
 <section>
-  <h2>2 · Boards the app can see <span style="text-transform:none">— tests <code>read:board-scope:jira-software</code></span></h2>
-  <div id="v-boards" class="verdict v-wait">waiting</div>
-  <div id="d-boards"></div>
-</section>
-
-<section>
-  <h2>3 · Issues on a board <span style="text-transform:none">— tests <code>read:issue-details:jira</code></span></h2>
-  <div id="v-issues" class="verdict v-wait">pick a board above</div>
+  <h2>2 · Reading a board <span style="text-transform:none">— the call the product actually makes</span></h2>
+  <div id="v-issues" class="verdict v-wait">enter a board id</div>
+  <form id="f-board">
+    <label for="board">Board id</label>
+    <input id="board" name="board" type="text" inputmode="numeric" placeholder="42" size="8">
+    <button type="submit">Read it</button>
+  </form>
+  <div class="note">Jira &rarr; Boards &rarr; open one; the id is the <code>rapidView</code>
+  number in the URL. The app never lists boards — enumerating them needs
+  <code>read:project:jira</code>, which nothing else here requires and which would
+  appear on every install's consent screen.</div>
   <div id="d-issues"></div>
 </section>
 
 <section>
-  <h2>4 · What would leave the tenant</h2>
+  <h2>3 · What would leave the tenant</h2>
   <div id="v-proj" class="verdict v-wait">waiting</div>
   <div id="d-proj"></div>
 </section>
