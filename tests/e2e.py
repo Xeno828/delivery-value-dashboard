@@ -18,6 +18,7 @@ DIST = ROOT / "dist" / "delivery-value-dashboard.html"
 FIX = ROOT / "tests" / "fixtures"
 
 failures = []
+warnings = []
 console = []
 
 
@@ -25,6 +26,19 @@ def check(name, ok, detail=""):
     print(("  PASS  " if ok else "  FAIL  ") + name + (("  — " + str(detail)) if detail else ""))
     if not ok:
         failures.append(name)
+
+
+def warn(name, ok, detail=""):
+    """For a check that could not run rather than one that did not hold.
+
+    Said out loud, never skipped in silence — a check that quietly did not run
+    reads exactly like one that passed. But it is not a failure: the Forge
+    bundle is an optional build artefact, `forge/static/` is git-ignored, and
+    a clean clone that has never run `make forge-static` is not broken.
+    """
+    print(("  PASS  " if ok else "  WARN  ") + name + (("  — " + str(detail)) if detail else ""))
+    if not ok:
+        warnings.append(name)
 
 
 def wizard(page, fixture, mode="replace"):
@@ -211,6 +225,32 @@ def transports(b):
         finally:
             seeded.unlink(missing_ok=True)
 
+        # ---------- a transport that answered, and refused ----------
+        # The failure this shipped with: `contexts` came back 404 with a
+        # sentence, probeLive returned without reading it, and the customer got
+        # a blank dashboard and an alert saying "server returned 404". A
+        # connection that does not exist is silent on purpose; one that exists
+        # and said no has a reason, and the page has to show it.
+        refusing = """
+        window.__DVD_BRIDGE__ = { name: 'stub', invoke: (route) =>
+          Promise.resolve(route === 'contexts'
+            ? {status: 404, body: {error: 'Project SFT has 2 boards, and none of them uses sprints.'}}
+            : {status: 404, body: {error: 'No sprint on this site matches "single".'}}) };
+        """
+        page = b.new_page(viewport={"width": 1500, "height": 1000})
+        page.add_init_script(refusing)
+        page.goto(url)
+        page.wait_for_timeout(900)
+        bartext = page.text_content("#ctxbar")
+        check("a refusal is put on the page, not swallowed",
+              "none of them uses sprints" in bartext, bartext[:110])
+        check("and the source row says there is no data rather than naming one",
+              "NO DATA" in bartext, bartext[:60])
+        check("the refusal is escaped, not parsed",
+              page.evaluate("""() => !document.querySelector('#ctxbar').innerHTML
+                  .includes('<img')"""))
+        page.close()
+
         # ---------- the real adapter, not the stub ----------
         # Everything above uses a stub bridge, and a stub cannot fail the way
         # the real one did: `@forge/bridge` connects to its host when it loads,
@@ -221,10 +261,14 @@ def transports(b):
         # dashboard that is merely offline.
         staged = ROOT / "forge" / "static" / "dashboard" / "build" / "bridge.js"
         if not staged.exists():
-            # Reported, not skipped in silence. This needs `make forge-static`,
-            # which needs the Forge SDK installed under forge/.
-            check("the bundled adapter can be loaded (needs make forge-static)",
-                  False, "forge/static/dashboard/build/bridge.js is not staged")
+            # Reported, not skipped in silence — but a warning rather than a
+            # failure. forge/static/ is git-ignored and built by `make
+            # forge-static`, which needs the Forge SDK under forge/; a clean
+            # clone that has never run it is not a broken checkout, and CI does
+            # not run it at all. Failing here made `make test` red on a fresh
+            # worktree for a reason that had nothing to do with the change.
+            warn("the bundled adapter was checked (needs make forge-static)",
+                 False, "forge/static/dashboard/build/bridge.js is not staged")
         else:
             import functools, http.server, threading
             H = functools.partial(http.server.SimpleHTTPRequestHandler,
@@ -811,6 +855,8 @@ def main():
         b.close()
 
     print()
+    if warnings:
+        print("%d warning(s): %s" % (len(warnings), ", ".join(warnings)))
     if failures:
         print("%d check(s) failed: %s" % (len(failures), ", ".join(failures)))
         sys.exit(1)

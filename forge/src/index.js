@@ -23,8 +23,9 @@ import Resolver from '@forge/resolver';
 import api, { route, fetch } from '@forge/api';
 
 import {
-  contextEntry, contextsBody, contextBody, contextId, parseContextId,
-  issueFrom, notFound, recentSprints,
+  CONFIG_PROPERTY_KEY, contextEntry, contextsBody, contextBody, contextId,
+  findStoryPointField, mergeOrgConfig, parseContextId, issueFrom, notFound,
+  recentSprints, statusesFromJira, validateOrgConfig,
 } from './jira.js';
 
 const resolver = new Resolver();
@@ -119,8 +120,9 @@ const callCalculator = async (path, body) => {
   return parsed;
 };
 
-/** Pull one board's issues. The only place this app talks to Jira. */
+/** Pull one board's issues, for the calculator path. */
 const fetchBoardIssues = async (boardId) => {
+  const spField = await storyPointFieldFor();
   const id = String(boardId ?? '').replace(/[^0-9]/g, '');
   if (!id) throw new Error('no board id');
 
@@ -146,15 +148,7 @@ const fetchBoardIssues = async (boardId) => {
         // agent/tools/orgconfig.py) and a third copy of that rule written here
         // is exactly the divergence the config exists to prevent. The raw name
         // goes in the payload; the calculator applies the config.
-        // OPEN, and it returns a plausible wrong number rather than failing:
-        // the story-point custom field id differs per Jira site. The Python
-        // fetcher discovers it by display name via /rest/api/3/field; this
-        // hardcodes the common one. On a site that uses a different id every
-        // issue reads as zero points, the burndown flattens in points mode, and
-        // nothing says why. The connection check will show it — storyPoints
-        // absent from the projected payload means this id is wrong here.
-        // Fixing it needs a field-read scope, so it is a decision, not a patch.
-        storyPoints: i.fields?.customfield_10016 ?? 0,
+        storyPoints: spField ? (i.fields?.[spField] ?? 0) : null,
         priority: i.fields?.priority?.name ?? null,
         created: (i.fields?.created ?? '').slice(0, 10) || null,
         resolved: (i.fields?.resolutiondate ?? '').slice(0, 10) || null,
@@ -215,6 +209,29 @@ const SPRINTS_PER_BOARD = 6;
  *  one, and this repository has shipped that bug twice. */
 const MAX_PAGES = 20;
 
+/**
+ * A Jira failure that remembers what Jira said.
+ *
+ * Without the status, every caller has to treat every failure alike — and the
+ * one that mattered was `sprintsFor`, which swallowed all of them as "this
+ * board has no sprints". A 403 then presented as a project with no boards, on
+ * a page with nothing on it and nothing to say why.
+ */
+const jiraError = (what, status, body) => {
+  const first = (body && body.errorMessages && body.errorMessages[0]) || '';
+  const err = new Error(`${what}: Jira returned ${status}${first ? ` — ${first}` : ''}`);
+  err.status = status;
+  return err;
+};
+
+const bodyOf = async (res) => {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+};
+
 /** Every page of an Agile list endpoint (`{values, isLast, total}`). */
 const pagedValues = async (routeAt, what) => {
   const out = [];
@@ -227,7 +244,7 @@ const pagedValues = async (routeAt, what) => {
       );
     }
     const res = await api.asUser().requestJira(routeAt(startAt));
-    if (!res.ok) throw new Error(`${what}: Jira returned ${res.status}`);
+    if (!res.ok) throw jiraError(what, res.status, await bodyOf(res));
     const body = await res.json();
     const values = body.values ?? [];
     out.push(...values);
@@ -241,11 +258,15 @@ const pagedValues = async (routeAt, what) => {
 /** Every issue in one sprint. `expand=changelog` is what makes addedMidSprint
  *  real rather than false-by-default — see the note in jira.js about why that
  *  particular default is a wrong answer rather than a missing one. */
-const fetchSprintIssues = async (boardId, sprintId) => {
+const fetchSprintIssues = async (boardId, sprintId, storyPointField) => {
+  // Named explicitly, and the story-point field is named by the id this site
+  // actually uses rather than one guessed at. `*navigable` would also work and
+  // would be worse: it pulls every custom field on every issue, including free
+  // text this app has no business holding.
   const fields = [
     'summary', 'issuetype', 'status', 'assignee', 'priority', 'parent',
     'created', 'resolutiondate', 'duedate', 'labels', 'flagged',
-    'customfield_10016',
+    ...(storyPointField ? [storyPointField] : []),
   ].join(',');
 
   const out = [];
@@ -260,7 +281,9 @@ const fetchSprintIssues = async (boardId, sprintId) => {
     const res = await api.asUser().requestJira(
       route`/rest/agile/1.0/board/${boardId}/sprint/${sprintId}/issue?startAt=${startAt}&maxResults=100&fields=${fields}&expand=changelog`,
     );
-    if (!res.ok) throw new Error(`issues in sprint ${sprintId}: Jira returned ${res.status}`);
+    if (!res.ok) {
+      throw jiraError(`issues in sprint ${sprintId}`, res.status, await bodyOf(res));
+    }
     const body = await res.json();
     const page_ = body.issues ?? [];
     out.push(...page_);
@@ -270,18 +293,140 @@ const fetchSprintIssues = async (boardId, sprintId) => {
   return out;
 };
 
-/** Board metadata plus its recent sprints. A board with no sprints at all —
- *  a kanban board — makes Jira refuse the sprint endpoint; that is a fact
- *  about the board, not a failure, so it is reported and skipped rather than
- *  taking the whole picker down with it. */
+/**
+ * Which field this site calls story points.
+ *
+ * Memoised because it is the same answer for every issue on every board of a
+ * site, and a field list is not something to re-fetch per sprint. A Forge
+ * function may be a cold start, in which case this costs one call; when it is
+ * warm it costs nothing. The value is deliberately cached including `null` —
+ * "this site has no story-point field" is an answer, and re-asking on every
+ * request would not change it.
+ */
+let storyPointField;
+const storyPointFieldFor = async () => {
+  if (storyPointField !== undefined) return storyPointField;
+  const res = await api.asUser().requestJira(route`/rest/api/3/field`);
+  if (!res.ok) throw jiraError('the field list', res.status, await bodyOf(res));
+  storyPointField = findStoryPointField(await res.json());
+  return storyPointField;
+};
+
+/**
+ * The organisation config for one project, resolved once.
+ *
+ * Which statuses mean done comes from the site's own status definitions; the
+ * working week, the holiday calendar and the sprint length come from a project
+ * property, because Jira has no notion of any of them. Absent, the page's
+ * documented defaults apply — and the footer names the calendar it used, so
+ * defaults are visible rather than assumed.
+ *
+ * A stated config that is not usable stops the request rather than being
+ * partially applied. `orgconfig.py` refuses a bad file for the same reason: a
+ * typo in `workingWeek` that quietly reverted to a five-day week would move
+ * every forecast in the product with nothing saying so.
+ */
+const orgConfigs = new Map();
+const orgConfigFor = async (projectKey) => {
+  if (orgConfigs.has(projectKey)) return orgConfigs.get(projectKey);
+
+  const statusRes = await api.asUser().requestJira(route`/rest/api/3/status`);
+  if (!statusRes.ok) throw jiraError('the status list', statusRes.status, await bodyOf(statusRes));
+  const fromJira = { statuses: statusesFromJira(await statusRes.json()) };
+
+  const propRes = await api.asUser().requestJira(
+    route`/rest/api/3/project/${projectKey}/properties/${CONFIG_PROPERTY_KEY}`,
+  );
+  let stated = {};
+  if (propRes.status !== 404) {
+    if (!propRes.ok) {
+      throw jiraError(`the ${CONFIG_PROPERTY_KEY} project property`,
+        propRes.status, await bodyOf(propRes));
+    }
+    const body = await propRes.json();
+    stated = body?.value ?? {};
+    if (stated === null || typeof stated !== 'object' || Array.isArray(stated)) {
+      throw new Error(
+        `The ${CONFIG_PROPERTY_KEY} property on project ${projectKey} is not an object, `
+        + 'so no calendar was read from it and nothing was reported under it.',
+      );
+    }
+    const problems = validateOrgConfig(stated);
+    if (problems.length) {
+      throw new Error(
+        `The ${CONFIG_PROPERTY_KEY} property on project ${projectKey} is not usable, so `
+        + `nothing was measured under it: ${problems.join('; ')}.`,
+      );
+    }
+  }
+
+  const resolved = {
+    config: mergeOrgConfig(fromJira, stated),
+    // Whether the calendar half was stated or defaulted. Reported, because a
+    // five-day week nobody chose looks exactly like a five-day week somebody
+    // did, and every working-day figure on the page rests on it.
+    statedCalendar: ['workingWeek', 'holidays', 'sprintLengthDays']
+      .some((k) => k in stated),
+  };
+  orgConfigs.set(projectKey, resolved);
+  return resolved;
+};
+
+/** Said in the line the page prints in its footer, so a site with no
+ *  story-point field reads as a site with no story-point field rather than as
+ *  a team that estimated everything at zero. */
+const POINTS_NOTE = 'no story-point field on this site, so points are not reported';
+
+/** The other half of the config, and the half Jira cannot answer. Named when
+ *  it is defaulted, because a five-day week nobody chose reads exactly like
+ *  one somebody did. */
+const CALENDAR_NOTE = `working week and holidays are this tool's defaults — set an `
+  + `${CONFIG_PROPERTY_KEY} property on the project to state your own`;
+
+/**
+ * One board's sprints, or the reason there are none to have.
+ *
+ * A kanban board has no sprints and Jira answers 400 for it. That is a fact
+ * about the board, and skipping it is right. **Everything else is a failure**,
+ * and the first version of this caught all of them the same way — so a 403
+ * from a scope that had not been consented to came back as "this board has no
+ * sprints", the picker came up empty, and the page had nothing on it and no
+ * explanation on it either. That is the shape this repository keeps paying
+ * for, and it cost a deploy cycle here too.
+ */
 const sprintsFor = async (board) => {
   try {
-    return await pagedValues(
-      (startAt) => route`/rest/agile/1.0/board/${board.id}/sprint?state=active,closed&startAt=${startAt}&maxResults=50`,
-      `sprints on board ${board.id}`,
-    );
-  } catch {
-    return null;
+    return {
+      sprints: await pagedValues(
+        (startAt) => route`/rest/agile/1.0/board/${board.id}/sprint?state=active,closed&startAt=${startAt}&maxResults=50`,
+        `sprints on board ${board.id}`,
+      ),
+    };
+  } catch (err) {
+    if (err.status === 400) return { skipped: 'does not use sprints' };
+    throw err;
+  }
+};
+
+/**
+ * Turn a thrown failure into an answer the page can put on screen.
+ *
+ * A resolver that throws rejects `invoke()`, and the page treats a rejection
+ * the way it treats a dead loopback server — silently, because over loopback
+ * nothing running is the normal case. Over the bridge it is not: something
+ * answered, and it said no. Swallowing that is a blank dashboard with no
+ * reason on it, which is what this app shipped for one deploy cycle.
+ */
+const answering = (fn) => async (req) => {
+  try {
+    return await fn(req);
+  } catch (err) {
+    return {
+      // Jira's own status where there is one, so a 403 reads as a permission
+      // problem rather than as a bug in this app.
+      status: err.status ?? 502,
+      body: { error: String((err && err.message) || err) },
+    };
   }
 };
 
@@ -291,14 +436,15 @@ const sprintsFor = async (board) => {
  * The project comes from Forge's own context rather than from the page, so the
  * page sends nothing and cannot ask about a project it is not displayed in.
  */
-resolver.define('contexts', async ({ context }) => {
+resolver.define('contexts', answering(async ({ context }) => {
   const projectKey = context?.extension?.project?.key;
   if (!projectKey) {
     return {
       status: 400,
       body: {
         error: 'This module was not opened on a Jira project, so there is no project '
-             + 'to read boards from. Nothing was queried.',
+             + `to read boards from (module ${context?.moduleKey ?? 'unknown'}). `
+             + 'Nothing was queried.',
       },
     };
   }
@@ -311,22 +457,46 @@ resolver.define('contexts', async ({ context }) => {
   const contexts = [];
   let withoutSprints = 0;
   for (const board of boards) {
-    const sprints = await sprintsFor(board);
-    if (sprints === null) { withoutSprints += 1; continue; }
-    for (const sprint of recentSprints(sprints, SPRINTS_PER_BOARD)) {
-      contexts.push(contextEntry(board, sprint));
+    const got = await sprintsFor(board);
+    if (got.skipped) { withoutSprints += 1; continue; }
+    for (const sprint of recentSprints(got.sprints, SPRINTS_PER_BOARD)) {
+      contexts.push(contextEntry(board, sprint, projectKey));
     }
+  }
+
+  // A project with boards but no sprints on any of them is a real state and an
+  // invisible one: the picker comes up empty and reads as a broken app. Say it
+  // instead, in a sentence the page can put on screen.
+  if (!contexts.length) {
+    return {
+      status: 404,
+      body: {
+        error: boards.length
+          ? `Project ${projectKey} has ${boards.length} board`
+            + `${boards.length === 1 ? '' : 's'}, and none of them uses sprints. `
+            + 'This dashboard reports a sprint at a time, so there is nothing to show yet.'
+          : `No boards are visible in project ${projectKey}. Either it has none, or `
+            + 'this Jira account cannot see them.',
+      },
+    };
   }
 
   // What was left out is said out loud, in the line the page prints in its
   // footer. A picker quietly missing a board is indistinguishable from a
   // project that does not have one.
-  const label = `Jira, project ${projectKey} — ${boards.length - withoutSprints} board`
-    + (boards.length - withoutSprints === 1 ? '' : 's')
-    + (withoutSprints ? `, ${withoutSprints} without sprints and not offered` : '');
+  const org = await orgConfigFor(projectKey);
+  const offered = boards.length - withoutSprints;
+  const label = `Jira, project ${projectKey} — ${offered} board`
+    + (offered === 1 ? '' : 's')
+    + (withoutSprints ? `, ${withoutSprints} without sprints and not offered` : '')
+    + ((await storyPointFieldFor()) ? '' : `; ${POINTS_NOTE}`)
+    + (org.statedCalendar ? '' : `; ${CALENDAR_NOTE}`);
 
-  return { status: 200, body: contextsBody(label, contexts) };
-});
+  return {
+    status: 200,
+    body: contextsBody(label, contexts, org.config),
+  };
+}));
 
 /**
  * One sprint's issues.
@@ -337,38 +507,82 @@ resolver.define('contexts', async ({ context }) => {
  * asked for, the answer is 404. A project key supplied by the page would
  * otherwise label another project's board.
  */
-resolver.define('context', async ({ payload, context }) => {
+resolver.define('context', answering(async ({ payload, context }) => {
   const asked = payload?.id;
   const parsed = parseContextId(asked);
-  if (!parsed) return { status: 404, body: notFound(asked) };
+  if (!parsed) {
+    return {
+      status: 404,
+      body: notFound(asked,
+        'that is not a project/board/sprint id. A sprint that came with the file '
+        + 'rather than from this site reads like this'),
+    };
+  }
 
   const boardRes = await api.asUser().requestJira(
     route`/rest/agile/1.0/board/${parsed.boardId}`,
   );
-  if (boardRes.status === 404) return { status: 404, body: notFound(asked) };
-  if (!boardRes.ok) throw new Error(`board ${parsed.boardId}: Jira returned ${boardRes.status}`);
+  if (boardRes.status === 404) {
+    return { status: 404, body: notFound(asked, `board ${parsed.boardId} is not on this site`) };
+  }
+  if (!boardRes.ok) {
+    throw jiraError(`board ${parsed.boardId}`, boardRes.status, await bodyOf(boardRes));
+  }
   const board = await boardRes.json();
 
   // Found through the board rather than by /sprint/{id} directly, so this
   // needs no scope the contexts call does not already need — and so a sprint
   // id from another board cannot be read through this one.
-  const sprints = await sprintsFor(board);
-  const sprint = (sprints ?? []).find((sp) => String(sp.id) === parsed.sprintId);
-  if (!sprint) return { status: 404, body: notFound(asked) };
+  const got = await sprintsFor(board);
+  if (got.skipped) {
+    return { status: 404, body: notFound(asked, `board ${parsed.boardId} ${got.skipped}`) };
+  }
+  const sprint = got.sprints.find((sp) => String(sp.id) === parsed.sprintId);
+  if (!sprint) {
+    return {
+      status: 404,
+      body: notFound(asked,
+        `board ${parsed.boardId} has no open or closed sprint ${parsed.sprintId}`),
+    };
+  }
 
-  const entry = contextEntry(board, sprint);
-  if (entry.id !== asked) return { status: 404, body: notFound(asked) };
+  const entry = contextEntry(board, sprint, context?.extension?.project?.key);
 
-  const raw = await fetchSprintIssues(parsed.boardId, parsed.sprintId);
+  // The check that matters, and it is against Forge's own module context
+  // rather than against a second Jira response: this page may read only the
+  // boards of the project it is displayed in, so a project key supplied by the
+  // page cannot be used to label — or reach — somebody else's board.
+  const moduleProject = context?.extension?.project?.key;
+  if (moduleProject && entry.projectKey && entry.projectKey !== moduleProject) {
+    return {
+      status: 404,
+      body: notFound(asked,
+        `board ${parsed.boardId} belongs to project ${entry.projectKey}, and this `
+        + `page is open on ${moduleProject}`),
+    };
+  }
+  if (entry.id !== asked) {
+    return {
+      status: 404,
+      body: notFound(asked, `this site now calls that sprint ${JSON.stringify(entry.id)}`),
+    };
+  }
+
+  const spField = await storyPointFieldFor();
+  const raw = await fetchSprintIssues(parsed.boardId, parsed.sprintId, spField);
   const issues = raw.map((r) => issueFrom(r, {
     sprintStart: entry.startDate,
+    storyPointField: spField,
     // Only so an issue key is a link. Absent, the page leaves it as text
     // rather than guessing a host.
     siteUrl: context?.siteUrl,
   }));
 
-  return { status: 200, body: contextBody(entry, issues) };
-});
+  return {
+    status: 200,
+    body: contextBody(entry, issues, (await orgConfigFor(entry.projectKey)).config),
+  };
+}));
 
 /**
  * The forecast and the sequencing, over the bridge.
@@ -443,6 +657,10 @@ resolver.define('probeBoardIssues', async ({ payload }) => {
   const id = String(payload?.boardId ?? '').replace(/[^0-9]/g, '');
   if (!id) return { available: false, sentence: 'no board id' };
 
+  // Named in the output, because this is the page you come to when the
+  // burndown has flattened in points mode and nothing has said why.
+  const spField = await storyPointFieldFor();
+
   const res = await api
     .asUser()
     .requestJira(route`/rest/agile/1.0/board/${id}/issue?maxResults=5`);
@@ -457,7 +675,7 @@ resolver.define('probeBoardIssues', async ({ payload }) => {
     summary: i.fields?.summary ?? '',
     assignee: i.fields?.assignee?.displayName ?? null,
     status: i.fields?.status?.name ?? null,
-    storyPoints: i.fields?.customfield_10016 ?? 0,
+    storyPoints: spField ? (i.fields?.[spField] ?? 0) : null,
     priority: i.fields?.priority?.name ?? null,
     created: (i.fields?.created ?? '').slice(0, 10) || null,
     resolved: (i.fields?.resolutiondate ?? '').slice(0, 10) || null,
@@ -477,6 +695,14 @@ resolver.define('probeBoardIssues', async ({ payload }) => {
   return {
     available: true,
     total: body.total ?? raw.length,
+    // Which field this site calls story points, resolved by display name. The
+    // whole point of showing it: a null here is the difference between a team
+    // that estimated nothing and a site this app cannot read estimates from.
+    storyPointField: spField,
+    storyPointFieldNote: spField
+      ? `story points read from ${spField}`
+      : 'this site has no field named Story Points, Story point estimate or '
+        + 'Points, so points are not reported',
     // Keys and dates only. Summaries stay on this side even in the sample.
     sample: raw.map((i) => ({ key: i.key, status: i.status, created: i.created })),
     projected: projected[0] ?? null,

@@ -119,7 +119,7 @@ It proves the manifest is valid, the bundle builds and the static resources exis
 
 ### So there is a second page: the connection check
 
-It was written to be deleted once the real bridge existed. It has been kept, and the reason changed rather than the plan being forgotten: it is the only thing that shows the outbound payload for one issue, and it is how you find out that `customfield_10016` is not this site's story-point field — `storyPoints` missing from the projected payload in section 3 is that diagnosis and there is no other.
+It was written to be deleted once the real bridge existed. It has been kept, and the reason changed rather than the plan being forgotten: it is the only thing that shows the outbound payload for one issue, and it now names which field this site calls story points. That used to be the diagnosis for a burndown that had flattened for no visible reason; it is a confirmation now, since the field is resolved by name rather than assumed — but a site whose field is called something else entirely still shows up here and nowhere else.
 
 **Shipping Forecast — connection check** appears under Jira settings → Apps. It is not the product; it makes the calls a deploy leaves untested:
 
@@ -139,6 +139,30 @@ It also degrades honestly. Outside a Forge iframe `invoke()` neither resolves no
 
 Kept rather than deleted, per the note above. If it does go, take `forge/probe/`, the `connection-check` module and the two probe resolvers together.
 
+### A scope change needs approving at deploy, and the CLI needs the right directory
+
+Two things bite in the same minute, and they look like each other:
+
+```
+manifest-file-required — make sure you're in the top-level directory of your app
+```
+
+is `forge deploy` run from the repository root. The manifest is in `forge/`, the
+Makefile is at the root, and `make forge-deploy` is what reconciles the two — it
+also stages the static resources first, which a bare `forge deploy` does not, so
+running the CLI by hand can deploy a bundle built before your last edit.
+
+And a scope change makes the deploy ask for an approval it will not assume:
+
+```bash
+make forge-static
+cd forge && forge deploy -e development --approve MAJOR_VERSION_RULE
+```
+
+`--approve` is deliberately not in the Makefile target. Auto-approving a major
+version upgrade would also auto-approve the next scope change, silently, which is
+the opposite of the allow-list's whole point. Type it when you mean it.
+
 ### After a scope change, reinstall
 
 Adding the context picker added `read:project:jira`, `read:sprint:jira-software` and `read:jql:jira`. `forge lint` reports a scope change as a major version upgrade, and Jira does not widen an existing consent on its own — so after deploying, uninstall and install again rather than upgrading. The failure has no error message: the page renders and every Jira call comes back 403.
@@ -146,6 +170,8 @@ Adding the context picker added `read:project:jira`, `read:sprint:jira-software`
 ### Done when
 
 `forge install` succeeds, all four sections of the connection check are green, and the project page shows **your** boards in the picker rather than a placeholder. That is the point at which the declared scopes are known to be sufficient.
+
+Reached, on a dev site. Getting there took three deploys, and all three were the same lesson: every failure between the page and Jira was silent. A board whose sprints could not be read was reported as a board with no sprints; a resolver that threw was indistinguishable from a loopback server nobody had started; and a 404 said "server returned 404" for four situations with four different fixes. None of that was visible from the outside, and each cost a deploy cycle to find. The page says the reason now, in the context bar, and that is worth more here than anywhere else in this product — the deploy loop is slow and there is no console you can reach on a customer's tenant.
 
 ---
 

@@ -131,12 +131,56 @@ two agree — working days and status categories alike — **under a config that
 not the default**, since two implementations of "Monday to Friday" agree by
 accident. Change one, change both.
 
+`forge/src/jira.js` mirrors one part of it: `validate()`. A Forge install has
+no config file, so a site states its calendar in a Jira project property, and a
+property that is not usable has to stop the request rather than be half
+applied — the same reason `load()` refuses a bad file. `tests/test_service.py`
+runs both over the shared cases in `tests/fixtures/org-configs.json` and
+asserts they agree about which are usable. Add a case there rather than to
+either side.
+
+## On Forge, where there is no file to read
+
+The resolver is the producer, so it resolves the config once and writes it into
+every response, exactly as the fetcher does. It has two sources.
+
+**Which statuses mean done comes from Jira.** Every status on a Jira site
+carries a category its admins assigned, and this file already trusts that as
+the fallback in `category()` — *"a statement by the site rather than a guess
+here"*. With no config file above it, it is the primary source, and it is
+better than any list this project could ship: a site with a **Signed off**
+column and no **Done** column gets it right without being asked, which is the
+case that prompted this whole module.
+
+**The working week, the holidays and the sprint length come from the project.**
+Jira has no notion of any of them, so a site states them in a project property
+named `orgConfig`, read with the scope the board picker already needs. This app
+never writes it and asks for no scope that would let it.
+
+```bash
+# read-only for the app; a project admin sets it once
+curl -u you@example.com:$JIRA_TOKEN -X PUT \
+  -H 'Content-Type: application/json' \
+  "$JIRA_URL/rest/api/3/project/SFT/properties/orgConfig" \
+  -d '{"workingWeek":["sun","mon","tue","wed","thu"],
+       "holidays":["2026-08-05"],
+       "sprintLengthDays":10}'
+```
+
+A `statuses` block is accepted there too, for a site whose Jira categories are
+wrong. Anything the property does not state keeps what Jira said, then the
+documented defaults — and **when the property is absent the connection label
+says so**, so a five-day week nobody chose does not read like one somebody did.
+
+An unusable property is refused by name, and nothing is measured under it.
+
 ## Where it is read
 
 | Consumer | How it gets the config |
 |---|---|
 | `scripts/fetch_delivery_data.py` | `--org-config`, default `config/organisation.json`; writes it into the output |
 | `scripts/serve_live.py` | from the bundle; `--org-config` in live-Jira mode only |
+| `forge/src/index.js` | Jira's own status categories, plus the `orgConfig` project property; written into every response |
 | `agent/tools/*.py` | `OC.from_dataset(dataset)` — never from a file |
 | the dashboard | `orgConfig` in the loaded dataset, or the live server's, which wins and is named in the footer |
 | the import wizard | keeps whatever is in play; an uploaded CSV carries no config and must not silently reset a customer's calendar |
