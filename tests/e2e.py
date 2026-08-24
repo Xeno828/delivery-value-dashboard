@@ -18,6 +18,7 @@ DIST = ROOT / "dist" / "delivery-value-dashboard.html"
 FIX = ROOT / "tests" / "fixtures"
 
 failures = []
+warnings = []
 console = []
 
 
@@ -25,6 +26,19 @@ def check(name, ok, detail=""):
     print(("  PASS  " if ok else "  FAIL  ") + name + (("  — " + str(detail)) if detail else ""))
     if not ok:
         failures.append(name)
+
+
+def warn(name, ok, detail=""):
+    """For a check that could not run rather than one that did not hold.
+
+    Said out loud, never skipped in silence — a check that quietly did not run
+    reads exactly like one that passed. But it is not a failure: the Forge
+    bundle is an optional build artefact, `forge/static/` is git-ignored, and
+    a clean clone that has never run `make forge-static` is not broken.
+    """
+    print(("  PASS  " if ok else "  WARN  ") + name + (("  — " + str(detail)) if detail else ""))
+    if not ok:
+        warnings.append(name)
 
 
 def wizard(page, fixture, mode="replace"):
@@ -247,10 +261,14 @@ def transports(b):
         # dashboard that is merely offline.
         staged = ROOT / "forge" / "static" / "dashboard" / "build" / "bridge.js"
         if not staged.exists():
-            # Reported, not skipped in silence. This needs `make forge-static`,
-            # which needs the Forge SDK installed under forge/.
-            check("the bundled adapter can be loaded (needs make forge-static)",
-                  False, "forge/static/dashboard/build/bridge.js is not staged")
+            # Reported, not skipped in silence — but a warning rather than a
+            # failure. forge/static/ is git-ignored and built by `make
+            # forge-static`, which needs the Forge SDK under forge/; a clean
+            # clone that has never run it is not a broken checkout, and CI does
+            # not run it at all. Failing here made `make test` red on a fresh
+            # worktree for a reason that had nothing to do with the change.
+            warn("the bundled adapter was checked (needs make forge-static)",
+                 False, "forge/static/dashboard/build/bridge.js is not staged")
         else:
             import functools, http.server, threading
             H = functools.partial(http.server.SimpleHTTPRequestHandler,
@@ -745,6 +763,8 @@ def main():
         b.close()
 
     print()
+    if warnings:
+        print("%d warning(s): %s" % (len(warnings), ", ".join(warnings)))
     if failures:
         print("%d check(s) failed: %s" % (len(failures), ", ".join(failures)))
         sys.exit(1)
