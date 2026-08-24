@@ -38,13 +38,23 @@ export const parseContextId = (id) => {
  * `workingDays` is deliberately absent. Which days are worked is organisation
  * config, and resolving it here would be a fourth opinion arriving by a fourth
  * route. `BundleBackend.contexts()` strips it for the same reason.
+ *
+ * `fallbackProjectKey` exists because the id has to survive a round trip and
+ * the id is built from `board.location`. The board *list* endpoint and the
+ * single-board read do not always describe `location` the same way, and the
+ * page asks `contexts` via the first and `context` via the second — so an id
+ * built from a response carrying `projectKey` was compared against one built
+ * from a response without it, stopped matching, and every sprint came back
+ * "unknown context". Forge's own module context knows the project, and it is
+ * the same answer both times.
  */
-export const contextEntry = (board, sprint) => {
+export const contextEntry = (board, sprint, fallbackProjectKey) => {
   const loc = board.location || {};
+  const projectKey = loc.projectKey ?? fallbackProjectKey ?? null;
   return {
-    id: contextId(loc.projectKey, board.id, sprint.id),
+    id: contextId(projectKey, board.id, sprint.id),
     source: 'jira',
-    projectKey: loc.projectKey ?? null,
+    projectKey,
     projectName: loc.projectName ?? null,
     boardId: String(board.id),
     boardName: board.name ?? null,

@@ -568,6 +568,14 @@ def test_the_two_transports_answer_the_same_shape():
     check("a malformed context id is refused rather than parsed",
           all(parsed is None for _, parsed in forge["rejects"]),
           [bad for bad, parsed in forge["rejects"] if parsed is not None])
+    # The bug the first install hit: `contexts` builds ids from the board *list*
+    # endpoint and `context` re-reads one board on its own, and the two do not
+    # always carry `location`. An id that stops matching between them makes
+    # every sprint "unknown context" — a 404 that looks like a stale bookmark
+    # and is really two Jira endpoints disagreeing.
+    check("an id built from the board list survives being rebuilt from a re-read",
+          forge["idSurvivesReread"]["asked"] == forge["idSurvivesReread"]["rebuilt"],
+          forge["idSurvivesReread"])
     check("an id round-trips through the resolver's parser",
           forge["roundTrip"]["parsed"] == {"projectKey": "SFT", "boardId": "2", "sprintId": "43"},
           forge["roundTrip"])

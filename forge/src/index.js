@@ -372,7 +372,7 @@ resolver.define('contexts', answering(async ({ context }) => {
     const got = await sprintsFor(board);
     if (got.skipped) { withoutSprints += 1; continue; }
     for (const sprint of recentSprints(got.sprints, SPRINTS_PER_BOARD)) {
-      contexts.push(contextEntry(board, sprint));
+      contexts.push(contextEntry(board, sprint, projectKey));
     }
   }
 
@@ -452,12 +452,25 @@ resolver.define('context', answering(async ({ payload, context }) => {
     };
   }
 
-  const entry = contextEntry(board, sprint);
-  if (entry.id !== asked) {
+  const entry = contextEntry(board, sprint, context?.extension?.project?.key);
+
+  // The check that matters, and it is against Forge's own module context
+  // rather than against a second Jira response: this page may read only the
+  // boards of the project it is displayed in, so a project key supplied by the
+  // page cannot be used to label — or reach — somebody else's board.
+  const moduleProject = context?.extension?.project?.key;
+  if (moduleProject && entry.projectKey && entry.projectKey !== moduleProject) {
     return {
       status: 404,
       body: notFound(asked,
-        `that board belongs to project ${entry.projectKey ?? 'unknown'}, not ${parsed.projectKey}`),
+        `board ${parsed.boardId} belongs to project ${entry.projectKey}, and this `
+        + `page is open on ${moduleProject}`),
+    };
+  }
+  if (entry.id !== asked) {
+    return {
+      status: 404,
+      body: notFound(asked, `this site now calls that sprint ${JSON.stringify(entry.id)}`),
     };
   }
 

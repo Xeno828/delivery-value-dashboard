@@ -85,8 +85,18 @@ const rawIssues = [
   },
 ];
 
-const entries = recentSprints(sprints, 6).map((sp) => contextEntry(board, sp));
+const entries = recentSprints(sprints, 6).map((sp) => contextEntry(board, sp, 'SFT'));
 const selected = entries[0];
+
+/* The round trip the page really makes: `contexts` reads boards from the list
+   endpoint, `context` re-reads one board on its own. The two responses do not
+   always describe `location` the same way, and an id that stops matching
+   between them turns every sprint into "unknown context" — which is exactly
+   what the first install did. The module's project key is the same answer
+   both times, so the ids must agree even when the second response has no
+   location at all. */
+const bareBoard = { id: 2, name: 'Storefront Delivery' };
+const reread = contextEntry(bareBoard, sprints.find((sp) => sp.id === 43), 'SFT');
 
 console.log(JSON.stringify({
   contexts: contextsBody('Jira, project SFT — 1 board', entries),
@@ -100,4 +110,5 @@ console.log(JSON.stringify({
     .map((bad) => [bad, parseContextId(bad)]),
   notFound: notFound('SFT/2/999'),
   cap: recentSprints(sprints, 2).map((s) => s.name),
+  idSurvivesReread: { asked: selected.id, rebuilt: reread.id },
 }, null, 2));
