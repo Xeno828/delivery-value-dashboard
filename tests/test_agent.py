@@ -199,6 +199,33 @@ def test_commitment_sizing():
     check("commitment sizing refuses without a sprint length",
           isinstance(F.recommend_commitment(samples, 0), F.Refusal))
 
+    # ...and build() must let that refusal through rather than inventing a
+    # sprint to get past it. It used to pass `len(...) or 10`, so a dataset
+    # that states no dates at all reported a commitment sized against a
+    # ten-working-day sprint nobody chose — with the invented length printed
+    # in its own basis line, which is what made it read as a measurement.
+    dateless = dict(ds, meta={k: v for k, v in ds["meta"].items()
+                              if k not in ("startDate", "endDate", "workingDays")})
+    nc = F.build(dateless, as_of=ds["meta"]["asOfDate"])["next_commitment"]
+    check("build refuses a commitment when the dataset states no sprint length",
+          nc.get("available") is False and "sprint length is unknown" in nc.get("reason", ""),
+          nc.get("reason"))
+    check("the refused commitment carries no figure to quote and no invented length",
+          not any(k in nc for k in ("recommended", "commit_at", "sprint_working_days", "basis")),
+          sorted(nc))
+    check("the refusal keeps the clause that says waiting will not fix it",
+          "absent, not noisy" in F.Refusal(**nc).sentence(), F.Refusal(**nc).sentence())
+
+    # The other direction, because a fix that refuses everything also passes
+    # the three checks above: a dataset that does state its calendar still
+    # gets a figure, sized against the length it actually stated.
+    full = F.build(ds, as_of=ds["meta"]["asOfDate"])["next_commitment"]
+    check("a dataset that states its calendar still gets a commitment",
+          full.get("available") is True, full.get("reason", full.get("recommended")))
+    check("the commitment is sized against the stated calendar, not a default",
+          full["sprint_working_days"] == len(ds["meta"]["workingDays"]),
+          (full["sprint_working_days"], len(ds["meta"]["workingDays"])))
+
 
 def test_size_stability():
     """Item counting assumes items are interchangeable. Detect when they stop being."""

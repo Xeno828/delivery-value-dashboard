@@ -537,6 +537,28 @@ def build(dataset, as_of=None, remaining=None, target=None, snapshots=None,
     def out(x):
         return asdict(x) if hasattr(x, "__dataclass_fields__") else x
 
+    # How long the next sprint is, in working days: the list the dataset states
+    # if it carries one, else derived from its own dates under the resolved
+    # config — the same two steps, in the same order, that the page takes in
+    # contextWorkingDays().
+    #
+    # There is deliberately no third step. This line ended `... or 10`, which
+    # put an invented sprint in front of the refusal recommend_commitment()
+    # already holds: a dataset stating no dates at all came back "commit to 9
+    # items", with "20,000 simulated sprints of 10 working days" printed as its
+    # own basis. Ten is the working length of the default fortnight, which is
+    # exactly what made it read as a measurement rather than a substitution,
+    # and it made that refusal unreachable from here.
+    #
+    # Reaching for cfg["sprintLengthDays"] instead is the same bug in the
+    # config's clothes. `from_dataset()` merges DEFAULTS, so a stated 14 and an
+    # inherited 14 are indistinguishable by the time they arrive here, and a
+    # figure nobody chose would go back out under the authority of one they
+    # did. Below one working day the honest answer is that we do not know the
+    # cadence, which is what the refusal says.
+    sprint_days = len(meta.get("workingDays") or working_days(
+        _d(meta.get("startDate")), _d(meta.get("endDate")), cfg))
+
     return {
         "generated_for": meta.get("sprintName"),
         "as_of": as_of,
@@ -557,9 +579,7 @@ def build(dataset, as_of=None, remaining=None, target=None, snapshots=None,
         if target and target > as_of else
         out(Refusal(reason="the target date has passed", have=0, need=1)),
         "item_risk": out(item_risk(issues, as_of, cfg=cfg)),
-        "next_commitment": out(recommend_commitment(
-            samples, len(meta.get("workingDays") or working_days(
-                _d(meta.get("startDate")), _d(meta.get("endDate")), cfg)) or 10)),
+        "next_commitment": out(recommend_commitment(samples, sprint_days)),
         "size_stability": out(size_stability(issues, as_of, cfg=cfg)),
         "releases": [
             {"name": r["name"], "target": r["targetDate"],
