@@ -1,0 +1,11 @@
+{
+  "name": "shipping-forecast",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Forge app for the delivery value dashboard. Pulls issues, projects them, and calls the hosted calculator — it computes nothing itself.",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@forge/api": "^8.0.4",
+    "@forge/resolver": "^2.0.0"
+  }
+}

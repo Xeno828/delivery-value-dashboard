@@ -1,7 +1,7 @@
 BUNDLE ?= data/demo-intake-bundle.json
 BOARD  ?= 42
 
-.PHONY: build check test test-agent test-a11y test-security test-service perf report intake intake-scale intake-sequence demo serve serve-live serve-calc forge-static forge-lint forge-deploy bundle fetch clean
+.PHONY: build check test test-agent test-a11y test-security test-service perf report intake intake-scale intake-sequence demo serve serve-live serve-calc forge-static forge-deps forge-lint forge-deploy bundle fetch clean
 
 build:            ## assemble dist/delivery-value-dashboard.html from src/
 	python3 build.py
@@ -76,10 +76,13 @@ forge-static: build  ## stage dist/ as the Forge app's static resource
 # second report a broken manifest rather than an unbuilt one — and because the
 # Makefile lives at the repository root while the CLI has to run in forge/,
 # which is its own small trap.
-forge-lint: forge-static  ## stage the static resource, then run forge lint
+forge-deps:          ## install the Forge SDK (@forge/api, @forge/resolver)
+	cd forge && npm install --no-fund --no-audit
+
+forge-lint: forge-static forge-deps  ## stage, install, then run forge lint
 	cd forge && forge lint
 
-forge-deploy: forge-static ## stage, then deploy to the development environment
+forge-deploy: forge-static forge-deps ## stage, install, then deploy to development
 	cd forge && forge deploy -e development
 
 bundle:           ## regenerate the demo bundles (delivery + intake reference class)

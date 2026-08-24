@@ -25,12 +25,19 @@ npm install -g @forge/cli
 forge login                     # opens a browser
 cd forge && forge register      # names the app, writes an id into manifest.yml
 cd ..                           # the Makefile lives at the repository root
-make forge-lint                 # stages the static resource, then lints
+make forge-lint                 # stages the resource, installs the SDK, lints
+make forge-deploy               # same, then deploys to development
 ```
 
 `forge lint` is the step that matters. It validates the manifest against the current schema, which is the thing this repository cannot check for itself.
 
-Two things that will otherwise cost you a few minutes each. The manifest references a static resource that `make forge-static` produces, and lint reports it as **missing** rather than unbuilt — `make forge-lint` stages it first, which is the only reason that target exists. And `make` has to run from the repository root while the CLI has to run inside `forge/`, so a bare `make forge-lint` from the wrong directory just says there is no such target.
+Three things will otherwise cost you a few minutes each, and the Makefile targets exist to absorb all three:
+
+- The manifest references a static resource that `make forge-static` produces, and lint reports it as **missing** rather than unbuilt.
+- `forge/src/index.js` imports `@forge/api` and `@forge/resolver`, so `forge deploy` fails at bundling until `npm install` has run in `forge/`. The error names the modules, not the missing install.
+- `make` has to run from the repository root while the CLI has to run inside `forge/`, so a bare `make forge-lint` from the wrong directory just says there is no such target.
+
+`forge/node_modules` is ignored. `forge/package-lock.json` is **not** — the repository ignores lockfiles generally because nothing else here ships npm packages, and that reasoning stops applying to code deployed into a customer's tenant. `tests/test_service.py` asserts the app depends on nothing outside `@forge/*`.
 
 ### Then, before committing anything
 

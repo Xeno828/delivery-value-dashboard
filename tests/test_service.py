@@ -369,6 +369,48 @@ def test_forge_manifest_matches_the_code():
           "SCAFFOLD" in man.upper(), man.splitlines()[0][:60])
 
 
+def test_forge_app_dependencies():
+    """This code runs inside a customer's Jira tenant, so what it depends on is
+    a security question rather than a packaging one.
+
+    The dashboard itself has no JavaScript dependencies at all — the security
+    suite asserts that against the root package.json. The Forge app needs two,
+    and the guard here is that it needs only those two: an unrelated package
+    added to this manifest would ship into every tenant the app is installed in.
+    """
+    pkg_path = ROOT / "forge" / "package.json"
+    check("the Forge app declares its dependencies", pkg_path.exists(),
+          "" if pkg_path.exists() else
+          "missing package.json — the bundler cannot resolve @forge/* without it")
+    if not pkg_path.exists():
+        return
+    pkg = json.loads(pkg_path.read_text())
+
+    deps = pkg.get("dependencies") or {}
+    foreign = sorted(d for d in deps if not d.startswith("@forge/"))
+    check("every Forge dependency is an Atlassian SDK package", foreign == [], foreign)
+
+    imported = set(re.findall(r"from '(@forge/[\w-]+)'",
+                              (ROOT / "forge" / "src" / "index.js").read_text()))
+    missing = sorted(imported - set(deps))
+    check("every SDK package the resolver imports is declared",
+          missing == [], missing or sorted(imported))
+
+    check("the app is private, so it cannot be published by accident",
+          pkg.get("private") is True, pkg.get("private"))
+
+    # A deployed app with unpinned transitive dependencies is a supply-chain
+    # hole. The repository ignores lockfiles generally, because nothing else
+    # here ships npm packages; this one is un-ignored deliberately.
+    lock = ROOT / "forge" / "package-lock.json"
+    check("the Forge lockfile is kept", lock.exists(),
+          "" if lock.exists() else
+          "no package-lock.json — transitive versions are unpinned")
+    gi = (ROOT / ".gitignore").read_text()
+    check("and is exempt from the blanket lockfile ignore",
+          "!forge/package-lock.json" in gi)
+
+
 def test_dockerfile_copies_everything_the_service_imports():
     """Reconstruct the image's filesystem from its COPY lines and boot from it.
 
@@ -451,6 +493,8 @@ if __name__ == "__main__":
     test_auth_seam_fails_closed()
     print("the Forge manifest")
     test_forge_manifest_matches_the_code()
+    print("the Forge app's dependencies")
+    test_forge_app_dependencies()
     print("the container image")
     test_dockerfile_copies_everything_the_service_imports()
     print("startup")
