@@ -1391,14 +1391,24 @@ function renderExec(m) {
       "so the fix is a work-in-progress cap rather than more effort.", null);
 
   const ico = { critical: ["--critical", "!"], warning: ["--warning", "▲"], serious: ["--serious", "▲"], good: ["--good", "✓"], info: ["--s1", "i"] };
-  $("#exec-list").innerHTML = pts.slice(0, 6).map((p, ix) => {
+  // Seven findings can be raised and six fit. Rank them before cutting, so the
+  // point that is dropped is the least severe rather than the last one written
+  // — and then say it was dropped. An unannounced cut reads as a complete list.
+  const sevRank = { critical: 0, serious: 1, warning: 2, info: 3, good: 4 };
+  pts.sort((a, b) => sevRank[a.sev] - sevRank[b.sev]);
+  const execShown = pts.slice(0, 6), execCut = pts.length - execShown.length;
+  $("#exec-list").innerHTML = execShown.map((p, ix) => {
     const [col, ch] = ico[p.sev];
     return "<li><span class='ic' data-sev='" + p.sev + "' style='background:" + CSSV(col) +
       "' aria-hidden='true'>" + ch + "</span>" +
       "<span><span class='what'>" + esc(p.what) + "</span><span class='why'>" + esc(p.why) +
       (p.drill ? " <button class='linkish' data-exec='" + ix + "'>See the " + p.drill.items.length + " issue" + (p.drill.items.length > 1 ? "s" : "") + "</button>" : "") +
       "</span></span></li>";
-  }).join("");
+  }).join("") +
+    (execCut > 0 ? "<li><span aria-hidden=\"true\"></span><span class='note'>Showing the " +
+      execShown.length + " most severe of " + pts.length + " findings. The " + execCut +
+      (execCut > 1 ? " not shown are the least severe of them" : " not shown is the least severe of them") +
+      ", ranked below every point above.</span></li>" : "");
   $("#exec-list").onclick = e => {
     const b = e.target.closest("[data-exec]"); if (!b) return;
     const p = pts[+b.dataset.exec];
@@ -2292,7 +2302,10 @@ function renderRisk(m, items) {
   const push = (sev, t, d, a, its) => risks.push({ sev, t, d, a, its: its || [] });
   const rank = { critical: 0, serious: 1, warning: 2, info: 3, good: 4 };
 
-  m.critical.filter(i => days(i.created, asOf()) > 14).forEach(i =>
+  // Oldest first, so that when there are more of these than the register can
+  // show, the ones that fall off the end are nameable: the least old of them.
+  m.critical.filter(i => days(i.created, asOf()) > 14)
+    .sort((a, b) => days(b.created, asOf()) - days(a.created, asOf())).forEach(i =>
     push("critical", i.key + " — highest priority, " + Math.round(days(i.created, asOf())) + " days old",
       i.summary + (i.flagged ? " It is also flagged as blocked." : ""),
       "Give it a named owner and a decision deadline this week, or explicitly drop its priority. Leaving it at the top of the list without movement corrodes the priority scheme for everything else.", [i]));
@@ -2340,7 +2353,10 @@ function renderRisk(m, items) {
   risks.sort((a, b) => rank[a.sev] - rank[b.sev]);
   const chip = { critical: ["c-crit", "■", "Critical"], serious: ["c-serious", "▲", "Serious"],
                  warning: ["c-warn", "▲", "Watch"], info: ["c-info", "i", "Note"], good: ["c-good", "✓", "Working well"] };
-  host.innerHTML = risks.slice(0, 9).map((r, ix) => {
+  const shown = risks.slice(0, 9), cut = risks.slice(9);
+  const cutTally = {};
+  cut.forEach(r => { cutTally[r.sev] = (cutTally[r.sev] || 0) + 1; });
+  host.innerHTML = shown.map((r, ix) => {
     const [cls, ic, lab] = chip[r.sev];
     return '<div class="riskrow"><div class="rh"><span class="chip ' + cls + '"><span aria-hidden="true">' + ic + "</span>" + lab + "</span>" +
       '<span class="rt">' + esc(r.t) + "</span></div>" +
@@ -2348,7 +2364,15 @@ function renderRisk(m, items) {
       '<div class="ra"><b>Do this:</b> ' + esc(r.a) + "</div>" +
       (r.its.length ? '<div><button class="linkish" data-risk="' + ix + '">Inspect the ' + r.its.length + " issue" + (r.its.length > 1 ? "s" : "") + "</button></div>" : "") +
       "</div>";
-  }).join("") || '<div class="note">No risks triggered against the current filters.</div>';
+  }).join("") +
+    // One risk is raised per ageing highest-priority item, so a backlog with a
+    // dozen stale criticals overruns the register on its own. Say what fell off
+    // the end and why those were the ones: a cut list reads as a whole one.
+    (cut.length ? '<div class="note" style="margin-top:6px">Showing the ' + shown.length +
+      " highest-ranked of " + risks.length + " risks. The " + cut.length + " not shown (" +
+      Object.keys(rank).filter(k => cutTally[k]).map(k => cutTally[k] + " " + chip[k][2].toLowerCase()).join(", ") +
+      ") rank below them: risks are ordered most severe first, and the ageing highest-priority items oldest first within that." +
+      "</div>" : "") || '<div class="note">No risks triggered against the current filters.</div>';
   host.onclick = e => {
     const b = e.target.closest("[data-risk]"); if (!b) return;
     const r = risks[+b.dataset.risk];

@@ -265,6 +265,95 @@ def transports(b):
             proc.kill()
 
 
+def capped_lists(page):
+    """Both bounded lists say what they dropped, and why those ones.
+
+    The executive summary can raise seven findings into six slots and the risk
+    register raises one risk per ageing highest-priority item, so a backlog with
+    a dozen stale criticals overruns nine. Both used to cut silently, which is
+    the failure the "no silent caps" rule exists to stop: a truncated list reads
+    as a complete one, and the reader has no way to know a finding was withheld.
+
+    So this feeds the page a dataset that overruns both caps and asserts each
+    one names the count it dropped. It also asserts the cut is the one the note
+    claims — least severe for the summary, least old for the ageing criticals —
+    because a note describing a rule the code does not follow is worse than no
+    note at all.
+    """
+    print("\n  bounded lists")
+
+    ds = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+    # The seventh finding — work in progress rising while completion does not.
+    for h, wip, done_n in zip(ds["history"][-3:], [5, 6, 7], [10, 8, 7]):
+        h["wipItems"], h["completedItems"] = wip, done_n
+    # Six more ageing highest-priority items, each of which raises its own risk.
+    # Ages are deliberately staggered so "oldest first" is falsifiable.
+    for n in range(6):
+        ds["issues"].append({
+            "key": "STALE-%d" % (n + 1),
+            "summary": "Ageing highest-priority item %d" % (n + 1),
+            "type": "Bug", "status": "In Progress", "statusCategory": "In Progress",
+            "assignee": "Alex Rivera", "storyPoints": 3, "priority": "Highest",
+            "epic": "Checkout Stability", "created": "2026-06-%02d" % (n + 1),
+            "started": None, "resolved": None, "dueDate": None,
+            "flagged": False, "addedMidSprint": False, "businessValue": 0, "labels": [],
+        })
+
+    page.goto(DIST.as_uri())
+    page.wait_for_timeout(700)
+    page.evaluate("d => window.DVD.applyDataset(d)", ds)
+    page.wait_for_timeout(700)
+
+    # ---------- executive summary ----------
+    bullets = page.eval_on_selector_all("#exec-list li .what", "n => n.map(e => e.textContent)")
+    note = " ".join((page.eval_on_selector("#exec-list .note", "e => e.textContent") or "").split())
+    check("the summary shows its six and no more", len(bullets) == 6, len(bullets))
+    check("the summary says how many findings it withheld",
+          "6 most severe of 7 findings" in note and "1 not shown" in note, note)
+    check("the summary names why those were the ones dropped",
+          "least severe" in note, note)
+    # Severity is the stated rule, so it has to be the actual one: before this
+    # the order was the order the findings were written in, which let a "working
+    # well" note push a warning off the end while claiming nothing was lost.
+    sev = page.eval_on_selector_all("#exec-list li .ic", "n => n.map(e => e.dataset.sev)")
+    order = ["critical", "serious", "warning", "info", "good"]
+    check("the summary is ranked most severe first",
+          sev == sorted(sev, key=order.index), sev)
+    # Ranking reorders the array the drill-down buttons index into, so the
+    # buttons have to follow it rather than keep pointing at the old positions.
+    page.click("#exec-list li:first-child button.linkish")
+    page.wait_for_timeout(400)
+    check("a drill-down from a ranked summary still opens its own issues",
+          page.is_visible("#panel.on") and
+          page.eval_on_selector_all("#p-body .issue", "n => n.length") > 0,
+          page.eval_on_selector_all("#p-body .issue", "n => n.length"))
+    check("it opens the issues behind the point it sits under",
+          bullets[0].split(" ")[0] in page.text_content("#p-sub"),
+          (bullets[0][:40], page.text_content("#p-sub")[:40]))
+    page.click("#p-done")
+
+    # ---------- risk register ----------
+    rows = page.eval_on_selector_all("#risk-body .riskrow", "n => n.length")
+    rnote = " ".join((page.eval_on_selector("#risk-body > .note", "e => e.textContent") or "").split())
+    check("the register shows its nine and no more", rows == 9, rows)
+    check("the register says how many risks it withheld",
+          "9 highest-ranked of" in rnote and "not shown" in rnote, rnote)
+    check("the register names the severity of what it withheld",
+          "critical" in rnote or "watch" in rnote or "serious" in rnote, rnote)
+    total = int(rnote.split("highest-ranked of ")[1].split(" ")[0])
+    dropped = int(rnote.split("The ")[1].split(" ")[0])
+    check("the counts add up rather than merely sounding plausible",
+          rows + dropped == total, (rows, dropped, total))
+    # The claim is that the ageing criticals are ordered oldest first, so the
+    # ones that fall off the end are the least old. Read the ages back off the
+    # rendered titles rather than trusting the sort.
+    ages = [int(t.split(", ")[-1].split(" days old")[0])
+            for t in page.eval_on_selector_all("#risk-body .rt", "n => n.map(e => e.textContent)")
+            if "days old" in t]
+    check("ageing highest-priority risks are listed oldest first",
+          len(ages) >= 3 and ages == sorted(ages, reverse=True), ages)
+
+
 def main():
     if not DIST.exists():
         sys.exit("build first: python3 build.py")
@@ -711,8 +800,11 @@ def main():
         page.set_viewport_size({"width": 1500, "height": 1000})
         page.wait_for_timeout(300)
 
-        check("no console errors", not console, console[:3])
         page.screenshot(path=str(ROOT / "tests" / "last-run.png"), full_page=True)
+
+        capped_lists(page)
+
+        check("no console errors", not console, console[:3])
 
         transports(b)
 

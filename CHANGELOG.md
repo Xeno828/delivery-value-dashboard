@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.16.1
+
+**Two lists on the page were cutting themselves short without saying so.** The executive summary raises up to seven findings into six slots, and the risk register raises one risk per ageing highest-priority item into nine — a backlog with a dozen stale criticals overruns it on that rule alone. Both simply sliced, so a reader had no way to tell a shortened list from a complete one. That is the failure the *no silent caps* rule exists to stop, and the register was the worse of the two: on the sample data plus six ageing criticals it showed nine of fourteen risks and read as the whole register. Both now say what they dropped, the way `renderFlowTime` already did — the count, and the rule that chose them.
+
+**Naming what was dropped meant giving the cut a rule to follow.** The summary was in the order the findings were written in rather than in severity order, so the point that fell off the end was whichever happened to be pushed last: a *working well* note could survive while a rising work-in-progress warning was discarded, and no honest sentence could have been written about which one went. It is ranked most severe first now and says so — *"Showing the 6 most severe of 7 findings. The 1 not shown is the least severe of them"*. The risk register was already ranked by severity, but the ageing highest-priority items inside the critical band arrived in dataset order, so which of them survived past nine was arbitrary; they are ordered oldest first, and the note names the severities of what it withheld rather than leaving *"5 not shown"* to be interpreted.
+
+**Ranking the summary moves the array its drill-down buttons index into.** Each *See the N issues* button carries its position in that array, so a sort that the buttons did not follow would have opened another finding's issues — the class of fault that hands back a plausible answer rather than failing. `tests/e2e.py` now feeds the page a dataset that overruns both caps and asserts both notes: the counts they state, that shown plus dropped equals the total, that the summary is genuinely in severity order, that the ageing risks are genuinely oldest first, and that a drill-down from the ranked summary still opens the issues behind the point it sits under.
+
 ## 1.16.0
 
 **The dashboard inside Forge shows the customer's own Jira, not a demo company's.** It rendered before this — fully styled, with charts — but every number on it belonged to Highpeak Commerce, because the page reaches live mode over a same-origin `api/*` and a Forge Custom UI iframe has no such origin. It does now, and the thing that made it possible is a seam rather than a feature. [ADR 0009](docs/adr/0009-one-contract-two-transports.md) records it.
