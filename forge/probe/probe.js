@@ -8,7 +8,8 @@
  *
  *   1. can a static resource reach a resolver at all
  *   2. can the resolver read boards with the scopes in the manifest
- *   3. can it read issues, and does the projection strip issue text
+ *   3. can it read issues, which field this site calls story points, and does
+ *      the projection strip issue text
  *
  * Every value from Jira is written with textContent, never innerHTML. An issue
  * summary is free text that anyone who can raise a ticket controls, and this
@@ -111,11 +112,24 @@ async function loadBoard(boardId) {
     return;
   }
 
-  const { total, sample, projected, freeTextFields } = got.value;
+  const { total, sample, projected, freeTextFields,
+          storyPointField, storyPointFieldNote } = got.value;
   verdict($('v-issues'), 'ok', total + ' issues readable');
   show($('d-issues'), sample);
   note($('d-issues'), 'Keys and dates only — this is what the resolver holds locally, ' +
     'before projection.');
+
+  // Which field this site calls story points, resolved by display name rather
+  // than assumed. Shown because the failure it prevents is invisible: an id
+  // that is wrong for this site reads every issue as zero points, flattens the
+  // burndown in points mode, and says nothing.
+  note($('d-issues'), storyPointFieldNote);
+  if (!storyPointField) {
+    note($('d-issues'), 'Items are unaffected — that is the default unit on the page ' +
+      'and the only one the forecaster reads. Rename the field to Story Points, ' +
+      'Story point estimate or Points, or add the name to STORY_POINT_FIELD_NAMES ' +
+      'in forge/src/jira.js and scripts/fetch_delivery_data.py together.');
+  }
 
   // The claim the whole architecture rests on, shown rather than asserted.
   const clean = !freeTextFields.length;

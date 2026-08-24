@@ -568,6 +568,14 @@ def test_the_two_transports_answer_the_same_shape():
     check("a malformed context id is refused rather than parsed",
           all(parsed is None for _, parsed in forge["rejects"]),
           [bad for bad, parsed in forge["rejects"] if parsed is not None])
+    # The bug the first install hit: `contexts` builds ids from the board *list*
+    # endpoint and `context` re-reads one board on its own, and the two do not
+    # always carry `location`. An id that stops matching between them makes
+    # every sprint "unknown context" — a 404 that looks like a stale bookmark
+    # and is really two Jira endpoints disagreeing.
+    check("an id built from the board list survives being rebuilt from a re-read",
+          forge["idSurvivesReread"]["asked"] == forge["idSurvivesReread"]["rebuilt"],
+          forge["idSurvivesReread"])
     check("an id round-trips through the resolver's parser",
           forge["roundTrip"]["parsed"] == {"projectKey": "SFT", "boardId": "2", "sprintId": "43"},
           forge["roundTrip"])
@@ -606,6 +614,86 @@ def test_the_two_transports_answer_the_same_shape():
     added = [i["addedMidSprint"] for i in forge["context"]["issues"]]
     check("addedMidSprint is read from the changelog, not defaulted",
           added == [True, False], added)
+
+    # The story-point field id differs per Jira site and there is no id that is
+    # right everywhere. Hardcoding the common one made every issue on any other
+    # site read as zero points, flattening the burndown in points mode with
+    # nothing on the page saying why — the plausible-wrong-number class, and the
+    # reason this is checked rather than eyeballed.
+    sp = forge["storyPointField"]
+    check("the story-point field is discovered by name, not assumed",
+          sp["found"] == "customfield_10034", sp["found"])
+    check("and the first match in Jira's own order wins, as the fetcher does",
+          sp["found"] != "customfield_10099", sp)
+    check("a site with no story-point field reports null, never zero",
+          sp["absent"] is None and sp["whenAbsent"] is None, sp)
+    check("an issue with the field unset is a genuine zero",
+          sp["whenUnset"] == 0, sp["whenUnset"])
+    check("a non-numeric estimate is not coerced into the burndown",
+          sp["whenNotANumber"] is None, sp["whenNotANumber"])
+
+    # The list of names is the contract between the two producers: a site with
+    # both "Story Points" and "Points" must resolve to the same field down both
+    # routes, or one board reports two different velocities.
+    fetcher = (ROOT / "scripts" / "fetch_delivery_data.py").read_text()
+    names = re.search(r'nm in \((.*?)\)', fetcher, re.S)
+    py_names = set(re.findall(r'"([^"]+)"', names.group(1))) if names else set()
+    jira_js = (ROOT / "forge" / "src" / "jira.js").read_text()
+    js_block = re.search(r"STORY_POINT_FIELD_NAMES = \[(.*?)\]", jira_js, re.S)
+    js_names = set(re.findall(r"'([^']+)'", js_block.group(1))) if js_block else set()
+    check("both producers look for the same field names",
+          py_names and py_names == js_names,
+          {"fetcher": sorted(py_names), "resolver": sorted(js_names)})
+
+    check("no story-point field id is hardcoded anywhere in the Forge app",
+          not re.search(r"customfield_\d+", jira_js.replace("`customfield_10016`", ""))
+          and not re.search(r"customfield_\d+",
+                            (ROOT / "forge" / "src" / "index.js").read_text()),
+          "an id that differs per site cannot be written down")
+
+    # ---- the organisation config, resolved per site rather than assumed ----
+    #
+    # Before this, every Forge tenant was measured under the defaults: Monday
+    # to Friday, no holidays, and a fixed idea of the word "done". A site with
+    # a "Signed off" column read every sprint as 0% complete — the bug
+    # orgconfig.py was written for, reintroduced by a route that had nowhere to
+    # read a config from.
+    org = forge["orgConfig"]
+    check("done comes from the site's own status categories, not a fixed list",
+          org["fromJira"]["done"] == ["Shipped", "Signed off"], org["fromJira"])
+    check("and in-progress with it",
+          org["fromJira"]["inProgress"] == ["In Review", "With QA"], org["fromJira"])
+    check("a status with no name is not admitted to either list",
+          all(n.strip() for lst in org["fromJira"].values() for n in lst),
+          org["fromJira"])
+    # An omission is not a claim that nothing is in progress.
+    check("what a site states wins, one level down, as the Python merges",
+          org["merged"]["statuses"] == {"done": ["Signed off"],
+                                        "inProgress": ["In Review", "With QA"]},
+          org["merged"])
+
+    # The second implementation this introduces, and the test that makes it
+    # survivable. src/app.js already mirrors orgconfig.py because the browser
+    # cannot call Python; the Forge resolver now mirrors its *validation*,
+    # because a bad config must stop the request rather than be half-applied.
+    # Both are run over one shared list of cases so neither can be given an
+    # easier set than the other.
+    cases = json.loads((ROOT / "tests" / "fixtures" / "org-configs.json").read_text())
+    js = dict(org["verdicts"])
+    disagreed, wrong = [], []
+    for c in cases:
+        py_ok = not OC.validate(OC.merge(OC.DEFAULTS, c["config"]))
+        expected = c.get("usable", True)
+        if js[c["name"]] != py_ok:
+            disagreed.append({c["name"]: {"resolver": js[c["name"]], "orgconfig.py": py_ok}})
+        if py_ok != expected:
+            wrong.append(c["name"])
+    check("the resolver and orgconfig.py agree on every config in the fixture",
+          disagreed == [], disagreed[:3])
+    check("and the fixture's own expectations hold", wrong == [], wrong)
+    check("the fixture carries configs that must be refused, not only good ones",
+          sum(1 for c in cases if not c.get("usable", True)) >= 10,
+          sum(1 for c in cases if not c.get("usable", True)))
 
     check("the sprint cap keeps the newest, not the first Jira listed",
           forge["cap"] == ["Sprint 24", "Sprint 23"], forge["cap"])
