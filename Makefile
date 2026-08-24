@@ -1,7 +1,7 @@
 BUNDLE ?= data/demo-intake-bundle.json
 BOARD  ?= 42
 
-.PHONY: build check test test-agent test-a11y test-security test-service perf report intake intake-scale intake-sequence demo serve serve-live serve-calc forge-static forge-deps forge-lint forge-deploy bundle fetch clean
+.PHONY: build check test test-agent test-a11y test-security test-service perf report intake intake-scale intake-sequence demo serve serve-live serve-calc forge-static forge-deps forge-lint forge-deploy forge-install forge-upgrade forge-uninstall bundle fetch clean
 
 build:            ## assemble dist/delivery-value-dashboard.html from src/
 	python3 build.py
@@ -92,6 +92,18 @@ forge-lint: forge-static forge-deps  ## stage, install, then run forge lint
 forge-deploy: forge-static forge-deps ## stage, install, then deploy to development
 	cd forge && forge deploy -e development
 
+# The CLI needs the manifest in the working directory and the manifest lives in
+# forge/, so every one of these fails with "manifest-file-required" when run
+# from the repository root — which is where the Makefile is. Hence the targets.
+forge-install:    ## install the app on a site (first time)
+	cd forge && forge install
+
+forge-upgrade:    ## re-consent after a module or scope change
+	cd forge && forge install --upgrade
+
+forge-uninstall:  ## remove it; a development installation is disposable
+	cd forge && forge uninstall
+
 bundle:           ## regenerate the demo bundles (delivery + intake reference class)
 	python3 scripts/make_sample_bundle.py
 	python3 scripts/make_demo_bundle.py
@@ -103,5 +115,7 @@ fetch:            ## pull live data (needs .env — see docs/connecting-jira-asa
 clean:
 	rm -rf dist __pycache__ tests/__pycache__ tests/last-run.png
 
+# Hyphenated targets were invisible here: the pattern matched ^[a-z]+ only, so
+# test-agent, serve-live and every forge-* target were absent from the list.
 help:
-	@grep -E '^[a-z]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-8s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-z][a-z-]*:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'

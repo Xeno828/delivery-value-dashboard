@@ -15,7 +15,7 @@ Nothing here is required to use the product. OAuth 2.0 (3LO) in [`scripts/jira_a
 ### You need
 
 - An Atlassian account with developer access
-- Node 18+ and `npm install -g @forge/cli`
+- Node **22.x or 24.x** and `npm install -g @forge/cli`. The CLI warns on anything else and does not guarantee correct behaviour — Node 26 works today but is unsupported, and is worth ruling out first if the CLI does something inexplicable.
 - A Jira Cloud site you can install a development app on
 
 ### Do
