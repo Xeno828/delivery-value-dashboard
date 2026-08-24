@@ -580,6 +580,25 @@ def test_the_two_transports_answer_the_same_shape():
           forge["roundTrip"]["parsed"] == {"projectKey": "SFT", "boardId": "2", "sprintId": "43"},
           forge["roundTrip"])
 
+    # The context object, which is separate from the entry in the picker and
+    # was not compared until ADR 0010 found what was hiding in it: the live
+    # server adds `workingDays` and the resolver does not, so every Forge
+    # sprint arrived without the day list its pace figure is a share of.
+    #
+    # It is still absent, deliberately — expanding a date range into working
+    # days is a rule with two implementations already, and a third in a
+    # resolver is a third thing to keep in step. The page derives it. What
+    # changed is that the absence is now named here rather than unnoticed, and
+    # `tests/e2e.py` renders a Forge-shaped body to prove the page really does
+    # fill it.
+    # `doneCount` is compared out for the reason given above the entry check:
+    # it is written when a bundle is built, neither live backend emits it, and
+    # the page counts done items out of the issues it holds.
+    live_ctx, forge_ctx = live_context["context"], forge["context"]["context"]
+    absent_ctx = sorted(set(live_ctx) - set(forge_ctx) - {"doneCount"})
+    check("workingDays is the only field of the context object the page makes good",
+          absent_ctx == ["workingDays"], absent_ctx)
+
     # The issue schema. The resolver plays the fetcher's part here, so what it
     # emits has to be fields the page already reads — an invented name is a
     # field nothing renders, and a missing one is a tile that quietly says zero.

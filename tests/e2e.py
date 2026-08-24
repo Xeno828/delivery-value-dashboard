@@ -475,6 +475,59 @@ def transports(b):
         finally:
             seeded.unlink(missing_ok=True)
 
+        # ---------- the bridge, carrying what the bridge really carries ----------
+        # The hole in the check below, named by ADR 0010: it feeds the stub the
+        # loopback's own bodies, so any field the Forge resolver omits is
+        # invisible to it. `workingDays` was exactly that — absent over the
+        # bridge, supplied over loopback, and the page silently lost the
+        # largest component of its health score in every tenant.
+        #
+        # So this feeds the stub a body shaped the way the resolver really
+        # shapes one, and requires the same render anyway. What the page has to
+        # make up for is stated in the strip list, and each entry is a field the
+        # page is supposed to derive:
+        #
+        #   workingDays     derived from the sprint's dates under the config
+        #   statusCategory  derived from the raw status name under the config
+        #   contextId       tagged by loadContext(), never trusted from a body
+        #
+        # `started` is deliberately NOT stripped. The resolver does omit it, but
+        # that absence is a visible, stated degradation — the page prints "no
+        # completed items with both a start and a resolved date" — rather than
+        # something it silently makes good.
+        import copy
+        forge_shaped = copy.deepcopy(context_body)
+        forge_shaped["context"].pop("workingDays", None)
+        for issue in forge_shaped["issues"]:
+            for field in ("statusCategory", "contextId"):
+                issue.pop(field, None)
+
+        shaped_stub = """
+        window.__DVD_BRIDGE__ = { name: 'stub', invoke: (route, params) => {
+            const bodies = %s;
+            if (route === 'contexts') return Promise.resolve({status: 200, body: bodies.contexts});
+            if (route === 'context') return Promise.resolve({status: 200, body: bodies.context});
+            return Promise.resolve({status: 404, body: null}); } };
+        """ % json.dumps({"contexts": contexts_body, "context": forge_shaped})
+
+        page = b.new_page(viewport={"width": 1500, "height": 1000})
+        page.add_init_script(shaped_stub)
+        page.goto(url)
+        page.wait_for_timeout(400)
+        page.evaluate("id => window.DVD.debug.selectContext(id)", cid)
+        page.wait_for_timeout(1200)
+        shaped_print = page.evaluate(fingerprint)
+        wd = page.evaluate("() => window.DVD.debug.view().meta.workingDays.length")
+        page.close()
+
+        check("the page fills in the working days the resolver does not send",
+              wd > 0, wd)
+        for field in ("foot", "kpis", "contexts", "issues", "ctx"):
+            check("a Forge-shaped body renders the same %s as a served one" % field,
+                  loop_print[field] == shaped_print[field],
+                  {"served": str(loop_print[field])[:120],
+                   "forge-shaped": str(shaped_print[field])[:120]})
+
         # ---------- a transport that answered, and refused ----------
         # The failure this shipped with: `contexts` came back 404 with a
         # sentence, probeLive returned without reading it, and the customer got

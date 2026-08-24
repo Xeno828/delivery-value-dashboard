@@ -35,16 +35,30 @@ export const parseContextId = (id) => {
  * the wire, `_sprintId` included — the page ignores it, and dropping it here
  * would make a parity check pass against a shape neither side really sends.
  *
- * `workingDays` is deliberately absent. Which days are worked is organisation
- * config, and resolving it here would be a fourth opinion arriving by a fourth
- * route. `BundleBackend.contexts()` strips it for the same reason.
+ * `workingDays` is deliberately absent, and the reason has changed since it
+ * first was. It used to be that resolving organisation config here would be a
+ * fourth opinion arriving by a fourth route — but this resolver now resolves
+ * that config, out of Jira's own status categories and the project property,
+ * so it plainly could compute the list.
  *
- * The page derives it from `startDate`/`endDate` under its own config, the way
- * it already derives `statusCategory` from a raw status name — see
- * `contextWorkingDays()` in `src/app.js`. Leaving it out is a silence, not a
- * gap; before the page filled it, every sprint in a tenant lost the largest
- * component of its health score and the two transports disagreed about the
- * same sprint.
+ * It must not, and the reason is the one that outlasts the other: expanding a
+ * date range into working days is a *rule*, and the rule already has two
+ * implementations — `orgconfig.py` and its mirror in `src/app.js`, kept honest
+ * by a test that runs both under a non-default config. A third here would be a
+ * third thing to keep in step, in the one place nobody can run the test
+ * against a customer's tenant.
+ *
+ * So the page derives it from `startDate`/`endDate` under the config this
+ * resolver sent, exactly as it already derives `statusCategory` from a raw
+ * status name — see `contextWorkingDays()` in `src/app.js`. `BundleBackend`
+ * strips the field for its own reasons and the page fills it the same way.
+ *
+ * Leaving it out is a silence, not a gap — but only because the page fills it.
+ * Before it did, every sprint in a tenant lost the largest component of its
+ * health score, *Pace vs clock* read as no sprint dates across a whole
+ * install, and the two transports rendered different figures from one sprint.
+ * `tests/e2e.py` now feeds the bridge a body shaped the way this file really
+ * shapes one, rather than the loopback's own, and requires the same render.
  *
  * `fallbackProjectKey` exists because the id has to survive a round trip and
  * the id is built from `board.location`. The board *list* endpoint and the
