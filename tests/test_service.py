@@ -351,17 +351,20 @@ def test_forge_manifest_matches_the_code():
     # rather than an unbuilt one. The path it wants and the path `make
     # forge-static` writes have to be the same string, or the next person spends
     # an afternoon on it.
-    res = re.search(r"^resources:\s*$\n\s+- key:\s*\S+\s*$\n\s+path:\s*(\S+)\s*$", man, re.M)
-    check("the manifest declares a resource path", res is not None)
-    if res:
-        declared = "forge/" + res.group(1).rstrip("/")
-        mk = (ROOT / "Makefile").read_text()
-        staged = re.findall(r"forge/static/\S*", mk)
-        check("the Makefile stages the path the manifest references",
-              any(t.startswith(declared) for t in staged),
-              {"manifest": declared, "makefile": sorted(set(staged))})
-        check("the staged resource is git-ignored, not committed twice",
-              "forge/static/" in (ROOT / ".gitignore").read_text())
+    # Every declared resource, not just the first — the probe added a second and
+    # a check that reads one would have gone quiet at exactly that moment.
+    block = re.search(r"^resources:\s*$\n((?:(?:\s+#.*|\s+-?\s*\w+:.*)\n)+)", man, re.M)
+    declared = ["forge/" + p.rstrip("/")
+                for p in re.findall(r"^\s+path:\s*(\S+)\s*$", block.group(1), re.M)] if block else []
+    check("the manifest declares resource paths", len(declared) >= 1, declared)
+
+    mk = (ROOT / "Makefile").read_text()
+    staged = re.findall(r"forge/static/\S*", mk)
+    unstaged = [d for d in declared if not any(t.startswith(d) for t in staged)]
+    check("the Makefile stages every path the manifest references",
+          unstaged == [], {"unstaged": unstaged, "makefile": sorted(set(staged))})
+    check("the staged resources are git-ignored, not committed twice",
+          "forge/static/" in (ROOT / ".gitignore").read_text())
 
     # The scaffold must keep saying so; a manifest that quietly looks finished
     # is one somebody deploys.
@@ -390,8 +393,14 @@ def test_forge_app_dependencies():
     foreign = sorted(d for d in deps if not d.startswith("@forge/"))
     check("every Forge dependency is an Atlassian SDK package", foreign == [], foreign)
 
-    imported = set(re.findall(r"from '(@forge/[\w-]+)'",
-                              (ROOT / "forge" / "src" / "index.js").read_text()))
+    # Both source trees: the resolver and the Custom UI probe import different
+    # SDK packages, and a missing one fails at bundle time with an error that
+    # names the module rather than the omission.
+    sources = [ROOT / "forge" / "src" / "index.js", ROOT / "forge" / "probe" / "probe.js"]
+    imported = set()
+    for src in sources:
+        if src.exists():
+            imported |= set(re.findall(r"from '(@forge/[\w-]+)'", src.read_text()))
     missing = sorted(imported - set(deps))
     check("every SDK package the resolver imports is declared",
           missing == [], missing or sorted(imported))

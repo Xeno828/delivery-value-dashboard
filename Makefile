@@ -67,10 +67,15 @@ serve-calc:       ## the hosted calculator, for local development only
 	@echo "Unauthenticated — local development only. See service/README.md."
 	python3 service/app.py --insecure
 
-forge-static: build  ## stage dist/ as the Forge app's static resource
-	@mkdir -p forge/static/dashboard/build
+forge-static: build forge-deps  ## stage both Forge static resources
+	@mkdir -p forge/static/dashboard/build forge/static/probe
 	@cp dist/delivery-value-dashboard.html forge/static/dashboard/build/index.html
-	@echo "staged forge/static/dashboard/build/index.html"
+	@cp forge/probe/index.html forge/static/probe/index.html
+	@# @forge/bridge is CommonJS, so the probe has to be bundled rather than
+	@# copied. esbuild is a forge/ devDependency; the dashboard still has none.
+	cd forge && npx --no-install esbuild probe/probe.js \
+	  --bundle --format=esm --target=es2020 --outfile=static/probe/probe.js
+	@echo "staged forge/static/dashboard/build/index.html and forge/static/probe/"
 
 # Staging and linting as one target, because forgetting the first makes the
 # second report a broken manifest rather than an unbuilt one — and because the

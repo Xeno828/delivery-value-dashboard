@@ -6,6 +6,10 @@
   "license": "UNLICENSED",
   "dependencies": {
     "@forge/api": "^8.0.4",
+    "@forge/bridge": "^6.3.0",
     "@forge/resolver": "^2.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }

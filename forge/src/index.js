@@ -174,6 +174,80 @@ const compute = async (path, { boardId, orgConfig, meta, extra }) => {
   };
 };
 
+/* ------------------------------------------------------------------------
+   Connection-check resolvers. Used only by forge/probe/, and deletable with
+   it once the real bridge exists.
+
+   They are here rather than in a separate function because a deploy proves
+   the manifest and the bundle and nothing about permissions — and a scope
+   that turns out to be wrong is far cheaper to find now than during a
+   customer's install.
+   --------------------------------------------------------------------- */
+
+/** Proves the static resource can reach a resolver. Touches no Jira API, so a
+ *  failure here is the bridge or the manifest, never a scope. */
+resolver.define('ping', () => ({
+  reached: 'resolver',
+  at: new Date().toISOString(),
+}));
+
+/** Tests read:board-scope:jira-software on its own. Separating this from the
+ *  issue read is the point: if boards work and issues do not, the scope pair is
+ *  wrong rather than the install. */
+resolver.define('boards', async () => {
+  const res = await api.asUser().requestJira(route`/rest/agile/1.0/board?maxResults=50`);
+  if (!res.ok) {
+    return { available: false, status: res.status, sentence: `Jira returned ${res.status}.` };
+  }
+  const body = await res.json();
+  return {
+    available: true,
+    boards: (body.values ?? []).map((b) => ({ id: b.id, name: b.name ?? '' })),
+  };
+});
+
+/** Tests read:issue-details:jira, and shows what the projection would send.
+ *  One page, not the whole board — this is a check, not a pull. */
+resolver.define('probeBoardIssues', async ({ payload }) => {
+  const id = String(payload?.boardId ?? '').replace(/[^0-9]/g, '');
+  if (!id) return { available: false, sentence: 'no board id' };
+
+  const res = await api
+    .asUser()
+    .requestJira(route`/rest/agile/1.0/board/${id}/issue?maxResults=5`);
+  if (!res.ok) {
+    return { available: false, status: res.status, sentence: `Jira returned ${res.status}.` };
+  }
+  const body = await res.json();
+  const raw = (body.issues ?? []).map((i) => ({
+    key: i.key,
+    summary: i.fields?.summary ?? '',
+    assignee: i.fields?.assignee?.displayName ?? null,
+    status: i.fields?.status?.name ?? null,
+    created: (i.fields?.created ?? '').slice(0, 10) || null,
+    resolved: (i.fields?.resolutiondate ?? '').slice(0, 10) || null,
+  }));
+
+  const projected = raw.map(projectIssue);
+  // Run the real guard, not a copy of it. If assertNoFreeText ever stops
+  // throwing, this reports the leak instead of the page claiming it is clean.
+  let leaked = [];
+  try {
+    assertNoFreeText(projected);
+  } catch {
+    leaked = NEVER_SEND.filter((f) => projected.some((i) => f in i));
+  }
+
+  return {
+    available: true,
+    total: body.total ?? raw.length,
+    // Keys and dates only. Summaries stay on this side even in the sample.
+    sample: raw.map((i) => ({ key: i.key, status: i.status, created: i.created })),
+    projected: projected[0] ?? null,
+    freeTextFields: leaked,
+  };
+});
+
 resolver.define('forecast', ({ payload }) => compute('/v1/forecast', payload ?? {}));
 resolver.define('facts', ({ payload }) => compute('/v1/facts', payload ?? {}));
 resolver.define('sequence', ({ payload }) => compute('/v1/sequence', payload ?? {}));

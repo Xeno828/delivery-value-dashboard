@@ -67,9 +67,30 @@ Several things have to agree with this repository, and a schema linter has no op
 
 Note the allow-list rather than parity with `SCOPES` in `jira_auth.py`. Forge uses granular scopes (`read:issue-details:jira`) and the 3LO client uses classic ones (`read:jira-work`); the two are equivalent in intent and can never be equal as strings. The first version of that check matched a single colon only, so granular scopes were invisible to it — including, had one appeared, a granular write scope.
 
+### A deploy proves less than it looks like
+
+It proves the manifest is valid, the bundle builds and the static resources exist. It proves **nothing about permissions**, because at that point nothing has called Jira. Install the app and open the project page and you will see the dashboard rendering *Highpeak Commerce — Sprint 24 — Demo data*: a fictional company's 22 issues, inside your Jira, with the forecast tile showing its offline notice. That is not a fault. It is what "the static resource is staged but the bridge is unwritten" looks like.
+
+### So there is a second page: the connection check
+
+The app installs two project pages. **Shipping Forecast — connection check** is not the product; it makes the four calls a deploy leaves untested:
+
+| | Answers |
+|---|---|
+| **1 Bridge** | Can a static resource reach a resolver at all — touches no Jira API, so a failure is the manifest or the bundle, never a scope |
+| **2 Boards** | `read:board-scope:jira-software`, on its own |
+| **3 Issues** | `read:issue-details:jira`, on its own. If boards work and issues do not, the scope *pair* is wrong rather than the install |
+| **4 Projection** | Shows the exact payload one issue would become. No summary, no assignee — the claim the architecture rests on, displayed rather than asserted |
+
+Each failure names the likely cause. A 403 on boards after a scope change usually means the install needs re-running: Jira does not widen an existing consent on its own.
+
+It also degrades honestly. Outside a Forge iframe `invoke()` neither resolves nor rejects — it waits — so every call has a fifteen-second timeout and says so. The first version sat on *checking* indefinitely, which is the least useful thing a diagnostic can do.
+
+Delete `forge/probe/`, its `connection-check` module and the three probe resolvers once the real bridge exists. They are marked as deletable in all three places.
+
 ### Done when
 
-`forge lint` passes, `forge deploy -e development` succeeds, and `forge install` puts the app on a test site. At that point the project page renders and the resolver's `boardIssues` call returns real data — which is also the proof that the declared scopes are sufficient.
+`forge install` succeeds and all four sections of the connection check are green. That is the point at which the declared scopes are known to be sufficient — and the point at which the scope-narrowing decision below can actually be taken.
 
 ---
 

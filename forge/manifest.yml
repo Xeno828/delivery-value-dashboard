@@ -20,6 +20,15 @@ modules:
         function: resolver
       title: Delivery & Value
 
+    # Connection check, not the product. Delete this module and forge/probe/
+    # once the real bridge exists — it answers the questions a deploy leaves
+    # open, and nothing after that.
+    - key: connection-check
+      resource: probe
+      resolver:
+        function: resolver
+      title: Shipping Forecast — connection check
+
   function:
     - key: resolver
       handler: index.handler
@@ -45,6 +54,11 @@ modules:
 resources:
   - key: main
     path: static/dashboard/build
+  # Bundled by `make forge-static`: @forge/bridge is CommonJS, so a Custom UI
+  # resource that calls invoke() has to be built rather than copied. That is the
+  # platform's model, not a choice this repository made.
+  - key: probe
+    path: static/probe
 
 # The hosted calculator — service/app.py. Forge cannot run agent/tools/, so it
 # posts the fields a calculation reads and gets the figures back, rather than a
