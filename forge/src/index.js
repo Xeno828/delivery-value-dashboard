@@ -26,6 +26,7 @@ import {
   CONFIG_PROPERTY_KEY, contextEntry, contextsBody, contextBody, contextId,
   findStoryPointField, mergeOrgConfig, parseContextId, issueFrom, notFound,
   recentSprints, statusesFromJira, validateOrgConfig,
+  WINDOW_DAYS, windowEntry, windowMembershipJql, contextsLabel,
 } from './jira.js';
 
 const resolver = new Resolver();
@@ -258,16 +259,18 @@ const pagedValues = async (routeAt, what) => {
 /** Every issue in one sprint. `expand=changelog` is what makes addedMidSprint
  *  real rather than false-by-default — see the note in jira.js about why that
  *  particular default is a wrong answer rather than a missing one. */
+const issueFields = (storyPointField) => [
+  'summary', 'issuetype', 'status', 'assignee', 'priority', 'parent',
+  'created', 'resolutiondate', 'duedate', 'labels', 'flagged',
+  ...(storyPointField ? [storyPointField] : []),
+].join(',');
+
 const fetchSprintIssues = async (boardId, sprintId, storyPointField) => {
   // Named explicitly, and the story-point field is named by the id this site
   // actually uses rather than one guessed at. `*navigable` would also work and
   // would be worse: it pulls every custom field on every issue, including free
   // text this app has no business holding.
-  const fields = [
-    'summary', 'issuetype', 'status', 'assignee', 'priority', 'parent',
-    'created', 'resolutiondate', 'duedate', 'labels', 'flagged',
-    ...(storyPointField ? [storyPointField] : []),
-  ].join(',');
+  const fields = issueFields(storyPointField);
 
   const out = [];
   let startAt = 0;
@@ -292,6 +295,57 @@ const fetchSprintIssues = async (boardId, sprintId, storyPointField) => {
   }
   return out;
 };
+
+/**
+ * Every issue in one window, over the board's own issue endpoint.
+ *
+ * `/board/{id}/issue` returns what is on the board *now*, which is the wrong
+ * question for a closed sprint and exactly the right one for a flow board:
+ * there is no historical membership to recover, only the board and the dates.
+ * The JQL narrows it to the window's membership and nothing else — the board
+ * scoping is the endpoint's own, so no filter id is read and no scope beyond
+ * the ones already granted is needed.
+ *
+ * `expand=changelog` for the same reason the sprint fetch has it. It buys
+ * nothing today — `addedMidSprint` is meaningless without a sprint and is
+ * false here — and it is what `started` will be read from when the transitions
+ * go on the wire, which is the field a flow board most needs. Kept so the two
+ * fetches differ in their query and not in their shape.
+ */
+const fetchWindowIssues = async (boardId, entry, storyPointField) => {
+  const fields = issueFields(storyPointField);
+  const jql = `${windowMembershipJql(entry.startDate, entry.endDate)} ORDER BY created ASC`;
+
+  const out = [];
+  let startAt = 0;
+  for (let page = 0; ; page += 1) {
+    if (page >= MAX_PAGES) {
+      throw new Error(
+        `issues in window ${entry.id}: more than ${MAX_PAGES} pages. ${out.length} were `
+        + 'read and none are reported — a window shown short is a throughput series that '
+        + 'is wrong, and it would read as a complete one.',
+      );
+    }
+    const res = await api.asUser().requestJira(
+      route`/rest/agile/1.0/board/${boardId}/issue?startAt=${startAt}&maxResults=100&fields=${fields}&expand=changelog&jql=${jql}`,
+    );
+    if (!res.ok) {
+      throw jiraError(`issues in window ${entry.id}`, res.status, await bodyOf(res));
+    }
+    const body = await res.json();
+    const page_ = body.issues ?? [];
+    out.push(...page_);
+    startAt += page_.length;
+    if (!page_.length || startAt >= (body.total ?? startAt)) break;
+  }
+  return out;
+};
+
+/** Today, as the resolver's own clock reads it. A window's dates come from
+ *  here rather than from the page: an as-of a caller could set is a caller
+ *  choosing which slice of a board to be shown, through an id the picker
+ *  never offered. */
+const todayISO = () => new Date().toISOString().slice(0, 10);
 
 /**
  * Which field this site calls story points.
@@ -372,17 +426,6 @@ const orgConfigFor = async (projectKey) => {
   return resolved;
 };
 
-/** Said in the line the page prints in its footer, so a site with no
- *  story-point field reads as a site with no story-point field rather than as
- *  a team that estimated everything at zero. */
-const POINTS_NOTE = 'no story-point field on this site, so points are not reported';
-
-/** The other half of the config, and the half Jira cannot answer. Named when
- *  it is defaulted, because a five-day week nobody chose reads exactly like
- *  one somebody did. */
-const CALENDAR_NOTE = `working week and holidays are this tool's defaults — set an `
-  + `${CONFIG_PROPERTY_KEY} property on the project to state your own`;
-
 /**
  * One board's sprints, or the reason there are none to have.
  *
@@ -455,11 +498,26 @@ resolver.define('contexts', answering(async ({ context }) => {
   );
 
   const contexts = [];
-  let withoutSprints = 0;
+  const asOf = todayISO();
+  // Two different things used to be one count. A board with no sprint support
+  // is a flow board and is now offered a window each (ADR 0011); a board that
+  // *has* sprints and has never run one has nothing to offer and is a
+  // different sentence. Reporting them together would have described the
+  // second as the first the moment windows existed.
+  let flowBoards = 0;
+  let sprintBoardsWithNoSprints = 0;
   for (const board of boards) {
     const got = await sprintsFor(board);
-    if (got.skipped) { withoutSprints += 1; continue; }
-    for (const sprint of recentSprints(got.sprints, SPRINTS_PER_BOARD)) {
+    if (got.skipped) {
+      flowBoards += 1;
+      for (const days of WINDOW_DAYS) {
+        contexts.push(windowEntry(board, days, asOf, projectKey));
+      }
+      continue;
+    }
+    const recent = recentSprints(got.sprints, SPRINTS_PER_BOARD);
+    if (!recent.length) { sprintBoardsWithNoSprints += 1; continue; }
+    for (const sprint of recent) {
       contexts.push(contextEntry(board, sprint, projectKey));
     }
   }
@@ -467,14 +525,18 @@ resolver.define('contexts', answering(async ({ context }) => {
   // A project with boards but no sprints on any of them is a real state and an
   // invisible one: the picker comes up empty and reads as a broken app. Say it
   // instead, in a sentence the page can put on screen.
+  // A board with no sprints is no longer a reason to have nothing to show —
+  // it gets windows. What is left is a project with no visible boards, or one
+  // whose boards all run sprints and have never run one, and those are
+  // different problems with different answers.
   if (!contexts.length) {
     return {
       status: 404,
       body: {
         error: boards.length
           ? `Project ${projectKey} has ${boards.length} board`
-            + `${boards.length === 1 ? '' : 's'}, and none of them uses sprints. `
-            + 'This dashboard reports a sprint at a time, so there is nothing to show yet.'
+            + `${boards.length === 1 ? '' : 's'}, and ${boards.length === 1 ? 'it runs' : 'they all run'} `
+            + 'sprints but have never started one. There is nothing to report on yet.'
           : `No boards are visible in project ${projectKey}. Either it has none, or `
             + 'this Jira account cannot see them.',
       },
@@ -485,12 +547,14 @@ resolver.define('contexts', answering(async ({ context }) => {
   // footer. A picker quietly missing a board is indistinguishable from a
   // project that does not have one.
   const org = await orgConfigFor(projectKey);
-  const offered = boards.length - withoutSprints;
-  const label = `Jira, project ${projectKey} — ${offered} board`
-    + (offered === 1 ? '' : 's')
-    + (withoutSprints ? `, ${withoutSprints} without sprints and not offered` : '')
-    + ((await storyPointFieldFor()) ? '' : `; ${POINTS_NOTE}`)
-    + (org.statedCalendar ? '' : `; ${CALENDAR_NOTE}`);
+  const label = contextsLabel({
+    projectKey,
+    boards: boards.length,
+    flowBoards,
+    sprintBoardsWithNoSprints,
+    hasStoryPointField: Boolean(await storyPointFieldFor()),
+    statedCalendar: org.statedCalendar,
+  });
 
   return {
     status: 200,
@@ -514,8 +578,9 @@ resolver.define('context', answering(async ({ payload, context }) => {
     return {
       status: 404,
       body: notFound(asked,
-        'that is not a project/board/sprint id. A sprint that came with the file '
-        + 'rather than from this site reads like this'),
+        'that is not a project/board/period id. A sprint that came with the file '
+        + 'rather than from this site reads like this, and so does a window '
+        + 'length this site does not offer'),
     };
   }
 
@@ -533,26 +598,46 @@ resolver.define('context', answering(async ({ payload, context }) => {
   // Found through the board rather than by /sprint/{id} directly, so this
   // needs no scope the contexts call does not already need — and so a sprint
   // id from another board cannot be read through this one.
+  //
+  // It is also what decides which kind of board this is, and that answer comes
+  // from Jira rather than from the id. `kind` in the id says what the caller
+  // *asked* for; whether the board runs sprints is a fact about the board, and
+  // the two disagreeing is the case to refuse rather than to resolve. A window
+  // honoured on a sprint board would report a different membership from the
+  // one the picker offers for it, and nothing on the page would say so.
   const got = await sprintsFor(board);
-  if (got.skipped) {
-    return { status: 404, body: notFound(asked, `board ${parsed.boardId} ${got.skipped}`) };
-  }
-  const sprint = got.sprints.find((sp) => String(sp.id) === parsed.sprintId);
-  if (!sprint) {
-    return {
-      status: 404,
-      body: notFound(asked,
-        `board ${parsed.boardId} has no open or closed sprint ${parsed.sprintId}`),
-    };
-  }
+  const moduleProject = context?.extension?.project?.key;
+  let entry;
 
-  const entry = contextEntry(board, sprint, context?.extension?.project?.key);
+  if (parsed.kind === 'window') {
+    if (!got.skipped) {
+      return {
+        status: 404,
+        body: notFound(asked,
+          `board ${parsed.boardId} runs sprints, so it is reported a sprint at a time `
+          + 'and has no windows to offer'),
+      };
+    }
+    entry = windowEntry(board, parsed.windowDays, todayISO(), moduleProject);
+  } else {
+    if (got.skipped) {
+      return { status: 404, body: notFound(asked, `board ${parsed.boardId} ${got.skipped}`) };
+    }
+    const sprint = got.sprints.find((sp) => String(sp.id) === parsed.sprintId);
+    if (!sprint) {
+      return {
+        status: 404,
+        body: notFound(asked,
+          `board ${parsed.boardId} has no open or closed sprint ${parsed.sprintId}`),
+      };
+    }
+    entry = contextEntry(board, sprint, moduleProject);
+  }
 
   // The check that matters, and it is against Forge's own module context
   // rather than against a second Jira response: this page may read only the
   // boards of the project it is displayed in, so a project key supplied by the
   // page cannot be used to label — or reach — somebody else's board.
-  const moduleProject = context?.extension?.project?.key;
   if (moduleProject && entry.projectKey && entry.projectKey !== moduleProject) {
     return {
       status: 404,
@@ -564,14 +649,22 @@ resolver.define('context', answering(async ({ payload, context }) => {
   if (entry.id !== asked) {
     return {
       status: 404,
-      body: notFound(asked, `this site now calls that sprint ${JSON.stringify(entry.id)}`),
+      body: notFound(asked, `this site now calls that ${JSON.stringify(entry.id)}`),
     };
   }
 
   const spField = await storyPointFieldFor();
-  const raw = await fetchSprintIssues(parsed.boardId, parsed.sprintId, spField);
+  const raw = entry.kind === 'window'
+    ? await fetchWindowIssues(parsed.boardId, entry, spField)
+    : await fetchSprintIssues(parsed.boardId, parsed.sprintId, spField);
   const issues = raw.map((r) => issueFrom(r, {
-    sprintStart: entry.startDate,
+    // Undefined for a window, which is the honest value: `addedMidSprint` is
+    // "the sprint field changed after the sprint began", and a board with no
+    // sprints has no such moment. It goes out false — and unlike the false the
+    // resolver used to send for a *sprint*, this one is not a claim that
+    // nothing was added. The tile that reads it refuses on a flow board rather
+    // than scoring it, which is where that has to be honoured.
+    sprintStart: entry.kind === 'window' ? null : entry.startDate,
     storyPointField: spField,
     // Only so an issue key is a link. Absent, the page leaves it as text
     // rather than guessing a host.

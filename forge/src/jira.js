@@ -211,6 +211,46 @@ export const windowEntry = (board, days, asOf, fallbackProjectKey) => {
   };
 };
 
+/**
+ * Which issues are *in* a window, as a JQL predicate.
+ *
+ * The membership ADR 0011 settled: **resolved inside the window, or not
+ * resolved at all**. The open half is what makes ageing and work in progress
+ * mean anything on a flow board, and the resolved half is what cycle time,
+ * lead time and throughput are measured over.
+ *
+ * It reads `resolutiondate` for both halves rather than `resolution IS EMPTY`,
+ * and the difference is not cosmetic. `resolutiondate` is the field
+ * `issueFrom` maps to `resolved`, so this asks Jira exactly the question the
+ * page will answer from the data it gets back. `resolution` is a second
+ * opinion about what "done" means, arriving by a route that is neither the
+ * organisation config nor the status category — which is the shape of thing
+ * this product has a standing rule against.
+ *
+ * The upper bound is the day *after* the window's end, because Jira compares a
+ * bare date against midnight: `resolutiondate <= "2026-08-24"` silently drops
+ * everything finished during the last day of the window. That is a plausible
+ * wrong number — a throughput series quietly missing its most recent day —
+ * rather than a failure, so it is stated here and pinned by a test.
+ *
+ * Returns the predicate alone, with no ordering and no board scoping. Each
+ * transport reaches a board its own way — the resolver through
+ * `/board/{id}/issue`, the loopback through the board's own filter — and the
+ * *membership* is the half that has to be identical. `scripts/serve_live.py`
+ * builds the same string and `tests/test_service.py` compares them.
+ *
+ * Nothing here is drawn from the page. The only input is a window entry the
+ * resolver built itself, from a length `parseContextId` already refused unless
+ * it was one of `WINDOW_DAYS` in canonical spelling — so the set of JQL this
+ * app can be made to issue is three date pairs per board, and no text from a
+ * caller reaches Jira.
+ */
+export const windowMembershipJql = (startDate, endDate) => {
+  const after = shiftDays(endDate, 1);
+  return `(resolutiondate >= "${startDate}" AND resolutiondate < "${after}")`
+    + ' OR resolutiondate IS EMPTY';
+};
+
 /** Newest first, then the same cap the live server applies — and the cap is
  *  reported by the caller rather than applied quietly, because a truncated
  *  list of sprints reads as a complete one. */
@@ -422,6 +462,46 @@ export const mergeOrgConfig = (fromJira, stated) => {
 };
 
 /** The envelope `GET api/contexts` returns. */
+/** Said in the line the page prints in its footer, so a site with no
+ *  story-point field reads as a site with no story-point field rather than as
+ *  a team that estimated everything at zero. */
+export const POINTS_NOTE = 'no story-point field on this site, so points are not reported';
+
+/** The other half of the config, and the half Jira cannot answer. Named when
+ *  it is defaulted, because a five-day week nobody chose reads exactly like
+ *  one somebody did. */
+export const CALENDAR_NOTE = `working week and holidays are this tool's defaults — set an `
+  + `${CONFIG_PROPERTY_KEY} property on the project to state your own`;
+
+/**
+ * The "which data am I looking at" line, and the place every board that was
+ * *not* offered has to be accounted for.
+ *
+ * It lives here rather than in the resolver so a test can read it. That is not
+ * tidiness: this sentence is the only thing standing between a picker quietly
+ * missing a board and a project that genuinely does not have one, and the two
+ * look identical on screen. This repository has shipped a silently truncated
+ * list three times.
+ *
+ * The counts are three, not two, and separating them is the point. A board
+ * with no sprint support is a flow board and is now offered a window each; a
+ * board that has sprints and has never run one has nothing to offer and is a
+ * different sentence for its owner to act on. They were one count until
+ * windows existed, and reporting them together would have described the second
+ * as the first.
+ */
+export const contextsLabel = ({
+  projectKey, boards, flowBoards = 0, sprintBoardsWithNoSprints = 0,
+  hasStoryPointField = true, statedCalendar = true,
+}) => `Jira, project ${projectKey} — ${boards} board`
+  + (boards === 1 ? '' : 's')
+  + (flowBoards ? `, ${flowBoards} without sprints and shown as rolling windows` : '')
+  + (sprintBoardsWithNoSprints
+    ? `, ${sprintBoardsWithNoSprints} with sprints enabled but none started, and not offered`
+    : '')
+  + (hasStoryPointField ? '' : `; ${POINTS_NOTE}`)
+  + (statedCalendar ? '' : `; ${CALENDAR_NOTE}`);
+
 export const contextsBody = (label, contexts, orgConfig) => ({
   source: 'jira',
   label,
@@ -566,6 +646,9 @@ export const contextBody = (entry, issues, orgConfig) => ({
  * has moved project.
  */
 export const notFound = (id, why) => ({
-  error: `No sprint on this site matches ${JSON.stringify(String(id))}`
+  // "sprint or window", not "sprint": a flow board's context is neither a
+  // sprint nor a mistake, and a message that only knows about sprints reads to
+  // its owner as the product not knowing their board exists.
+  error: `No sprint or window on this site matches ${JSON.stringify(String(id))}`
     + (why ? ` — ${why}.` : '.'),
 });

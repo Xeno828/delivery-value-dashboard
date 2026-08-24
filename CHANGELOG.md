@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.16.6
+
+**A board that runs no sprints is offered something for the first time.** It was detected and declined: `sprintsFor()` caught Jira's 400, the footer counted it as *"N without sprints and not offered"*, and the picker left it out. It now gets three windows — 14, 30 and 90 days — and `context` resolves one into that board's issues over both transports. Step 2 of the flow-board plan, and offering and loading landed together on purpose: a picker entry whose id 404s is worse than a board that is honestly not offered.
+
+**One membership, two ways of reaching a board.** The resolver fetches through `/board/{id}/issue`, which returns what is on the board now — the wrong question for a closed sprint and exactly the right one for a flow board, where there is no historical membership to recover. The loopback goes through the board's own saved filter, because its issues come back through `jira_pull()`, which owns the field mapping and the `started` derivation, and reaching a different endpoint would have meant a second copy of that mapping. How each transport finds the board is its own business; **which issues count is not**, so the membership predicate is one pure function mirrored in both languages and compared string for string.
+
+That predicate reads `resolutiondate` for both halves rather than `resolution IS EMPTY`. It is the field the page reads as `resolved`, so Jira is asked exactly the question the page will answer from what comes back; `resolution` would be a third opinion about what "done" means, arriving by neither the status category nor the organisation config.
+
+**Its upper bound is the day after the window ends, and that is not an off-by-one.** Jira compares a bare date against midnight, so `resolutiondate <= "2026-08-24"` drops everything finished during the window's last day. The symptom would have been a throughput series quietly missing its most recent day — a number, computed, slightly wrong, with nothing on screen to suggest it. Pinned by a test that fails on the comparison operator alone.
+
+**The footer's one count became two, because one of them stopped being true.** *"N without sprints and not offered"* covered two different boards: one with no sprint support, which is a flow board and is now offered windows, and one that has sprints and has never started one, which has nothing to offer and is a different sentence for its owner to act on. Left merged, the second would have been described as the first the moment windows existed. That line is the only thing standing between a picker quietly missing a board and a project that genuinely does not have one, so it moved into `forge/src/jira.js` where a test can read it — a label only a deploy can check is a label nobody checks.
+
+**The window's length is in the id; its dates are not.** `SFT/2/win:30d` means the same thing whenever it is asked, so a picker built at 23:59 and a context loaded at 00:01 agree about which context is meant and differ only in the dates the second one resolves. An id carrying the dates would have gone stale overnight and come back as "unknown context".
+
+**A window still carries no working-day list, and its burndown is still empty.** Both are deliberate and both are only half-honoured until the page catches up: the loopback sends `workingDays: []` for a window and builds no burndown series, and `contextWorkingDays()` in `src/app.js` must still learn not to derive a list from a window's dates. Until it does, a window's dates would become a clock. That is the next step and nothing offers a window to the page before it lands.
+
+[ADR 0009](docs/adr/0009-one-contract-two-transports.md) is corrected rather than left to age. It said this app issues no JQL of its own, and it now issues some. The claim that mattered is unchanged and is stated exactly: no text from the page reaches Jira, because the only caller input is a context id and `parseContextId` refuses anything but a canonical token naming one of the three offered lengths — so the set of queries this app can be made to issue is three date pairs per board, each built from the resolver's own clock.
+
 ## 1.16.5
 
 **The two transports now agree what a window is, before either one offers a board a window.** Step 1 of the flow-board plan and deliberately nothing more: a flow board's context id, the `kind` that travels with every context, and a window entry built independently by `forge/src/jira.js` and `scripts/serve_live.py`. No board is offered a window yet and nothing on the page renders differently, because a picker entry whose id 404s is worse than a board that is honestly not offered. Offering and loading land together, next.

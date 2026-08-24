@@ -17,6 +17,7 @@ import {
   mergeOrgConfig, parseContextId, issueFrom, notFound, recentSprints,
   statusesFromJira, validateOrgConfig,
   DEFAULT_WINDOW_DAYS, WINDOW_DAYS, windowEntry, windowToken,
+  windowMembershipJql, contextsLabel,
 } from '../forge/src/jira.js';
 
 /* The configs the Python and this must agree about. Read from a file both
@@ -186,6 +187,26 @@ console.log(JSON.stringify({
     // always describe `location` the same way.
     fromBareBoard: windowEntry({ id: 2, name: 'Storefront Delivery' },
       DEFAULT_WINDOW_DAYS, '2026-08-24', 'SFT').id,
+    /* Which issues are in the window. The membership is the half of the query
+       that decides every figure, so it is the half both transports must build
+       identically — how each of them reaches a board is its own business. */
+    jql: WINDOW_DAYS.map((d) => {
+      const e = windowEntry(board, d, '2026-08-24', 'SFT');
+      return [e.startDate, e.endDate, windowMembershipJql(e.startDate, e.endDate)];
+    }),
+  },
+
+  /* The footer line, and the only thing between a picker quietly missing a
+     board and a project that genuinely has none. Pure, so it is checked here
+     rather than left to a deploy. */
+  labels: {
+    plain: contextsLabel({ projectKey: 'SFT', boards: 1 }),
+    flow: contextsLabel({ projectKey: 'SFT', boards: 3, flowBoards: 1 }),
+    unstarted: contextsLabel({ projectKey: 'SFT', boards: 3, sprintBoardsWithNoSprints: 2 }),
+    both: contextsLabel({
+      projectKey: 'SFT', boards: 4, flowBoards: 1, sprintBoardsWithNoSprints: 2,
+      hasStoryPointField: false, statedCalendar: false,
+    }),
   },
   notFound: notFound('SFT/2/999'),
   cap: recentSprints(sprints, 2).map((s) => s.name),

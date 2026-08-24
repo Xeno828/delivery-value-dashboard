@@ -798,6 +798,32 @@ def test_the_two_transports_agree_about_windows():
                                  "boardId": "2", "windowDays": 30},
           forge["roundTrip"])
 
+    # Which issues are in the window. This is the half of the query that
+    # decides every figure on the page, so it is the half that must be
+    # identical — how each transport reaches a board is its own business, and
+    # they genuinely differ: the resolver goes through `/board/{id}/issue` and
+    # the loopback scopes plain JQL by the board's own saved filter.
+    for start, end, forge_jql in forge["jql"]:
+        mine_jql = LIVE.window_membership_jql(start, end)
+        check("both transports ask for the same issues over %s..%s" % (start, end),
+              mine_jql == forge_jql, (forge_jql, mine_jql))
+
+    # The bound that is easy to get wrong and impossible to see: Jira compares
+    # a bare date against midnight, so `resolutiondate <= end` drops everything
+    # finished during the window's last day. A throughput series quietly
+    # missing its most recent day is not an error anybody notices.
+    for start, end, forge_jql in forge["jql"]:
+        after = (datetime.date.fromisoformat(end) + datetime.timedelta(days=1)).isoformat()
+        check("the window's last day is included, not cut at midnight (%s)" % end,
+              ('resolutiondate < "%s"' % after) in forge_jql
+              and ("<= \"%s\"" % end) not in forge_jql, forge_jql)
+
+    check("membership is read from the field the page reads as `resolved`",
+          all("resolution IS EMPTY" not in q and "resolutiondate IS EMPTY" in q
+              for _, _, q in forge["jql"]),
+          [q for _, _, q in forge["jql"]])
+
+
     # Every id the picker cannot produce is refused rather than clamped,
     # honoured or read as a sprint. `win:030d` is the one worth naming: it
     # parsed as 30 until the token was required to be canonical, so one context
@@ -807,6 +833,50 @@ def test_the_two_transports_agree_about_windows():
                 "SFT/2/win:30", "SFT/2/win:-30d", "SFT/2/win:030d"):
         check("the resolver refuses %s rather than answering it" % bad,
               rejected.get(bad) is None, rejected.get(bad))
+
+
+def test_the_footer_accounts_for_every_board():
+    """A board not offered has to be said, not merely not shown.
+
+    This sentence is the only thing between a picker quietly missing a board
+    and a project that genuinely does not have one, and on screen the two are
+    identical. It is a pure function in `forge/src/jira.js` for exactly that
+    reason — a label only a deploy can check is a label nobody checks.
+
+    Three counts, not two. A board with no sprint support is a flow board and
+    is offered a window each; a board that has sprints and has never run one
+    has nothing to offer and is a different sentence for its owner to act on.
+    They were one count until windows existed, and left that way the second
+    would have been described as the first.
+    """
+    node = subprocess.run(["node", str(ROOT / "tests" / "forge_shapes.mjs")],
+                          cwd=str(ROOT), capture_output=True, text=True, timeout=60)
+    if node.returncode != 0:
+        check("the Forge shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    labels = json.loads(node.stdout)["labels"]
+
+    check("a project whose boards all run sprints says only that",
+          labels["plain"] == "Jira, project SFT — 1 board", labels["plain"])
+    check("a flow board is counted as offered, not as dropped",
+          "1 without sprints and shown as rolling windows" in labels["flow"]
+          and "not offered" not in labels["flow"], labels["flow"])
+    check("a sprint board that has never run one is named as not offered",
+          "2 with sprints enabled but none started, and not offered" in labels["unstarted"],
+          labels["unstarted"])
+    check("the two are different sentences, not one count",
+          "rolling windows" not in labels["unstarted"]
+          and "none started" not in labels["flow"],
+          (labels["flow"], labels["unstarted"]))
+    check("every board is accounted for when both kinds are present",
+          labels["both"].startswith("Jira, project SFT — 4 boards")
+          and "1 without sprints" in labels["both"]
+          and "2 with sprints enabled" in labels["both"], labels["both"])
+    check("the points and calendar notes still survive alongside them",
+          "no story-point field" in labels["both"]
+          and "orgConfig property" in labels["both"], labels["both"])
+
 
 
 def test_every_context_says_which_kind_it_is():
@@ -990,6 +1060,7 @@ if __name__ == "__main__":
     print("a board without sprints")
     test_the_two_transports_agree_about_windows()
     test_every_context_says_which_kind_it_is()
+    test_the_footer_accounts_for_every_board()
     print("the Forge app's dependencies")
     test_forge_app_dependencies()
     print("the container image")

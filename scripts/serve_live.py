@@ -219,6 +219,33 @@ def window_token(days):
     return "win:%dd" % days
 
 
+def window_membership_jql(start_date, end_date):
+    """Which issues are *in* a window, as a JQL predicate.
+
+    The membership ADR 0011 settled: resolved inside the window, or not
+    resolved at all. `forge/src/jira.js` builds the identical string and
+    `tests/test_service.py` compares them, because the membership is the half
+    of the query that decides every figure. How each transport reaches a board
+    is its own business — the resolver goes through `/board/{id}/issue`, this
+    goes through the board's own filter — but which issues count must not
+    differ.
+
+    `resolutiondate` for both halves, never `resolution IS EMPTY`: it is the
+    field the page reads as `resolved`, so this asks Jira exactly the question
+    the page will answer. `resolution` would be a second opinion about what
+    done means, arriving by neither the status category nor the org config.
+
+    The upper bound is the day *after* the end, because Jira compares a bare
+    date against midnight — `<= end` silently drops everything finished during
+    the window's last day, which is a throughput series quietly missing its
+    most recent day rather than an error.
+    """
+    end = datetime.date.fromisoformat(str(end_date)[:10])
+    after = (end + datetime.timedelta(days=1)).isoformat()
+    return ('(resolutiondate >= "%s" AND resolutiondate < "%s")'
+            ' OR resolutiondate IS EMPTY' % (start_date, after))
+
+
 def window_entry(board_id, board_name, project_key, project_name, days, as_of):
     """One selectable window, in the shape the sprint entry above uses.
 
@@ -336,6 +363,7 @@ class JiraBackend:
         F.configure(self.cfg)
         self.j = F.connect_jira(argparse.Namespace(jira_site=site, auth=auth))
         self.boards = [b.strip() for b in board_ids.split(",") if b.strip()]
+        self._filters = {}   # board id -> the saved filter behind it
         self.sprints = sprints
         self.source = "jira"
         self.label = "Jira, boards " + ", ".join(self.boards)
@@ -348,10 +376,26 @@ class JiraBackend:
             if self._ctx is not None:
                 return self._ctx
             out = []
+            as_of = datetime.date.today().isoformat()
             for b in self.boards:
                 info = self.j.get("/rest/agile/1.0/board/%s" % b)
                 proj = (info.get("location") or {})
-                data = self.j.get("/rest/agile/1.0/board/%s/sprint" % b, state="active,closed")
+                # A board that runs no sprints answers 400 here, and that is a
+                # fact about the board rather than a failure. Everything else
+                # is a failure and is re-raised — catching them all alike is
+                # how a 403 from a missing scope once presented as "this board
+                # has no sprints", which the Forge resolver paid a deploy cycle
+                # for. See `sprintsFor()` in forge/src/index.js.
+                try:
+                    data = self.j.get("/rest/agile/1.0/board/%s/sprint" % b,
+                                      state="active,closed")
+                except Exception as err:            # noqa: BLE001 — re-raised below
+                    if getattr(getattr(err, "response", None), "status_code", None) != 400:
+                        raise
+                    out.extend(window_entry(b, info.get("name"), proj.get("projectKey"),
+                                            proj.get("projectName"), days, as_of)
+                               for days in WINDOW_DAYS)
+                    continue
                 sprints = sorted(data.get("values") or [],
                                  key=lambda s: s.get("startDate") or "", reverse=True)[:self.sprints]
                 for sp in sprints:
@@ -372,21 +416,59 @@ class JiraBackend:
             self._ctx = out
             return out
 
+    def _board_filter(self, board_id):
+        """The saved filter behind a board, which is how plain JQL is scoped to
+        one. The agile board-issue endpoint does this scoping itself and is what
+        the Forge resolver uses; here the issues come back through
+        `jira_pull()`, which owns the field mapping and the `started`
+        derivation, and re-implementing that mapping to use a different
+        endpoint would be a second implementation of it."""
+        if board_id not in self._filters:
+            conf = self.j.get("/rest/agile/1.0/board/%s/configuration" % board_id)
+            self._filters[board_id] = (conf.get("filter") or {}).get("id")
+        return self._filters[board_id]
+
     def context(self, cid):
         if cid in self._cache:
             return self._cache[cid]
         ctx = next((c for c in self.contexts() if c["id"] == cid), None)
         if ctx is None:
             return None
-        args = argparse.Namespace(jira_board=None, jira_jql="sprint = %s ORDER BY created ASC" % ctx["_sprintId"],
+        if ctx.get("kind") == "window":
+            filter_id = self._board_filter(ctx["boardId"])
+            if not filter_id:
+                # Said rather than worked around. Without the filter this could
+                # only widen the query to the whole site, and a window labelled
+                # with one board's name holding another's issues is the class of
+                # wrong answer that looks right.
+                return {"context": dict(ctx), "orgConfig": self.cfg, "issues": [],
+                        "burndown": [], "history": [], "releases": [], "dora": None,
+                        "error": "Board %s does not expose the filter behind it, so the "
+                                 "issues on it cannot be scoped to. Nothing was queried."
+                                 % ctx["boardId"]}
+            jql = "filter = %s AND (%s) ORDER BY created ASC" % (
+                filter_id, window_membership_jql(ctx["startDate"], ctx["endDate"]))
+        else:
+            jql = "sprint = %s ORDER BY created ASC" % ctx["_sprintId"]
+        args = argparse.Namespace(jira_board=None, jira_jql=jql,
                                   sp_field=None, sprint_field=None)
         issues, _ = self.F.jira_pull(args)
         meta = dict(ctx)
-        meta["workingDays"] = self.F.working_days(ctx["startDate"], ctx["endDate"])
+        # A window carries no working-day list and never has one derived for
+        # it. Its dates bound the selection and are not a clock: nothing
+        # committed to finishing by the end of a rolling window, so nothing can
+        # be behind it. ADR 0011; `contextWorkingDays()` in src/app.js is the
+        # other half of honouring this.
+        meta["workingDays"] = ([] if ctx.get("kind") == "window"
+                               else self.F.working_days(ctx["startDate"], ctx["endDate"]))
         meta["asOfDate"] = ctx["asOfDate"] or ctx["endDate"]
         out = {
             "context": meta, "orgConfig": self.cfg, "issues": issues,
-            "burndown": self.F.build_burndown(issues, meta),
+            # A burndown needs a committed scope and an end to burn down to. A
+            # window has neither, so the series is empty and the tile says why
+            # rather than drawing a line against a boundary nobody agreed to.
+            "burndown": ([] if ctx.get("kind") == "window"
+                         else self.F.build_burndown(issues, meta)),
             "history": [], "releases": [], "dora": None,
         }
         ctx["issueCount"] = len(issues)
