@@ -25,15 +25,31 @@ A parent grouping of issues. Also the sample unit for sizing an ask, once it has
 _Avoid_: Initiative, feature (as a synonym)
 
 **Board**:
-The delivery unit a forecast is scoped to. Throughput, interruption rate and the t-shirt scale are all properties of one board and never transfer between boards.
+The delivery unit a forecast is scoped to. Throughput, interruption rate and the t-shirt scale are all properties of one board and never transfer between boards. Every board is one of exactly two kinds, and which one it is decides what the page can say about it.
 _Avoid_: Team (when the board is what's meant), squad
 
+**Sprint board**:
+A board that runs sprints. The only kind that has a committed scope and a clock, and therefore the only kind with a burndown, a pace and a sprint health score.
+_Avoid_: Scrum board (Jira's name for one configuration of it; what matters here is only that sprints exist)
+
+**Flow board**:
+A board that runs no sprints, where work is pulled continuously. Detected rather than declared — Jira answers 400 for its sprint list — so the term covers any board whose sprints are absent, not just the one type Jira gives that name to.
+_Avoid_: Kanban board (as the internal term; fine in copy addressed to a team that uses the word), continuous board, team without process
+
 **Sprint**:
-The bounded period a report covers.
+The bounded period a report covers on a sprint board. Both a bound and a clock: a fixed scope, with a start and an end that delivery can be measured against.
 _Avoid_: Iteration, cycle (which means something else here)
 
+**Window**:
+The bounded period a report covers on a flow board — a rolling stretch of calendar days, holding the issues open at the as-of date plus those resolved inside it. A bound and **not** a clock: it deliberately carries no working-day list, because a team that never committed to finishing anything by its end cannot be behind it. Every figure that needs a clock is dropped and named rather than measured against the window.
+_Avoid_: Rolling sprint, mini-sprint, period (unqualified), timebox (there is no box)
+
+**Period**:
+Whichever of the two a context is bounded by. The word to use when a sentence is true of both, so that no copy has to say "sprint" and mean either.
+_Avoid_: Interval, span
+
 **Context**:
-One project + board + sprint — the slice of a bundle currently on screen.
+One project + board + period — the slice of a bundle currently on screen. Its `kind` says which sort of period, and is sent rather than inferred from the shape of its id.
 _Avoid_: View, scope (which means something else here). Note this is unrelated to "context" in the bounded-context sense used by `CONTEXT.md` and `docs/agents/domain.md`; when both meanings are in play, say **selected context** for this one.
 
 **Bundle**:
@@ -107,7 +123,7 @@ The change between two snapshots, with the direction that counts as good stated 
 _Avoid_: Delta, trend (which implies more than two points)
 
 **Health score**:
-A single weighted band over delivery pace, scope stability, blockers and ageing work, which always shows its full working.
+A single weighted band over delivery pace, scope stability, blockers and ageing work, which always shows its full working. A sprint-board figure: two of its four components need a clock, so on a flow board too little of the composition survives and the score refuses rather than reporting the remainder.
 _Avoid_: Rating, grade, RAG status (as the primary term)
 
 **Risk register**:
@@ -141,7 +157,7 @@ How past published forecasts scored against what actually happened. Without it a
 _Avoid_: Accuracy, hit rate
 
 **Commitment recommendation**:
-A next-sprint item count offered from the team's own recent throughput. An input to a planning conversation, not an assignment.
+A next-sprint item count offered from the team's own recent throughput. An input to a planning conversation, not an assignment. It needs a cadence to size the sprint it is recommending, so on a flow board there is nothing to recommend against and it refuses.
 _Avoid_: Target, quota, plan
 
 ### Intake

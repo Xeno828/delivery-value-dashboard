@@ -99,6 +99,8 @@ These are product decisions, not style. Violating one is a bug even when the tes
 | Why Forge would call a hosted calculator | `docs/adr/0008-forge-calls-a-hosted-calculator.md` |
 | How the page reaches live data over two transports | `docs/adr/0009-one-contract-two-transports.md` |
 | Why a tile with nothing to count says so instead | `docs/adr/0010-an-empty-selection-is-a-refusal.md` |
+| Why a board without sprints gets a window, not a clock | `docs/adr/0011-a-kanban-context-is-a-window-not-a-clock.md` |
+| What the dashboard does for a board with no sprints | `docs/kanban-boards.md` |
 | Finishing the Forge route — the three unfinished pieces | `docs/forge-deployment.md` |
 | The decisions behind the constraints above | `docs/adr/` |
 
