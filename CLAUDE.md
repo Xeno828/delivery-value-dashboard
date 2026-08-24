@@ -50,6 +50,8 @@ These are product decisions, not style. Violating one is a bug even when the tes
 
 **Refusals are printed verbatim, never softened.** When a tool returns a refusal, the agent quotes the sentence as written. *"Not enough data"* and *"wide interval"* are different statements and only one of them is true. The refusal sentences all end with some form of *the evidence is absent, not noisy* — that clause is the point, do not trim it.
 
+**An empty selection is a refusal, not a zero.** Over zero issues a share has no denominator, and the guards that keep those ratios finite (`Math.max(items.length, 1)`, `? … : 0`) return good news rather than silence. The sprint health score summed four of them into *"Needs attention (66/100)"* for a page with nothing on it, which is the state the Forge build opens in. Tiles that would state a figure about the selected issues refuse instead, in the same words and with the same closing clause the tools use. Counts of an empty set that are honestly nil keep their nil; claims that depend on having looked do not. `docs/adr/0010-an-empty-selection-is-a-refusal.md`.
+
 **The organisation config travels inside the data, never beside it.** Which statuses mean done, which days are worked, the holiday calendar and the sprint length are resolved once by whatever produced the file and written into it as `orgConfig`. The page, the three tools that consume it and the live server all read it from there; none of them opens `config/organisation.json`. A config read separately by each consumer is a third opinion arriving by a different route, and its first symptom is the facts pack and the dashboard disagreeing about the same sprint. `src/app.js` mirrors `orgconfig.py` in JavaScript because the browser cannot call Python — `tests/e2e.py` asserts the two agree under a *non-default* config, since two implementations of Mon–Fri agree by accident. Change one, change both.
 
 **Every figure carries its unit.** Reported elapsed time is in **calendar days** (an item raised 21 days ago is 21 days old; saying 15 because of weekends is a lie of convenience). Simulated time is in **working days** (nothing completes on a Saturday). These two disagreeing silently is a real bug that shipped once — the facts pack and the dashboard reported 25% and 22% flow efficiency for the same sprint.
@@ -96,6 +98,7 @@ These are product decisions, not style. Violating one is a bug even when the tes
 | What a term means, and which words to avoid | `CONTEXT.md` |
 | Why Forge would call a hosted calculator | `docs/adr/0008-forge-calls-a-hosted-calculator.md` |
 | How the page reaches live data over two transports | `docs/adr/0009-one-contract-two-transports.md` |
+| Why a tile with nothing to count says so instead | `docs/adr/0010-an-empty-selection-is-a-refusal.md` |
 | Finishing the Forge route — the three unfinished pieces | `docs/forge-deployment.md` |
 | The decisions behind the constraints above | `docs/adr/` |
 

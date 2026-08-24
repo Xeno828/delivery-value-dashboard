@@ -292,6 +292,37 @@ def main():
         page.evaluate("() => window.DVD.debug.render()")
         page.wait_for_timeout(400)
 
+        # ---------- the empty selection, a state the sample data never reaches ----------
+        # Over zero issues the health chip, the KPI strip and four tiles print a
+        # refusal instead of a figure, in a colour pairing nothing above this
+        # line has rendered. It is also the state the Forge build opens in, so
+        # for some readers it is the only state they see — and until the fix it
+        # was the state the grid was faded to 0.45 opacity in, which put every
+        # sentence on the page below AA.
+        print("1.4.3  contrast — the empty selection")
+        page.evaluate("d => window.DVD.applyDataset(d)",
+                      json.loads((ROOT / "forge" / "seed.json").read_text()))
+        page.wait_for_timeout(500)
+        for theme in ("light", "dark"):
+            page.evaluate("t => document.documentElement.dataset.theme = t", theme)
+            page.evaluate("() => window.DVD.debug.render()")
+            page.wait_for_timeout(400)
+            bad = page.evaluate(CONTRAST)
+            check("the empty selection's refusals meet WCAG AA in %s mode" % theme,
+                  bad == [], sorted(bad, key=lambda x: x["got"])[:4])
+        check("nothing on the page is faded below full opacity",
+              page.eval_on_selector_all(
+                  "#grid, #grid > *",
+                  "n => n.filter(e => +(getComputedStyle(e).opacity || 1) < 1).length") == 0)
+        # 1.4.1 — the refusal must not be carried by colour alone.
+        chip = " ".join((page.text_content("#t-health") or "").split())
+        check("the health chip says in words that it is not scored",
+              "not scored" in chip, chip)
+        page.evaluate("d => window.DVD.applyDataset(d)", bundle)
+        page.evaluate("() => document.documentElement.dataset.theme = 'light'")
+        page.evaluate("() => window.DVD.debug.render()")
+        page.wait_for_timeout(500)
+
         # ---------- 2.3.3 animation ----------
         print("2.3.3  animation from interactions")
         css = (ROOT / "src" / "styles.css").read_text()

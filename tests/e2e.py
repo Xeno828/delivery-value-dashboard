@@ -53,6 +53,123 @@ def open_picker(page):
     page.wait_for_selector("#view-pop:not(.hidden)", timeout=5000)
 
 
+def empty_selection(b):
+    """Zero issues is a refusal, not a zero.
+
+    The case that shipped was the sprint health score. With no items, every
+    component of it fell to full marks or a neutral zero — no blockers among
+    nothing, no ageing work among nothing, no scope growth on nothing — and the
+    four weights summed to "Needs attention (66/100)". A figure that looks
+    computed, is not, and arrives with a colour and a verdict attached.
+
+    It is not a corner case. The Forge build opens in exactly this state:
+    forge/seed.json carries no issues, the page renders before the bridge
+    answers, and it stays there if the bridge never answers at all. So it is
+    the reading most likely to be seen by someone who has never seen the
+    product working.
+
+    What is asserted here is the *absence of a number*, not the presence of a
+    nicer one. A later change that reinstates any figure over an empty
+    selection fails on the digit sweep whether or not it kept these words.
+    """
+    print("\n  empty selection")
+
+    # The tiles that state a figure about the selected issues. Their refusals
+    # carry no digits at all, which is what makes the sweep below decisive.
+    FIGURE_TILES = ["#t-health", "#exec-verdict", "#kpis",
+                    "#age-chart", "#value-body", "#risk-body"]
+    CLAUSE = "the evidence is absent, not noisy"
+
+    seed = json.loads((ROOT / "forge" / "seed.json").read_text())
+    sample = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+
+    page = b.new_page(viewport={"width": 1500, "height": 1000})
+    errs = []
+    page.on("pageerror", lambda e: errs.append(str(e)))
+    page.goto(DIST.as_uri())
+    page.wait_for_timeout(700)
+
+    # ---------- the empty dataset the Forge build ships with ----------
+    page.evaluate("d => window.DVD.applyDataset(d)", seed)
+    page.wait_for_timeout(600)
+
+    health = " ".join((page.text_content("#t-health") or "").split())
+    check("the health score refuses over zero issues rather than scoring one",
+          "not scored" in health, health)
+    check("and prints no score beside the refusal",
+          "/100" not in health and not any(c.isdigit() for c in health), health)
+
+    for sel in FIGURE_TILES:
+        txt = " ".join((page.text_content(sel) or "").split())
+        digits = [c for c in txt if c.isdigit()]
+        check("no figure survives an empty selection in %s" % sel, not digits,
+              txt[:110])
+
+    # Verbatim, including the closing clause. Softening it to "no data yet"
+    # would leave the tile honest and the sentence useless — the clause is the
+    # part that says a wider window would not fill this in.
+    for sel in FIGURE_TILES:
+        txt = " ".join((page.text_content(sel) or "").split())
+        if sel == "#t-health":
+            continue  # the chip is a label; its sentence lives in the tooltip
+        check("the refusal in %s ends with the clause, untrimmed" % sel,
+              CLAUSE in txt, txt[-70:])
+    check("the health chip carries the refusal in its tooltip",
+          CLAUSE in (page.get_attribute("#t-health", "data-tt") or ""),
+          (page.get_attribute("#t-health", "data-tt") or "")[:110])
+
+    # The specific sentences that were wrong, named so a regression is legible
+    # rather than just a failing digit count.
+    kpis = " ".join((page.text_content("#kpis") or "").split())
+    check("the KPI strip goes as one, leaving no tile still carrying a figure",
+          page.eval_on_selector_all("#kpis .kpi", "n => n.length") == 0, kpis[:90])
+    age = " ".join((page.text_content("#age-chart") or "").split())
+    check("the ageing chart no longer calls an empty selection the healthy state",
+          "healthy state" not in age, age[:90])
+    risk = " ".join((page.text_content("#risk-body") or "").split())
+    check("the risk register does not report zero risks over zero issues",
+          "No risks triggered" not in risk, risk[:90])
+
+    # The page still says how many issues it has, and the tiles that were
+    # already refusing still refuse in their own words. A blanket "no data"
+    # banner over the whole grid would pass every check above and lose both.
+    check("the footer still reports the count it is refusing to score",
+          "showing 0" in page.text_content("#foot"), page.text_content("#foot")[:80])
+    check("the tiles that already refused keep their own sentences",
+          "No burndown series" in page.text_content("#burn-chart"),
+          page.text_content("#burn-chart")[:80])
+
+    # ---------- data arrives: the score comes back ----------
+    # Proving the refusal is a response to the evidence, not a switch someone
+    # left off. This is the half that catches an over-eager fix.
+    page.evaluate("d => window.DVD.applyDataset(d)", sample)
+    page.wait_for_timeout(600)
+    health = " ".join((page.text_content("#t-health") or "").split())
+    check("the score returns as soon as there are issues to score",
+          "/100" in health and "not scored" not in health, health)
+    check("and the KPI strip comes back with it",
+          page.eval_on_selector_all("#kpis .kpi", "n => n.length") == 8,
+          page.eval_on_selector_all("#kpis .kpi", "n => n.length"))
+
+    # ---------- a filter that matches nothing ----------
+    # The score is computed over the *filtered* items, not the context, so a
+    # filter matching nothing reaches the same undefined arithmetic by a route
+    # that has nothing to do with Forge.
+    page.evaluate("() => window.DVD.debug.setFilter('q', 'zzz-no-such-issue')")
+    page.wait_for_timeout(500)
+    health = " ".join((page.text_content("#t-health") or "").split())
+    check("filtering every issue out refuses the same way an empty file does",
+          "not scored" in health, health)
+    check("and the KPI strip refuses with it",
+          page.eval_on_selector_all("#kpis .kpi", "n => n.length") == 0,
+          " ".join((page.text_content("#kpis") or "").split())[:90])
+    page.evaluate("() => window.DVD.debug.setFilter('q', '')")
+    page.wait_for_timeout(400)
+
+    check("no console errors in the empty state", not errs, errs[:2])
+    page.close()
+
+
 def transports(b):
     """The two live-mode transports, and that the page cannot tell them apart.
 
@@ -714,6 +831,7 @@ def main():
         check("no console errors", not console, console[:3])
         page.screenshot(path=str(ROOT / "tests" / "last-run.png"), full_page=True)
 
+        empty_selection(b)
         transports(b)
 
         b.close()

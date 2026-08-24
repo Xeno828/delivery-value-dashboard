@@ -142,6 +142,11 @@ a{color:var(--link)}
 .kpis{display:grid;grid-template-columns:repeat(8,1fr);gap:10px}
 @media(max-width:1280px){.kpis{grid-template-columns:repeat(4,1fr)}}
 @media(max-width:640px){.kpis{grid-template-columns:repeat(2,1fr)}}
+/* The whole strip refuses as one over an empty selection. It keeps the card
+   chrome of the eight tiles it replaces, so the sentence reads as the tile
+   saying something rather than as a stray line of page furniture. */
+.kpis .kpi-none{grid-column:1/-1;background:var(--surface-1);border:1px solid var(--border);
+  border-radius:var(--radius);box-shadow:var(--shadow);padding:13px 14px}
 .kpi{background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);padding:11px 13px 12px;
   box-shadow:var(--shadow);text-align:left;position:relative;transition:transform .08s ease,box-shadow .12s ease}
 .kpi:hover{transform:translateY(-1px);box-shadow:0 2px 4px rgba(11,11,11,.06),0 10px 24px rgba(11,11,11,.09)}
