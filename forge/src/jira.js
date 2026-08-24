@@ -201,5 +201,17 @@ export const contextBody = (entry, issues) => ({
   dora: null,
 });
 
-/** Not found, in the shape the loopback transport gives a 404. */
-export const notFound = (id) => ({ error: `unknown context ${JSON.stringify(String(id))}` });
+/**
+ * Not found, in the shape the loopback transport gives a 404 — and saying
+ * which of the four reasons it was.
+ *
+ * The first version said only "unknown context", which is what the page then
+ * put in front of a user as *"server returned 404"*. Four quite different
+ * situations produce that answer and they have four different fixes; a reader
+ * with the bare status has no way to tell a stale bookmark from a board that
+ * has moved project.
+ */
+export const notFound = (id, why) => ({
+  error: `No sprint on this site matches ${JSON.stringify(String(id))}`
+    + (why ? ` — ${why}.` : '.'),
+});

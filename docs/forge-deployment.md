@@ -139,6 +139,30 @@ It also degrades honestly. Outside a Forge iframe `invoke()` neither resolves no
 
 Kept rather than deleted, per the note above. If it does go, take `forge/probe/`, the `connection-check` module and the two probe resolvers together.
 
+### A scope change needs approving at deploy, and the CLI needs the right directory
+
+Two things bite in the same minute, and they look like each other:
+
+```
+manifest-file-required — make sure you're in the top-level directory of your app
+```
+
+is `forge deploy` run from the repository root. The manifest is in `forge/`, the
+Makefile is at the root, and `make forge-deploy` is what reconciles the two — it
+also stages the static resources first, which a bare `forge deploy` does not, so
+running the CLI by hand can deploy a bundle built before your last edit.
+
+And a scope change makes the deploy ask for an approval it will not assume:
+
+```bash
+make forge-static
+cd forge && forge deploy -e development --approve MAJOR_VERSION_RULE
+```
+
+`--approve` is deliberately not in the Makefile target. Auto-approving a major
+version upgrade would also auto-approve the next scope change, silently, which is
+the opposite of the allow-list's whole point. Type it when you mean it.
+
 ### After a scope change, reinstall
 
 Adding the context picker added `read:project:jira`, `read:sprint:jira-software` and `read:jql:jira`. `forge lint` reports a scope change as a major version upgrade, and Jira does not widen an existing consent on its own — so after deploying, uninstall and install again rather than upgrading. The failure has no error message: the page renders and every Jira call comes back 403.

@@ -215,6 +215,29 @@ const SPRINTS_PER_BOARD = 6;
  *  one, and this repository has shipped that bug twice. */
 const MAX_PAGES = 20;
 
+/**
+ * A Jira failure that remembers what Jira said.
+ *
+ * Without the status, every caller has to treat every failure alike — and the
+ * one that mattered was `sprintsFor`, which swallowed all of them as "this
+ * board has no sprints". A 403 then presented as a project with no boards, on
+ * a page with nothing on it and nothing to say why.
+ */
+const jiraError = (what, status, body) => {
+  const first = (body && body.errorMessages && body.errorMessages[0]) || '';
+  const err = new Error(`${what}: Jira returned ${status}${first ? ` — ${first}` : ''}`);
+  err.status = status;
+  return err;
+};
+
+const bodyOf = async (res) => {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+};
+
 /** Every page of an Agile list endpoint (`{values, isLast, total}`). */
 const pagedValues = async (routeAt, what) => {
   const out = [];
@@ -227,7 +250,7 @@ const pagedValues = async (routeAt, what) => {
       );
     }
     const res = await api.asUser().requestJira(routeAt(startAt));
-    if (!res.ok) throw new Error(`${what}: Jira returned ${res.status}`);
+    if (!res.ok) throw jiraError(what, res.status, await bodyOf(res));
     const body = await res.json();
     const values = body.values ?? [];
     out.push(...values);
@@ -260,7 +283,9 @@ const fetchSprintIssues = async (boardId, sprintId) => {
     const res = await api.asUser().requestJira(
       route`/rest/agile/1.0/board/${boardId}/sprint/${sprintId}/issue?startAt=${startAt}&maxResults=100&fields=${fields}&expand=changelog`,
     );
-    if (!res.ok) throw new Error(`issues in sprint ${sprintId}: Jira returned ${res.status}`);
+    if (!res.ok) {
+      throw jiraError(`issues in sprint ${sprintId}`, res.status, await bodyOf(res));
+    }
     const body = await res.json();
     const page_ = body.issues ?? [];
     out.push(...page_);
@@ -270,18 +295,50 @@ const fetchSprintIssues = async (boardId, sprintId) => {
   return out;
 };
 
-/** Board metadata plus its recent sprints. A board with no sprints at all —
- *  a kanban board — makes Jira refuse the sprint endpoint; that is a fact
- *  about the board, not a failure, so it is reported and skipped rather than
- *  taking the whole picker down with it. */
+/**
+ * One board's sprints, or the reason there are none to have.
+ *
+ * A kanban board has no sprints and Jira answers 400 for it. That is a fact
+ * about the board, and skipping it is right. **Everything else is a failure**,
+ * and the first version of this caught all of them the same way — so a 403
+ * from a scope that had not been consented to came back as "this board has no
+ * sprints", the picker came up empty, and the page had nothing on it and no
+ * explanation on it either. That is the shape this repository keeps paying
+ * for, and it cost a deploy cycle here too.
+ */
 const sprintsFor = async (board) => {
   try {
-    return await pagedValues(
-      (startAt) => route`/rest/agile/1.0/board/${board.id}/sprint?state=active,closed&startAt=${startAt}&maxResults=50`,
-      `sprints on board ${board.id}`,
-    );
-  } catch {
-    return null;
+    return {
+      sprints: await pagedValues(
+        (startAt) => route`/rest/agile/1.0/board/${board.id}/sprint?state=active,closed&startAt=${startAt}&maxResults=50`,
+        `sprints on board ${board.id}`,
+      ),
+    };
+  } catch (err) {
+    if (err.status === 400) return { skipped: 'does not use sprints' };
+    throw err;
+  }
+};
+
+/**
+ * Turn a thrown failure into an answer the page can put on screen.
+ *
+ * A resolver that throws rejects `invoke()`, and the page treats a rejection
+ * the way it treats a dead loopback server — silently, because over loopback
+ * nothing running is the normal case. Over the bridge it is not: something
+ * answered, and it said no. Swallowing that is a blank dashboard with no
+ * reason on it, which is what this app shipped for one deploy cycle.
+ */
+const answering = (fn) => async (req) => {
+  try {
+    return await fn(req);
+  } catch (err) {
+    return {
+      // Jira's own status where there is one, so a 403 reads as a permission
+      // problem rather than as a bug in this app.
+      status: err.status ?? 502,
+      body: { error: String((err && err.message) || err) },
+    };
   }
 };
 
@@ -291,14 +348,15 @@ const sprintsFor = async (board) => {
  * The project comes from Forge's own context rather than from the page, so the
  * page sends nothing and cannot ask about a project it is not displayed in.
  */
-resolver.define('contexts', async ({ context }) => {
+resolver.define('contexts', answering(async ({ context }) => {
   const projectKey = context?.extension?.project?.key;
   if (!projectKey) {
     return {
       status: 400,
       body: {
         error: 'This module was not opened on a Jira project, so there is no project '
-             + 'to read boards from. Nothing was queried.',
+             + `to read boards from (module ${context?.moduleKey ?? 'unknown'}). `
+             + 'Nothing was queried.',
       },
     };
   }
@@ -311,22 +369,40 @@ resolver.define('contexts', async ({ context }) => {
   const contexts = [];
   let withoutSprints = 0;
   for (const board of boards) {
-    const sprints = await sprintsFor(board);
-    if (sprints === null) { withoutSprints += 1; continue; }
-    for (const sprint of recentSprints(sprints, SPRINTS_PER_BOARD)) {
+    const got = await sprintsFor(board);
+    if (got.skipped) { withoutSprints += 1; continue; }
+    for (const sprint of recentSprints(got.sprints, SPRINTS_PER_BOARD)) {
       contexts.push(contextEntry(board, sprint));
     }
+  }
+
+  // A project with boards but no sprints on any of them is a real state and an
+  // invisible one: the picker comes up empty and reads as a broken app. Say it
+  // instead, in a sentence the page can put on screen.
+  if (!contexts.length) {
+    return {
+      status: 404,
+      body: {
+        error: boards.length
+          ? `Project ${projectKey} has ${boards.length} board`
+            + `${boards.length === 1 ? '' : 's'}, and none of them uses sprints. `
+            + 'This dashboard reports a sprint at a time, so there is nothing to show yet.'
+          : `No boards are visible in project ${projectKey}. Either it has none, or `
+            + 'this Jira account cannot see them.',
+      },
+    };
   }
 
   // What was left out is said out loud, in the line the page prints in its
   // footer. A picker quietly missing a board is indistinguishable from a
   // project that does not have one.
-  const label = `Jira, project ${projectKey} — ${boards.length - withoutSprints} board`
-    + (boards.length - withoutSprints === 1 ? '' : 's')
+  const offered = boards.length - withoutSprints;
+  const label = `Jira, project ${projectKey} — ${offered} board`
+    + (offered === 1 ? '' : 's')
     + (withoutSprints ? `, ${withoutSprints} without sprints and not offered` : '');
 
   return { status: 200, body: contextsBody(label, contexts) };
-});
+}));
 
 /**
  * One sprint's issues.
@@ -337,27 +413,53 @@ resolver.define('contexts', async ({ context }) => {
  * asked for, the answer is 404. A project key supplied by the page would
  * otherwise label another project's board.
  */
-resolver.define('context', async ({ payload, context }) => {
+resolver.define('context', answering(async ({ payload, context }) => {
   const asked = payload?.id;
   const parsed = parseContextId(asked);
-  if (!parsed) return { status: 404, body: notFound(asked) };
+  if (!parsed) {
+    return {
+      status: 404,
+      body: notFound(asked,
+        'that is not a project/board/sprint id. A sprint that came with the file '
+        + 'rather than from this site reads like this'),
+    };
+  }
 
   const boardRes = await api.asUser().requestJira(
     route`/rest/agile/1.0/board/${parsed.boardId}`,
   );
-  if (boardRes.status === 404) return { status: 404, body: notFound(asked) };
-  if (!boardRes.ok) throw new Error(`board ${parsed.boardId}: Jira returned ${boardRes.status}`);
+  if (boardRes.status === 404) {
+    return { status: 404, body: notFound(asked, `board ${parsed.boardId} is not on this site`) };
+  }
+  if (!boardRes.ok) {
+    throw jiraError(`board ${parsed.boardId}`, boardRes.status, await bodyOf(boardRes));
+  }
   const board = await boardRes.json();
 
   // Found through the board rather than by /sprint/{id} directly, so this
   // needs no scope the contexts call does not already need — and so a sprint
   // id from another board cannot be read through this one.
-  const sprints = await sprintsFor(board);
-  const sprint = (sprints ?? []).find((sp) => String(sp.id) === parsed.sprintId);
-  if (!sprint) return { status: 404, body: notFound(asked) };
+  const got = await sprintsFor(board);
+  if (got.skipped) {
+    return { status: 404, body: notFound(asked, `board ${parsed.boardId} ${got.skipped}`) };
+  }
+  const sprint = got.sprints.find((sp) => String(sp.id) === parsed.sprintId);
+  if (!sprint) {
+    return {
+      status: 404,
+      body: notFound(asked,
+        `board ${parsed.boardId} has no open or closed sprint ${parsed.sprintId}`),
+    };
+  }
 
   const entry = contextEntry(board, sprint);
-  if (entry.id !== asked) return { status: 404, body: notFound(asked) };
+  if (entry.id !== asked) {
+    return {
+      status: 404,
+      body: notFound(asked,
+        `that board belongs to project ${entry.projectKey ?? 'unknown'}, not ${parsed.projectKey}`),
+    };
+  }
 
   const raw = await fetchSprintIssues(parsed.boardId, parsed.sprintId);
   const issues = raw.map((r) => issueFrom(r, {
@@ -368,7 +470,7 @@ resolver.define('context', async ({ payload, context }) => {
   }));
 
   return { status: 200, body: contextBody(entry, issues) };
-});
+}));
 
 /**
  * The forecast and the sequencing, over the bridge.

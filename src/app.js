@@ -129,6 +129,11 @@ const S = {
   /** Tile ids in display order. Travels the same way S.shown does — the URL,
    *  or a saved copy's data-order attribute. */
   order: null,
+  /** Set when the transport answered and the answer was "no". Distinct from
+   *  having no transport at all: over loopback nothing running is the normal
+   *  case and stays silent, but a connection that exists and refused has a
+   *  reason, and a blank dashboard that does not say it is the worst of both. */
+  liveError: null,
   /** Forecasts from the live-mode tool, cached per context id. Never computed
    *  here: the page renders what forecast.py returned and nothing else. */
   forecasts: {},
@@ -566,6 +571,19 @@ document.addEventListener("click", e => {
 function renderContextBar() {
   const bar = $("#ctxbar");
   const all = S.view.contexts, real = all.filter(c => !c.isRollup);
+
+  // A connection that answered "no" gets this row to itself. It is the "which
+  // data am I looking at" line, and the honest answer is that there is none
+  // and here is why — put where a reader is already looking rather than in
+  // the footer of a page they have no reason to scroll.
+  if (S.liveError) {
+    bar.classList.remove("hidden");
+    bar.innerHTML = '<span class="ctx-lab">Source</span>' +
+      '<span class="srcchip" title="the connection answered, and refused">NO DATA</span>' +
+      '<span class="ctx-sep"></span><span class="ctx-meta">' + esc(S.liveError) + "</span>";
+    return;
+  }
+
   // A single-sprint file has nothing to switch between; hide the whole row
   // rather than showing three dropdowns with one option each.
   if (real.length < 2 && !S.live) { bar.classList.add("hidden"); return; }
@@ -2194,7 +2212,13 @@ async function probeLive() {
   if (!LIVE) return;
   try {
     const r = await LIVE.get("contexts");
-    if (!r.ok) return;
+    if (!r.ok) {
+      // Only when there is something to say. A 404 page from a plain static
+      // server carries no JSON body and is not an answer about the data — it
+      // is the ordinary "nobody is listening" of an unserved file.
+      if (r.body && r.body.error) { S.liveError = String(r.body.error); render(); }
+      return;
+    }
     const j = r.body;
     if (!j || !Array.isArray(j.contexts)) return;
     S.live = { source: j.source || "server", label: j.label || "live server" };
@@ -2248,7 +2272,13 @@ async function loadContext(id) {
   bar.classList.add("loading");
   try {
     const r = await LIVE.get("context", { id: id });
-    if (!r.ok) throw new Error("server returned " + r.status);
+    // The refusal, verbatim. "server returned 404" names none of the four
+    // quite different things a 404 here means, and they have four different
+    // fixes.
+    if (!r.ok) {
+      throw new Error((r.body && r.body.error)
+        || "the connection returned " + r.status + " and said nothing more");
+    }
     const j = r.body;
     const ctx = S.data.contexts.find(c => c.id === id);
     if (ctx) { Object.assign(ctx, j.context || {}); delete ctx.stub; }
@@ -2267,8 +2297,8 @@ async function loadContext(id) {
     S.ctx = id;
     render();
   } catch (e) {
-    alert("Could not load that sprint from the live server:\n\n" + e.message +
-          "\n\nThe bundled sprints still work.");
+    alert("Could not load that sprint:\n\n" + e.message +
+          "\n\nEverything already on this page still works.");
   } finally { bar.classList.remove("loading"); }
 }
 
