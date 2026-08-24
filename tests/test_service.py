@@ -615,6 +615,42 @@ def test_the_two_transports_answer_the_same_shape():
     check("addedMidSprint is read from the changelog, not defaulted",
           added == [True, False], added)
 
+    # The story-point field id differs per Jira site and there is no id that is
+    # right everywhere. Hardcoding the common one made every issue on any other
+    # site read as zero points, flattening the burndown in points mode with
+    # nothing on the page saying why — the plausible-wrong-number class, and the
+    # reason this is checked rather than eyeballed.
+    sp = forge["storyPointField"]
+    check("the story-point field is discovered by name, not assumed",
+          sp["found"] == "customfield_10034", sp["found"])
+    check("and the first match in Jira's own order wins, as the fetcher does",
+          sp["found"] != "customfield_10099", sp)
+    check("a site with no story-point field reports null, never zero",
+          sp["absent"] is None and sp["whenAbsent"] is None, sp)
+    check("an issue with the field unset is a genuine zero",
+          sp["whenUnset"] == 0, sp["whenUnset"])
+    check("a non-numeric estimate is not coerced into the burndown",
+          sp["whenNotANumber"] is None, sp["whenNotANumber"])
+
+    # The list of names is the contract between the two producers: a site with
+    # both "Story Points" and "Points" must resolve to the same field down both
+    # routes, or one board reports two different velocities.
+    fetcher = (ROOT / "scripts" / "fetch_delivery_data.py").read_text()
+    names = re.search(r'nm in \((.*?)\)', fetcher, re.S)
+    py_names = set(re.findall(r'"([^"]+)"', names.group(1))) if names else set()
+    jira_js = (ROOT / "forge" / "src" / "jira.js").read_text()
+    js_block = re.search(r"STORY_POINT_FIELD_NAMES = \[(.*?)\]", jira_js, re.S)
+    js_names = set(re.findall(r"'([^']+)'", js_block.group(1))) if js_block else set()
+    check("both producers look for the same field names",
+          py_names and py_names == js_names,
+          {"fetcher": sorted(py_names), "resolver": sorted(js_names)})
+
+    check("no story-point field id is hardcoded anywhere in the Forge app",
+          not re.search(r"customfield_\d+", jira_js.replace("`customfield_10016`", ""))
+          and not re.search(r"customfield_\d+",
+                            (ROOT / "forge" / "src" / "index.js").read_text()),
+          "an id that differs per site cannot be written down")
+
     check("the sprint cap keeps the newest, not the first Jira listed",
           forge["cap"] == ["Sprint 24", "Sprint 23"], forge["cap"])
 

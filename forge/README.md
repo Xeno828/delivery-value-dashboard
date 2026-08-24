@@ -78,15 +78,17 @@ answer with a refusal naming that reason. The test suite ties the two together,
 so a real `baseUrl` with the refusal still in place fails rather than shipping a
 tile that is dark for no visible reason.
 
-**Known, and it returns a plausible wrong number rather than failing:** story
-points are read from `customfield_10016`. That id differs per Jira site; the
-Python fetcher discovers it by display name, this hardcodes the common one. On a
-site that uses a different id every issue reads as zero points and the burndown
-flattens in points mode with nothing saying why. Items — the default unit
-everywhere, and the only unit the forecaster reads — are unaffected. Fixing it
-needs a field-read scope, so it is a decision rather than a patch, and the
-connection check shows it: `storyPoints` absent from the projected payload means
-the id is wrong for that site.
+**Fixed, and it was the last plausible-wrong-number left here:** story points
+are read from whichever field this site calls them, discovered by display name
+through `/rest/api/3/field` — the same three names and the same first-match
+traversal `scripts/fetch_delivery_data.py` uses, because two producers picking
+different fields would report two velocities for one board. It needed no new
+scope in the end, which is what made it a patch rather than a decision.
+
+A site with no such field reports `null` rather than `0`. An estimate nobody
+recorded and an estimate nobody could read are different facts about a sprint,
+and only one of them belongs in a burndown. The connection check names the
+field it resolved, and the page's footer says so when there is none.
 
 **Absent on purpose from what is committed:** the app `id`. `forge register`
 writes one and it ties the manifest to a single Atlassian account. Having one

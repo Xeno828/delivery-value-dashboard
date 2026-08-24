@@ -119,7 +119,7 @@ It proves the manifest is valid, the bundle builds and the static resources exis
 
 ### So there is a second page: the connection check
 
-It was written to be deleted once the real bridge existed. It has been kept, and the reason changed rather than the plan being forgotten: it is the only thing that shows the outbound payload for one issue, and it is how you find out that `customfield_10016` is not this site's story-point field — `storyPoints` missing from the projected payload in section 3 is that diagnosis and there is no other.
+It was written to be deleted once the real bridge existed. It has been kept, and the reason changed rather than the plan being forgotten: it is the only thing that shows the outbound payload for one issue, and it now names which field this site calls story points. That used to be the diagnosis for a burndown that had flattened for no visible reason; it is a confirmation now, since the field is resolved by name rather than assumed — but a site whose field is called something else entirely still shows up here and nowhere else.
 
 **Shipping Forecast — connection check** appears under Jira settings → Apps. It is not the product; it makes the calls a deploy leaves untested:
 

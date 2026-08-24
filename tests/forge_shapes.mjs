@@ -13,8 +13,8 @@
  */
 
 import {
-  contextEntry, contextsBody, contextBody, contextId, parseContextId,
-  issueFrom, notFound, recentSprints,
+  contextEntry, contextsBody, contextBody, contextId, findStoryPointField,
+  parseContextId, issueFrom, notFound, recentSprints,
 } from '../forge/src/jira.js';
 
 const SITE = 'https://example.atlassian.net';
@@ -52,7 +52,7 @@ const rawIssues = [
       duedate: '2026-08-14',
       labels: ['payments'],
       flagged: true,
-      customfield_10016: 5,
+      customfield_10034: 5,
     },
     changelog: {
       histories: [
@@ -74,7 +74,7 @@ const rawIssues = [
       duedate: null,
       labels: [],
       flagged: false,
-      customfield_10016: 3,
+      customfield_10034: 3,
     },
     changelog: {
       histories: [
@@ -83,6 +83,22 @@ const rawIssues = [
       ],
     },
   },
+];
+
+/* Deliberately NOT customfield_10016. The previous version hardcoded that id,
+   which is the common one — so a fixture using it would have passed against
+   the bug. This site calls the field something else, as real sites do. */
+const SP_FIELD = 'customfield_10034';
+
+/* Jira's own /rest/api/3/field, near enough: a decoy whose name merely
+   contains the word, the real one further down the list, and a second
+   candidate after it — the first match in Jira's order wins, and it has to be
+   the same one the Python fetcher would pick. */
+const fieldList = [
+  { id: 'customfield_10011', name: 'Story Points History' },
+  { id: 'summary', name: 'Summary' },
+  { id: SP_FIELD, name: 'Story Points' },
+  { id: 'customfield_10099', name: 'Points' },
 ];
 
 const entries = recentSprints(sprints, 6).map((sp) => contextEntry(board, sp, 'SFT'));
@@ -103,7 +119,23 @@ console.log(JSON.stringify({
   context: contextBody(selected, rawIssues.map((r) => issueFrom(r, {
     sprintStart: selected.startDate,
     siteUrl: SITE,
+    storyPointField: findStoryPointField(fieldList),
   }))),
+  storyPointField: {
+    found: findStoryPointField(fieldList),
+    // A site with no such field at all. Points must come back null rather than
+    // zero: an estimate nobody recorded and an estimate nobody could read are
+    // different facts, and only one of them belongs in a burndown.
+    absent: findStoryPointField([{ id: 'summary', name: 'Summary' }]),
+    whenAbsent: issueFrom(rawIssues[0], { storyPointField: null }).storyPoints,
+    whenPresent: issueFrom(rawIssues[0], { storyPointField: SP_FIELD }).storyPoints,
+    // Jira permits a text field to be pointed at here. Coercing "M" to 0 would
+    // put a made-up figure into the burndown.
+    whenNotANumber: issueFrom(
+      { key: 'X-1', fields: { [SP_FIELD]: 'M' } }, { storyPointField: SP_FIELD },
+    ).storyPoints,
+    whenUnset: issueFrom({ key: 'X-2', fields: {} }, { storyPointField: SP_FIELD }).storyPoints,
+  },
   // The id is the string the page round-trips, so it is checked both ways.
   roundTrip: { id: contextId('SFT', 2, 43), parsed: parseContextId('SFT/2/43') },
   rejects: ['', 'SFT/2', 'SFT/2/43/extra', '../../etc', 'SFT/x/43']

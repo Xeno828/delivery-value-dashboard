@@ -23,8 +23,8 @@ import Resolver from '@forge/resolver';
 import api, { route, fetch } from '@forge/api';
 
 import {
-  contextEntry, contextsBody, contextBody, contextId, parseContextId,
-  issueFrom, notFound, recentSprints,
+  contextEntry, contextsBody, contextBody, contextId, findStoryPointField,
+  parseContextId, issueFrom, notFound, recentSprints,
 } from './jira.js';
 
 const resolver = new Resolver();
@@ -119,8 +119,9 @@ const callCalculator = async (path, body) => {
   return parsed;
 };
 
-/** Pull one board's issues. The only place this app talks to Jira. */
+/** Pull one board's issues, for the calculator path. */
 const fetchBoardIssues = async (boardId) => {
+  const spField = await storyPointFieldFor();
   const id = String(boardId ?? '').replace(/[^0-9]/g, '');
   if (!id) throw new Error('no board id');
 
@@ -146,15 +147,7 @@ const fetchBoardIssues = async (boardId) => {
         // agent/tools/orgconfig.py) and a third copy of that rule written here
         // is exactly the divergence the config exists to prevent. The raw name
         // goes in the payload; the calculator applies the config.
-        // OPEN, and it returns a plausible wrong number rather than failing:
-        // the story-point custom field id differs per Jira site. The Python
-        // fetcher discovers it by display name via /rest/api/3/field; this
-        // hardcodes the common one. On a site that uses a different id every
-        // issue reads as zero points, the burndown flattens in points mode, and
-        // nothing says why. The connection check will show it — storyPoints
-        // absent from the projected payload means this id is wrong here.
-        // Fixing it needs a field-read scope, so it is a decision, not a patch.
-        storyPoints: i.fields?.customfield_10016 ?? 0,
+        storyPoints: spField ? (i.fields?.[spField] ?? 0) : null,
         priority: i.fields?.priority?.name ?? null,
         created: (i.fields?.created ?? '').slice(0, 10) || null,
         resolved: (i.fields?.resolutiondate ?? '').slice(0, 10) || null,
@@ -264,11 +257,15 @@ const pagedValues = async (routeAt, what) => {
 /** Every issue in one sprint. `expand=changelog` is what makes addedMidSprint
  *  real rather than false-by-default — see the note in jira.js about why that
  *  particular default is a wrong answer rather than a missing one. */
-const fetchSprintIssues = async (boardId, sprintId) => {
+const fetchSprintIssues = async (boardId, sprintId, storyPointField) => {
+  // Named explicitly, and the story-point field is named by the id this site
+  // actually uses rather than one guessed at. `*navigable` would also work and
+  // would be worse: it pulls every custom field on every issue, including free
+  // text this app has no business holding.
   const fields = [
     'summary', 'issuetype', 'status', 'assignee', 'priority', 'parent',
     'created', 'resolutiondate', 'duedate', 'labels', 'flagged',
-    'customfield_10016',
+    ...(storyPointField ? [storyPointField] : []),
   ].join(',');
 
   const out = [];
@@ -294,6 +291,30 @@ const fetchSprintIssues = async (boardId, sprintId) => {
   }
   return out;
 };
+
+/**
+ * Which field this site calls story points.
+ *
+ * Memoised because it is the same answer for every issue on every board of a
+ * site, and a field list is not something to re-fetch per sprint. A Forge
+ * function may be a cold start, in which case this costs one call; when it is
+ * warm it costs nothing. The value is deliberately cached including `null` —
+ * "this site has no story-point field" is an answer, and re-asking on every
+ * request would not change it.
+ */
+let storyPointField;
+const storyPointFieldFor = async () => {
+  if (storyPointField !== undefined) return storyPointField;
+  const res = await api.asUser().requestJira(route`/rest/api/3/field`);
+  if (!res.ok) throw jiraError('the field list', res.status, await bodyOf(res));
+  storyPointField = findStoryPointField(await res.json());
+  return storyPointField;
+};
+
+/** Said in the line the page prints in its footer, so a site with no
+ *  story-point field reads as a site with no story-point field rather than as
+ *  a team that estimated everything at zero. */
+const POINTS_NOTE = 'no story-point field on this site, so points are not reported';
 
 /**
  * One board's sprints, or the reason there are none to have.
@@ -399,7 +420,8 @@ resolver.define('contexts', answering(async ({ context }) => {
   const offered = boards.length - withoutSprints;
   const label = `Jira, project ${projectKey} — ${offered} board`
     + (offered === 1 ? '' : 's')
-    + (withoutSprints ? `, ${withoutSprints} without sprints and not offered` : '');
+    + (withoutSprints ? `, ${withoutSprints} without sprints and not offered` : '')
+    + ((await storyPointFieldFor()) ? '' : `; ${POINTS_NOTE}`);
 
   return { status: 200, body: contextsBody(label, contexts) };
 }));
@@ -474,9 +496,11 @@ resolver.define('context', answering(async ({ payload, context }) => {
     };
   }
 
-  const raw = await fetchSprintIssues(parsed.boardId, parsed.sprintId);
+  const spField = await storyPointFieldFor();
+  const raw = await fetchSprintIssues(parsed.boardId, parsed.sprintId, spField);
   const issues = raw.map((r) => issueFrom(r, {
     sprintStart: entry.startDate,
+    storyPointField: spField,
     // Only so an issue key is a link. Absent, the page leaves it as text
     // rather than guessing a host.
     siteUrl: context?.siteUrl,
@@ -558,6 +582,10 @@ resolver.define('probeBoardIssues', async ({ payload }) => {
   const id = String(payload?.boardId ?? '').replace(/[^0-9]/g, '');
   if (!id) return { available: false, sentence: 'no board id' };
 
+  // Named in the output, because this is the page you come to when the
+  // burndown has flattened in points mode and nothing has said why.
+  const spField = await storyPointFieldFor();
+
   const res = await api
     .asUser()
     .requestJira(route`/rest/agile/1.0/board/${id}/issue?maxResults=5`);
@@ -572,7 +600,7 @@ resolver.define('probeBoardIssues', async ({ payload }) => {
     summary: i.fields?.summary ?? '',
     assignee: i.fields?.assignee?.displayName ?? null,
     status: i.fields?.status?.name ?? null,
-    storyPoints: i.fields?.customfield_10016 ?? 0,
+    storyPoints: spField ? (i.fields?.[spField] ?? 0) : null,
     priority: i.fields?.priority?.name ?? null,
     created: (i.fields?.created ?? '').slice(0, 10) || null,
     resolved: (i.fields?.resolutiondate ?? '').slice(0, 10) || null,
@@ -592,6 +620,14 @@ resolver.define('probeBoardIssues', async ({ payload }) => {
   return {
     available: true,
     total: body.total ?? raw.length,
+    // Which field this site calls story points, resolved by display name. The
+    // whole point of showing it: a null here is the difference between a team
+    // that estimated nothing and a site this app cannot read estimates from.
+    storyPointField: spField,
+    storyPointFieldNote: spField
+      ? `story points read from ${spField}`
+      : 'this site has no field named Story Points, Story point estimate or '
+        + 'Points, so points are not reported',
     // Keys and dates only. Summaries stay on this side even in the sample.
     sample: raw.map((i) => ({ key: i.key, status: i.status, created: i.created })),
     projected: projected[0] ?? null,

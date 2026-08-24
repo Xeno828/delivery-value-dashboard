@@ -82,6 +82,42 @@ export const recentSprints = (sprints, limit) =>
     .sort((a, b) => String(b.startDate || '').localeCompare(String(a.startDate || '')))
     .slice(0, limit);
 
+/**
+ * The display names Jira sites give the story-point field.
+ *
+ * The same three `scripts/fetch_delivery_data.py` matches, in the same order,
+ * because the two producers must not disagree about which field holds points
+ * on one site. "Story Points" is the classic company-managed name, "Story
+ * point estimate" the team-managed one, and "Points" is common on sites that
+ * renamed it.
+ */
+export const STORY_POINT_FIELD_NAMES = ['story points', 'story point estimate', 'points'];
+
+/**
+ * Which custom field holds story points on *this* site, from `/rest/api/3/field`.
+ *
+ * The id differs per site and there is no id that is right everywhere — the
+ * previous version hardcoded `customfield_10016`, the common one, and on any
+ * other site every issue read as zero points and the burndown flattened with
+ * nothing saying why. That is the plausible-wrong-number class: not a failure,
+ * an answer that looks computed.
+ *
+ * First match in the order Jira returns, which is what the Python fetcher does.
+ * Mirroring the traversal matters as much as mirroring the list: a site with
+ * both "Story Points" and "Points" defined must resolve to the same one down
+ * both routes, or the same board reports two different velocities.
+ *
+ * Returns null when the site has no such field, and null is not an id to guess
+ * around — the caller says so rather than substituting one.
+ */
+export const findStoryPointField = (fields) => {
+  for (const f of fields || []) {
+    const name = String(f.name ?? '').trim().toLowerCase();
+    if (STORY_POINT_FIELD_NAMES.includes(name)) return f.id ?? null;
+  }
+  return null;
+};
+
 /** The envelope `GET api/contexts` returns. */
 export const contextsBody = (label, contexts) => ({
   source: 'jira',
@@ -138,15 +174,13 @@ export const issueFrom = (raw, opts) => {
     type: (f.issuetype || {}).name ?? null,
     status: status.name ?? null,
     assignee: (f.assignee || {}).displayName || 'Unassigned',
-    // OPEN, and it returns a plausible wrong number rather than failing: the
-    // story-point custom field id differs per Jira site. The Python fetcher
-    // discovers it by display name via /rest/api/3/field; this hardcodes the
-    // common one. On a site that uses a different id every issue reads as zero
-    // points, the burndown flattens in points mode, and nothing says why. The
-    // connection check shows it — storyPoints absent from the projected
-    // payload means this id is wrong here. Fixing it needs a field-read scope,
-    // so it is a decision, not a patch.
-    storyPoints: f.customfield_10016 ?? 0,
+    // Read from whichever field this site calls story points, discovered by
+    // display name rather than assumed. `null` where the site has no such
+    // field at all — distinguishable in the payload from a genuine zero, and
+    // reported in the connection label the page prints in its footer, because
+    // an estimate nobody recorded and an estimate nobody could read are
+    // different facts about a sprint.
+    storyPoints: pointsOf(f, o.storyPointField),
     priority: (f.priority || {}).name ?? null,
     epic: (parent.fields || {}).summary ?? null,
     epicKey: parent.key ?? null,
@@ -160,6 +194,17 @@ export const issueFrom = (raw, opts) => {
     labels: f.labels || [],
     url: site && raw.key ? `${site}/browse/${encodeURIComponent(raw.key)}` : null,
   };
+};
+
+const pointsOf = (fields, fieldId) => {
+  if (!fieldId) return null;
+  const raw = fields[fieldId];
+  if (raw === undefined || raw === null || raw === '') return 0;
+  const n = Number(raw);
+  // A non-numeric estimate is not a zero. Jira permits a text custom field to
+  // be pointed at here, and coercing "M" to 0 would put a made-up figure into
+  // the burndown.
+  return Number.isFinite(n) ? n : null;
 };
 
 /**
