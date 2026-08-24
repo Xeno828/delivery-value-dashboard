@@ -67,6 +67,21 @@ Several things have to agree with this repository, and a schema linter has no op
 
 Note the allow-list rather than parity with `SCOPES` in `jira_auth.py`. Forge uses granular scopes (`read:issue-details:jira`) and the 3LO client uses classic ones (`read:jira-work`); the two are equivalent in intent and can never be equal as strings. The first version of that check matched a single colon only, so granular scopes were invisible to it — including, had one appeared, a granular write scope.
 
+### After changing a module or a scope, reinstall — do not trust upgrade
+
+`forge deploy` updates the code. **The installation stays bound to the manifest it was installed with**, so a module added after the first install does not appear, and a scope added after it is never silently granted. The failure has no error message: the old modules keep working and the new one is simply absent, which reads as a broken module rather than a stale install.
+
+`forge install --upgrade` is the documented path and is worth trying first. When it does not take — and in development it may not — reset instead of investigating:
+
+```bash
+cd forge && forge uninstall     # then
+cd forge && forge install
+```
+
+A development installation is disposable. Reaching for that early is cheaper than the diagnosis.
+
+Two things that look like evidence and are not. An app **absent from Settings → Manage apps** does not mean it is uninstalled; development installs do not surface there the way Marketplace ones do. And **one module rendering while another does not** is the signature of a stale installation, not of a bad module — if any page draws, the app is installed and serving.
+
 ### A deploy proves less than it looks like
 
 It proves the manifest is valid, the bundle builds and the static resources exist. It proves **nothing about permissions**, because at that point nothing has called Jira. Install the app and open the project page and you will see the dashboard rendering *Highpeak Commerce — Sprint 24 — Demo data*: a fictional company's 22 issues, inside your Jira, with the forecast tile showing its offline notice. That is not a fault. It is what "the static resource is staged but the bridge is unwritten" looks like.
