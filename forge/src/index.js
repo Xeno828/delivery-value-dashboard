@@ -23,8 +23,9 @@ import Resolver from '@forge/resolver';
 import api, { route, fetch } from '@forge/api';
 
 import {
-  contextEntry, contextsBody, contextBody, contextId, findStoryPointField,
-  parseContextId, issueFrom, notFound, recentSprints,
+  CONFIG_PROPERTY_KEY, contextEntry, contextsBody, contextBody, contextId,
+  findStoryPointField, mergeOrgConfig, parseContextId, issueFrom, notFound,
+  recentSprints, statusesFromJira, validateOrgConfig,
 } from './jira.js';
 
 const resolver = new Resolver();
@@ -311,10 +312,76 @@ const storyPointFieldFor = async () => {
   return storyPointField;
 };
 
+/**
+ * The organisation config for one project, resolved once.
+ *
+ * Which statuses mean done comes from the site's own status definitions; the
+ * working week, the holiday calendar and the sprint length come from a project
+ * property, because Jira has no notion of any of them. Absent, the page's
+ * documented defaults apply — and the footer names the calendar it used, so
+ * defaults are visible rather than assumed.
+ *
+ * A stated config that is not usable stops the request rather than being
+ * partially applied. `orgconfig.py` refuses a bad file for the same reason: a
+ * typo in `workingWeek` that quietly reverted to a five-day week would move
+ * every forecast in the product with nothing saying so.
+ */
+const orgConfigs = new Map();
+const orgConfigFor = async (projectKey) => {
+  if (orgConfigs.has(projectKey)) return orgConfigs.get(projectKey);
+
+  const statusRes = await api.asUser().requestJira(route`/rest/api/3/status`);
+  if (!statusRes.ok) throw jiraError('the status list', statusRes.status, await bodyOf(statusRes));
+  const fromJira = { statuses: statusesFromJira(await statusRes.json()) };
+
+  const propRes = await api.asUser().requestJira(
+    route`/rest/api/3/project/${projectKey}/properties/${CONFIG_PROPERTY_KEY}`,
+  );
+  let stated = {};
+  if (propRes.status !== 404) {
+    if (!propRes.ok) {
+      throw jiraError(`the ${CONFIG_PROPERTY_KEY} project property`,
+        propRes.status, await bodyOf(propRes));
+    }
+    const body = await propRes.json();
+    stated = body?.value ?? {};
+    if (stated === null || typeof stated !== 'object' || Array.isArray(stated)) {
+      throw new Error(
+        `The ${CONFIG_PROPERTY_KEY} property on project ${projectKey} is not an object, `
+        + 'so no calendar was read from it and nothing was reported under it.',
+      );
+    }
+    const problems = validateOrgConfig(stated);
+    if (problems.length) {
+      throw new Error(
+        `The ${CONFIG_PROPERTY_KEY} property on project ${projectKey} is not usable, so `
+        + `nothing was measured under it: ${problems.join('; ')}.`,
+      );
+    }
+  }
+
+  const resolved = {
+    config: mergeOrgConfig(fromJira, stated),
+    // Whether the calendar half was stated or defaulted. Reported, because a
+    // five-day week nobody chose looks exactly like a five-day week somebody
+    // did, and every working-day figure on the page rests on it.
+    statedCalendar: ['workingWeek', 'holidays', 'sprintLengthDays']
+      .some((k) => k in stated),
+  };
+  orgConfigs.set(projectKey, resolved);
+  return resolved;
+};
+
 /** Said in the line the page prints in its footer, so a site with no
  *  story-point field reads as a site with no story-point field rather than as
  *  a team that estimated everything at zero. */
 const POINTS_NOTE = 'no story-point field on this site, so points are not reported';
+
+/** The other half of the config, and the half Jira cannot answer. Named when
+ *  it is defaulted, because a five-day week nobody chose reads exactly like
+ *  one somebody did. */
+const CALENDAR_NOTE = `working week and holidays are this tool's defaults — set an `
+  + `${CONFIG_PROPERTY_KEY} property on the project to state your own`;
 
 /**
  * One board's sprints, or the reason there are none to have.
@@ -417,13 +484,18 @@ resolver.define('contexts', answering(async ({ context }) => {
   // What was left out is said out loud, in the line the page prints in its
   // footer. A picker quietly missing a board is indistinguishable from a
   // project that does not have one.
+  const org = await orgConfigFor(projectKey);
   const offered = boards.length - withoutSprints;
   const label = `Jira, project ${projectKey} — ${offered} board`
     + (offered === 1 ? '' : 's')
     + (withoutSprints ? `, ${withoutSprints} without sprints and not offered` : '')
-    + ((await storyPointFieldFor()) ? '' : `; ${POINTS_NOTE}`);
+    + ((await storyPointFieldFor()) ? '' : `; ${POINTS_NOTE}`)
+    + (org.statedCalendar ? '' : `; ${CALENDAR_NOTE}`);
 
-  return { status: 200, body: contextsBody(label, contexts) };
+  return {
+    status: 200,
+    body: contextsBody(label, contexts, org.config),
+  };
 }));
 
 /**
@@ -506,7 +578,10 @@ resolver.define('context', answering(async ({ payload, context }) => {
     siteUrl: context?.siteUrl,
   }));
 
-  return { status: 200, body: contextBody(entry, issues) };
+  return {
+    status: 200,
+    body: contextBody(entry, issues, (await orgConfigFor(entry.projectKey)).config),
+  };
 }));
 
 /**

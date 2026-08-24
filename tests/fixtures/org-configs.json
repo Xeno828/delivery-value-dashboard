@@ -1,0 +1,22 @@
+[
+  {"name": "empty", "config": {}, "note": "states nothing; the defaults apply"},
+  {"name": "a four-day week", "config": {"workingWeek": ["mon", "tue", "wed", "thu"]}},
+  {"name": "a Sunday-to-Thursday week", "config": {"workingWeek": ["sun", "mon", "tue", "wed", "thu"]}},
+  {"name": "holidays and a ten-day sprint", "config": {"holidays": ["2026-08-05", "2026-08-12"], "sprintLengthDays": 10}},
+  {"name": "a site's own done list", "config": {"statuses": {"done": ["Signed off", "Shipped"]}}},
+  {"name": "both status lists", "config": {"statuses": {"done": ["Signed off"], "inProgress": ["With QA"]}}},
+
+  {"name": "a misspelt day", "config": {"workingWeek": ["mon", "funday"]}, "usable": false},
+  {"name": "an empty working week", "config": {"workingWeek": []}, "usable": false},
+  {"name": "a working week that is not a list", "config": {"workingWeek": "mon,tue"}, "usable": false},
+  {"name": "a status in both lists", "config": {"statuses": {"done": ["Signed off"], "inProgress": ["signed off"]}}, "usable": false},
+  {"name": "an empty status name", "config": {"statuses": {"done": ["Signed off", " "]}}, "usable": false},
+  {"name": "a done list that is not a list", "config": {"statuses": {"done": "Signed off"}}, "usable": false},
+  {"name": "a malformed holiday", "config": {"holidays": ["2026-13-01"]}, "usable": false},
+  {"name": "a holiday that is not a date", "config": {"holidays": ["next Friday"]}, "usable": false},
+  {"name": "holidays that are not a list", "config": {"holidays": "2026-08-05"}, "usable": false},
+  {"name": "a fractional sprint length", "config": {"sprintLengthDays": 10.5}, "usable": false},
+  {"name": "a sprint length of zero", "config": {"sprintLengthDays": 0}, "usable": false},
+  {"name": "an absurd sprint length", "config": {"sprintLengthDays": 400}, "usable": false},
+  {"name": "a sprint length that is not a number", "config": {"sprintLengthDays": "14"}, "usable": false}
+]

@@ -118,18 +118,179 @@ export const findStoryPointField = (fields) => {
   return null;
 };
 
+/* ------------------------------------------------------------------ config
+
+   The assumptions that are true of exactly one company: which statuses mean
+   done, which days are worked, which of those are holidays, how long a sprint
+   is. `agent/tools/orgconfig.py` is the one place they are decided, and the
+   resolved answer travels inside the dataset as `orgConfig` so every consumer
+   reads the same one.
+
+   A Forge install has no dataset, so this resolver is the producer and has to
+   resolve it — and until it did, every tenant was measured under the defaults:
+   Monday to Friday, no holidays, fourteen-day sprints, and a fixed idea of the
+   word "done". A site with a *Signed off* column read every sprint as 0%
+   complete. That is a blanket ruling applied to sites that never agreed to it.
+
+   Two sources, in the order the Python resolves them:
+
+     Jira        Every status on a Jira site carries a category its admins
+                 assigned. orgconfig.py already trusts that as "a statement by
+                 the site rather than a guess here" — it is the fallback its
+                 own category() reaches for. Here there is no config file above
+                 it, so it is the primary source, and it is authoritative
+                 because the customer wrote it.
+
+     A project   Jira has no notion of a working week, a holiday calendar or a
+     property    sprint length, so those have to be stated. `orgConfig` on the
+                 project, readable with the scope the board picker already
+                 needs. Absent, the defaults apply and the footer says so.
+
+   ---------------------------------------------------------------------- */
+
+/** Where a site states what Jira cannot tell us. Read-only: this app never
+ *  writes it, and asks for no scope that would let it. */
+export const CONFIG_PROPERTY_KEY = 'orgConfig';
+
+/**
+ * The site's own answer to "which statuses mean done", from its own statuses.
+ *
+ * Jira's category keys are `new`, `indeterminate` and `done`. Only the last
+ * two become lists — "To Do" is what a status falls to when it is in neither,
+ * so enumerating it would add a third list the schema does not have and the
+ * page does not read.
+ *
+ * Names, not ids, because that is what the schema and the page match on, and
+ * because two projects on one site may define separate statuses with the same
+ * name and the same meaning.
+ */
+export const statusesFromJira = (statuses) => {
+  const done = new Set();
+  const inProgress = new Set();
+  for (const st of statuses || []) {
+    const name = String(st?.name ?? '').trim();
+    if (!name) continue;
+    const key = String(st?.statusCategory?.key ?? '').toLowerCase();
+    if (key === 'done') done.add(name);
+    else if (key === 'indeterminate') inProgress.add(name);
+  }
+  // Sorted so the same site produces the same config on every call — a config
+  // that reordered itself would make every response look changed.
+  return { done: [...done].sort(), inProgress: [...inProgress].sort() };
+};
+
+const DAY_NAMES = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const MAX_SPRINT_DAYS = 90;
+const normName = (v) => String(v ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+/**
+ * Every problem with a config a site stated, as sentences. Empty means usable.
+ *
+ * A mirror of `orgconfig.validate()`, and it exists for the reason that
+ * function does: a bad config must stop the run rather than fall back. A typo
+ * in `workingWeek` that quietly reverted to a five-day week would move every
+ * forecast in the product with nothing on screen saying so.
+ *
+ * It checks only the keys a site actually stated, because that is all this
+ * source supplies — everything else comes from the defaults the page already
+ * holds. `tests/test_service.py` runs the same good and bad configs through
+ * both this and the Python and asserts they agree about which are usable, so
+ * the two cannot drift into accepting different files.
+ */
+export const validateOrgConfig = (cfg) => {
+  const p = [];
+  const c = cfg || {};
+
+  if ('workingWeek' in c) {
+    if (!Array.isArray(c.workingWeek) || !c.workingWeek.length) {
+      p.push('workingWeek must be a non-empty list of day names');
+    } else {
+      const bad = c.workingWeek.filter((d) => !DAY_NAMES.includes(normName(d)));
+      if (bad.length) {
+        p.push(`workingWeek contains ${bad.map((b) => JSON.stringify(b)).join(', ')}`
+          + ` — use ${DAY_NAMES.join('/')}`);
+      }
+    }
+  }
+
+  if ('statuses' in c) {
+    const st = c.statuses;
+    if (st === null || typeof st !== 'object' || Array.isArray(st)) {
+      p.push('statuses must be an object with done and inProgress lists');
+    } else {
+      for (const key of ['done', 'inProgress']) {
+        if (!(key in st)) continue;
+        if (!Array.isArray(st[key])) {
+          p.push(`statuses.${key} must be a list of status names`);
+        } else if (st[key].some((x) => !String(x ?? '').trim())) {
+          p.push(`statuses.${key} contains an empty name`);
+        }
+      }
+      const done = new Set((Array.isArray(st.done) ? st.done : []).map(normName));
+      const wip = (Array.isArray(st.inProgress) ? st.inProgress : []).map(normName);
+      const both = [...new Set(wip.filter((x) => x && done.has(x)))].sort();
+      if (both.length) {
+        // Preferring one list silently would make "done" mean different things
+        // in the burndown and in the ageing chart.
+        p.push(`${both.map((b) => JSON.stringify(b)).join(', ')} appears in both `
+          + 'statuses.done and statuses.inProgress');
+      }
+    }
+  }
+
+  if ('holidays' in c) {
+    if (!Array.isArray(c.holidays)) {
+      p.push('holidays must be a list of YYYY-MM-DD dates');
+    } else {
+      for (const h of c.holidays) {
+        const t = String(h ?? '');
+        const d = /^\d{4}-\d{2}-\d{2}$/.test(t) ? new Date(`${t}T00:00:00Z`) : null;
+        if (!d || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== t) {
+          p.push(`holidays contains ${JSON.stringify(h)}, which is not a YYYY-MM-DD date`);
+        }
+      }
+    }
+  }
+
+  if ('sprintLengthDays' in c) {
+    const n = c.sprintLengthDays;
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > MAX_SPRINT_DAYS) {
+      p.push('sprintLengthDays must be a whole number of calendar days between '
+        + `1 and ${MAX_SPRINT_DAYS}`);
+    }
+  }
+
+  return p;
+};
+
+/**
+ * What the site said, over what Jira knows. One level down, as the Python
+ * merges — a stated `statuses` block naming only `done` keeps Jira's own
+ * `inProgress`, because an omission is not a claim that nothing is in
+ * progress.
+ */
+export const mergeOrgConfig = (fromJira, stated) => {
+  const out = { ...(fromJira || {}) };
+  for (const [k, v] of Object.entries(stated || {})) {
+    if (v === null || v === undefined) continue;
+    if (k === 'statuses' && v && typeof v === 'object' && !Array.isArray(v)) {
+      out.statuses = { ...(out.statuses || {}) };
+      for (const [sk, sv] of Object.entries(v)) if (sv !== null) out.statuses[sk] = sv;
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+};
+
 /** The envelope `GET api/contexts` returns. */
-export const contextsBody = (label, contexts) => ({
+export const contextsBody = (label, contexts, orgConfig) => ({
   source: 'jira',
   label,
-  // Empty, and that is the honest answer rather than a convenient one. The
-  // organisation config travels inside a dataset, and a Forge install has no
-  // dataset — there is nowhere yet for a site to say which statuses mean done
-  // or which days it works. Empty resolves to the documented defaults in
-  // `orgConfigOf()`, and the page footer names the calendar it used. Inventing
-  // one here would be the third opinion `config/organisation.json` exists to
-  // prevent, arriving by a route nobody can see.
-  orgConfig: {},
+  // Resolved once, here, and written into every response — the same rule the
+  // dataset producers follow. The page, and anything downstream of it, reads
+  // this rather than deciding for itself.
+  orgConfig: orgConfig || {},
   contexts,
 });
 
@@ -239,7 +400,7 @@ const addedMidSprint = (raw, sprintStart) => {
  * empty series is not a silent gap: the page prints "no burndown series in
  * this dataset" where the chart would be.
  */
-export const contextBody = (entry, issues) => ({
+export const contextBody = (entry, issues, orgConfig) => ({
   context: {
     ...entry,
     // What the live server does with an active sprint, quirk included: it has
@@ -248,7 +409,7 @@ export const contextBody = (entry, issues) => ({
     asOfDate: entry.asOfDate || entry.endDate || null,
     issueCount: issues.length,
   },
-  orgConfig: {},
+  orgConfig: orgConfig || {},
   issues,
   burndown: [],
   history: [],

@@ -651,6 +651,50 @@ def test_the_two_transports_answer_the_same_shape():
                             (ROOT / "forge" / "src" / "index.js").read_text()),
           "an id that differs per site cannot be written down")
 
+    # ---- the organisation config, resolved per site rather than assumed ----
+    #
+    # Before this, every Forge tenant was measured under the defaults: Monday
+    # to Friday, no holidays, and a fixed idea of the word "done". A site with
+    # a "Signed off" column read every sprint as 0% complete — the bug
+    # orgconfig.py was written for, reintroduced by a route that had nowhere to
+    # read a config from.
+    org = forge["orgConfig"]
+    check("done comes from the site's own status categories, not a fixed list",
+          org["fromJira"]["done"] == ["Shipped", "Signed off"], org["fromJira"])
+    check("and in-progress with it",
+          org["fromJira"]["inProgress"] == ["In Review", "With QA"], org["fromJira"])
+    check("a status with no name is not admitted to either list",
+          all(n.strip() for lst in org["fromJira"].values() for n in lst),
+          org["fromJira"])
+    # An omission is not a claim that nothing is in progress.
+    check("what a site states wins, one level down, as the Python merges",
+          org["merged"]["statuses"] == {"done": ["Signed off"],
+                                        "inProgress": ["In Review", "With QA"]},
+          org["merged"])
+
+    # The second implementation this introduces, and the test that makes it
+    # survivable. src/app.js already mirrors orgconfig.py because the browser
+    # cannot call Python; the Forge resolver now mirrors its *validation*,
+    # because a bad config must stop the request rather than be half-applied.
+    # Both are run over one shared list of cases so neither can be given an
+    # easier set than the other.
+    cases = json.loads((ROOT / "tests" / "fixtures" / "org-configs.json").read_text())
+    js = dict(org["verdicts"])
+    disagreed, wrong = [], []
+    for c in cases:
+        py_ok = not OC.validate(OC.merge(OC.DEFAULTS, c["config"]))
+        expected = c.get("usable", True)
+        if js[c["name"]] != py_ok:
+            disagreed.append({c["name"]: {"resolver": js[c["name"]], "orgconfig.py": py_ok}})
+        if py_ok != expected:
+            wrong.append(c["name"])
+    check("the resolver and orgconfig.py agree on every config in the fixture",
+          disagreed == [], disagreed[:3])
+    check("and the fixture's own expectations hold", wrong == [], wrong)
+    check("the fixture carries configs that must be refused, not only good ones",
+          sum(1 for c in cases if not c.get("usable", True)) >= 10,
+          sum(1 for c in cases if not c.get("usable", True)))
+
     check("the sprint cap keeps the newest, not the first Jira listed",
           forge["cap"] == ["Sprint 24", "Sprint 23"], forge["cap"])
 

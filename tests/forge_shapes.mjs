@@ -14,8 +14,28 @@
 
 import {
   contextEntry, contextsBody, contextBody, contextId, findStoryPointField,
-  parseContextId, issueFrom, notFound, recentSprints,
+  mergeOrgConfig, parseContextId, issueFrom, notFound, recentSprints,
+  statusesFromJira, validateOrgConfig,
 } from '../forge/src/jira.js';
+
+/* The configs the Python and this must agree about. Read from a file both
+   suites use, so the two cannot be given different cases. */
+import { readFileSync } from 'node:fs';
+const CASES = JSON.parse(readFileSync(new URL('./fixtures/org-configs.json', import.meta.url)));
+
+/* A Jira site's own statuses. "Signed off" is the case orgconfig.py was
+   written for: a site with that column and no "Done" column read every sprint
+   as 0% complete under a blanket list. Jira knows better — its admins put it
+   in the done category — and that is what makes this the site's answer rather
+   than ours. */
+const siteStatuses = [
+  { name: 'To Do', statusCategory: { key: 'new' } },
+  { name: 'In Review', statusCategory: { key: 'indeterminate' } },
+  { name: 'With QA', statusCategory: { key: 'indeterminate' } },
+  { name: 'Signed off', statusCategory: { key: 'done' } },
+  { name: 'Shipped', statusCategory: { key: 'done' } },
+  { name: '', statusCategory: { key: 'done' } },
+];
 
 const SITE = 'https://example.atlassian.net';
 
@@ -142,5 +162,18 @@ console.log(JSON.stringify({
     .map((bad) => [bad, parseContextId(bad)]),
   notFound: notFound('SFT/2/999'),
   cap: recentSprints(sprints, 2).map((s) => s.name),
+  orgConfig: {
+    fromJira: statusesFromJira(siteStatuses),
+    // What the site states wins over what Jira knows, one level down — a
+    // stated `done` list keeps Jira's `inProgress` rather than emptying it.
+    merged: mergeOrgConfig(
+      { statuses: statusesFromJira(siteStatuses) },
+      { statuses: { done: ['Signed off'] }, workingWeek: ['sun', 'mon', 'tue', 'wed', 'thu'] },
+    ),
+    // Every case in the shared fixture, judged usable or not. tests/
+    // test_service.py runs the identical list through orgconfig.validate and
+    // asserts the two verdicts match.
+    verdicts: CASES.map((c) => [c.name, validateOrgConfig(c.config).length === 0]),
+  },
   idSurvivesReread: { asked: selected.id, rebuilt: reread.id },
 }, null, 2));
