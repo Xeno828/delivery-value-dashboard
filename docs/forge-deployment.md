@@ -171,6 +171,8 @@ Adding the context picker added `read:project:jira`, `read:sprint:jira-software`
 
 `forge install` succeeds, all four sections of the connection check are green, and the project page shows **your** boards in the picker rather than a placeholder. That is the point at which the declared scopes are known to be sufficient.
 
+Reached, on a dev site. Getting there took three deploys, and all three were the same lesson: every failure between the page and Jira was silent. A board whose sprints could not be read was reported as a board with no sprints; a resolver that threw was indistinguishable from a loopback server nobody had started; and a 404 said "server returned 404" for four situations with four different fixes. None of that was visible from the outside, and each cost a deploy cycle to find. The page says the reason now, in the context bar, and that is worth more here than anywhere else in this product — the deploy loop is slow and there is no console you can reach on a customer's tenant.
+
 ---
 
 ## 2. Verify the Forge invocation token

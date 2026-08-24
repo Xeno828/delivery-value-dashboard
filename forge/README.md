@@ -60,10 +60,11 @@ the panel; `service/app.py` runs the same Python everything else runs.
 
 ## What is real here and what is not
 
-**Real:** the app is registered, `forge lint` is clean, it deploys to
-development and installs on a dev site, and the dashboard renders inside the
-iframe showing that site's own boards, sprints and issues. The scopes have been
-proven against real Jira rather than read off a documentation page.
+**Real, and observed rather than assumed:** the app is registered, `forge lint`
+is clean, it deploys to development and installs on a dev site, and the
+dashboard renders inside the iframe showing that site's own boards, sprints and
+issues. The scopes have been proven against real Jira rather than read off a
+documentation page.
 
 **Real, and tested without Forge:** `src/jira.js` — every shape the bridge puts
 on the wire, compared field for field against a running `serve_live.py` in
