@@ -16,18 +16,80 @@
  * page says so on the tile rather than showing a zero.
  */
 
-/** The context id the whole product keys on: project, board, sprint. The same
+/** The context id the whole product keys on: project, board, period. The same
  *  string `serve_live.py` builds, because the page round-trips it back to
- *  `context` and a second format would be a second product. */
-export const contextId = (projectKey, boardId, sprintId) =>
-  `${projectKey || '?'}/${boardId}/${sprintId}`;
+ *  `context` and a second format would be a second product.
+ *
+ *  The third part is a sprint id on a sprint board and a window token on a
+ *  flow board — see `windowToken` and ADR 0011. */
+export const contextId = (projectKey, boardId, period) =>
+  `${projectKey || '?'}/${boardId}/${period}`;
 
-/** Back out again, so `context` needs no state between calls. Returns null for
- *  anything that is not the shape above — a caller must refuse rather than
- *  query whatever the string happened to parse into. */
+/**
+ * The windows a flow board is offered, in calendar days.
+ *
+ * A fixed set rather than a free choice, for two reasons. Two boards are
+ * comparable only if the question asked of each was the same one, and a window
+ * nobody can name is a window nobody can reproduce. Calendar days, matching
+ * every other elapsed figure in the product.
+ *
+ * `scripts/serve_live.py` holds the same list and `tests/test_service.py`
+ * compares them, because a window one transport offers and the other rejects
+ * is an id that works until the page is opened the other way.
+ */
+export const WINDOW_DAYS = [14, 30, 90];
+export const DEFAULT_WINDOW_DAYS = 30;
+
+/** The third part of a flow board's id. Prefixed rather than bare, so that a
+ *  sprint id and a window length can never be read as each other. */
+export const windowToken = (days) => `win:${days}d`;
+
+/**
+ * Back out again, so `context` needs no state between calls.
+ *
+ * Returns null for anything that is not one of the two shapes — a caller must
+ * refuse rather than query whatever the string happened to parse into — and
+ * `kind` says which one it was rather than leaving the caller to re-test the
+ * string. That is the ADR 0011 rule in miniature: the discriminator is
+ * carried, not recovered, because a second reading of the same string is a
+ * second implementation of the same fact.
+ *
+ * A window length outside `WINDOW_DAYS` is refused, not clamped and not
+ * honoured. `win:99999d` would otherwise pull an unbounded slice of a board
+ * through an id the picker never offered, and a request the product cannot
+ * make is a request it should not answer.
+ */
 export const parseContextId = (id) => {
-  const m = /^([^/]+)\/(\d+)\/(\d+)$/.exec(String(id ?? ''));
-  return m ? { projectKey: m[1], boardId: m[2], sprintId: m[3] } : null;
+  const m = /^([^/]+)\/(\d+)\/([^/]+)$/.exec(String(id ?? ''));
+  if (!m) return null;
+  const [, projectKey, boardId, period] = m;
+  if (/^\d+$/.test(period)) {
+    return { kind: 'sprint', projectKey, boardId, sprintId: period };
+  }
+  const w = /^win:(\d+)d$/.exec(period);
+  if (w) {
+    const days = Number(w[1]);
+    // Canonical form only, checked by rebuilding the token rather than by
+    // trusting the match. `Number('030')` is 30, so `win:030d` and `win:30d`
+    // both parsed and named one context by two strings — and the page keys
+    // everything on this id and round-trips it. A second spelling of the same
+    // context is the shape of the bug that made every sprint read "unknown
+    // context" once already.
+    if (windowToken(days) === period && WINDOW_DAYS.includes(days)) {
+      return { kind: 'window', projectKey, boardId, windowDays: days };
+    }
+  }
+  return null;
+};
+
+/** Calendar-day arithmetic on a YYYY-MM-DD string, in UTC so that the answer
+ *  does not depend on where the resolver happens to run. Mirrors the plain
+ *  `date - timedelta` the Python does; the parity test compares the strings
+ *  rather than trusting that two languages agree about a month boundary. */
+const shiftDays = (iso, n) => {
+  const t = Date.parse(`${iso}T00:00:00Z`);
+  if (Number.isNaN(t)) return null;
+  return new Date(t + n * 86400000).toISOString().slice(0, 10);
 };
 
 /**
@@ -74,6 +136,8 @@ export const contextEntry = (board, sprint, fallbackProjectKey) => {
   const projectKey = loc.projectKey ?? fallbackProjectKey ?? null;
   return {
     id: contextId(projectKey, board.id, sprint.id),
+    // Carried, not recovered from the id. See `parseContextId`.
+    kind: 'sprint',
     source: 'jira',
     projectKey,
     projectName: loc.projectName ?? null,
@@ -91,6 +155,59 @@ export const contextEntry = (board, sprint, fallbackProjectKey) => {
     asOfDate: null,
     issueCount: 0,
     _sprintId: sprint.id,
+  };
+};
+
+/**
+ * One selectable window: what a flow board is offered in place of a sprint.
+ *
+ * Field for field the sprint entry above, minus `_sprintId`, so the picker and
+ * every renderer read one shape and not two. `scripts/serve_live.py` builds
+ * the identical object and `tests/test_service.py` compares them key by key
+ * and value by value — not merely field sets, because two producers agreeing
+ * about which keys exist and disagreeing about where a 30-day window starts
+ * is the harder bug and the one a shape check cannot see.
+ *
+ * Three of those fields are named for sprints and hold a window's answer. That
+ * is deliberate and it is not a rename waiting to happen: `sprintName`,
+ * `sprintState` and `sprintGoal` are the contract two transports and every
+ * committed fixture already agree about, and renaming them to say "period"
+ * would be a second product for the sake of a word. `CONTEXT.md` settles what
+ * the page *calls* these; the wire keeps the name it has.
+ *
+ * `startDate` and `endDate` are real and bound the selection. They must never
+ * become a clock: a window carries no working-day list, and the page owes it
+ * an explicit refusal rather than the derivation it performs for a sprint.
+ * ADR 0011 is the whole of the reasoning; `contextWorkingDays()` in
+ * `src/app.js` is where it has to be honoured.
+ *
+ * `asOf` is passed rather than read from a clock here, because an entry that
+ * changes with the wall clock cannot be compared against another producer's.
+ */
+export const windowEntry = (board, days, asOf, fallbackProjectKey) => {
+  const loc = board.location || {};
+  const projectKey = loc.projectKey ?? fallbackProjectKey ?? null;
+  const end = String(asOf || '').slice(0, 10);
+  return {
+    id: contextId(projectKey, board.id, windowToken(days)),
+    kind: 'window',
+    source: 'jira',
+    projectKey,
+    projectName: loc.projectName ?? null,
+    boardId: String(board.id),
+    boardName: board.name ?? null,
+    team: board.name ?? null,
+    sprintName: `Last ${days} days`,
+    // Not a Jira sprint state, and not null: the picker's state chip switches
+    // on this, and the rollup already occupies the same slot with "rollup".
+    sprintState: 'window',
+    sprintGoal: '',
+    // Inclusive of both ends, so a 30-day window really covers 30 calendar
+    // days rather than 31. Calendar days, like every other elapsed figure.
+    startDate: shiftDays(end, -(days - 1)),
+    endDate: end,
+    asOfDate: end,
+    issueCount: 0,
   };
 };
 

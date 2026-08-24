@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.16.5
+
+**The two transports now agree what a window is, before either one offers a board a window.** Step 1 of the flow-board plan and deliberately nothing more: a flow board's context id, the `kind` that travels with every context, and a window entry built independently by `forge/src/jira.js` and `scripts/serve_live.py`. No board is offered a window yet and nothing on the page renders differently, because a picker entry whose id 404s is worse than a board that is honestly not offered. Offering and loading land together, next.
+
+A flow board's id is `SFT/2/win:30d` where a sprint board's is `SFT/2/8891`, and `kind` is `"sprint"` or `"window"` on every entry both transports send. It is carried rather than recovered by re-reading the id, per [ADR 0011](docs/adr/0011-a-kanban-context-is-a-window-not-a-clock.md): a discriminator a consumer re-derives is a second implementation of the same fact, and the page would be the one holding the wrong copy. `BundleBackend` defaults it to `sprint` for bundles written before flow boards existed, where an absent value has exactly one honest reading, and the fetcher writes it so new bundles describe themselves.
+
+**Two producers agreeing about which keys exist and disagreeing about what is in them is the harder bug, so the parity check compares values.** The existing one compares field sets, and that is precisely the hole `workingDays` went missing through — a whole Forge install rendering different figures from the same sprint while the shapes matched. The new check builds the same window in both languages and compares key by key and value by value, across month ends, a year end and a leap year, which is where JavaScript's millisecond arithmetic and Python's `timedelta` would part company if they were going to. Drifting the loopback's window by one day fails four checks; dropping `kind` from it fails another.
+
+**`win:030d` named the same context as `win:30d`.** Found by the parse table, not by reasoning: `Number('030')` is 30, so two strings resolved to one window. The page keys everything on this id and round-trips it back to the transport, and one context with two spellings is one context nobody can round-trip — the same shape as the id mismatch that made every sprint read *"unknown context"* on the first install. A window token is now checked by rebuilding it rather than by trusting the match, so only the canonical spelling parses.
+
+Window lengths outside the offered 14, 30 and 90 days are refused rather than clamped or honoured. `win:99999d` would otherwise pull an unbounded slice of a board through an id no dropdown can produce, and a request the product cannot make is a request it should not answer.
+
 ## 1.16.4
 
 **A dataset that stated no sprint dates was told how many items to commit to.** `recommend_commitment()` has always held the right answer for this — *"sprint length is unknown"* — and `forecast.build()` never let it out. The call read `len(meta.workingDays or working_days(startDate, endDate, cfg)) or 10`, and that trailing `or 10` substituted a ten-working-day sprint before the guard could fire. So a file with no calendar in it came back **"Next sprint: commit to 9 items at 85% confidence"**, with *"20,000 simulated sprints of 10 working days"* printed underneath as its own basis.

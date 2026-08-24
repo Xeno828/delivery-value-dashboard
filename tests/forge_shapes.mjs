@@ -16,6 +16,7 @@ import {
   contextEntry, contextsBody, contextBody, contextId, findStoryPointField,
   mergeOrgConfig, parseContextId, issueFrom, notFound, recentSprints,
   statusesFromJira, validateOrgConfig,
+  DEFAULT_WINDOW_DAYS, WINDOW_DAYS, windowEntry, windowToken,
 } from '../forge/src/jira.js';
 
 /* The configs the Python and this must agree about. Read from a file both
@@ -158,8 +159,34 @@ console.log(JSON.stringify({
   },
   // The id is the string the page round-trips, so it is checked both ways.
   roundTrip: { id: contextId('SFT', 2, 43), parsed: parseContextId('SFT/2/43') },
-  rejects: ['', 'SFT/2', 'SFT/2/43/extra', '../../etc', 'SFT/x/43']
+  rejects: ['', 'SFT/2', 'SFT/2/43/extra', '../../etc', 'SFT/x/43',
+    // A window the picker never offered. Refused rather than clamped or
+    // honoured: `win:99999d` would pull an unbounded slice of a board through
+    // an id no dropdown can produce.
+    'SFT/2/win:99999d', 'SFT/2/win:31d', 'SFT/2/win:0d', 'SFT/2/win:30',
+    'SFT/2/win:-30d', 'SFT/2/win:030d']
     .map((bad) => [bad, parseContextId(bad)]),
+
+  /* What a flow board is offered instead of a sprint. `scripts/serve_live.py`
+     builds the identical entry, and `tests/test_service.py` compares the two
+     value by value rather than field set by field set — the boundaries below
+     are there because that is where two languages' date arithmetic disagrees
+     if it is going to, and a shape check would never see it. */
+  window: {
+    days: WINDOW_DAYS,
+    defaultDays: DEFAULT_WINDOW_DAYS,
+    token: windowToken(DEFAULT_WINDOW_DAYS),
+    roundTrip: parseContextId(contextId('SFT', 2, windowToken(DEFAULT_WINDOW_DAYS))),
+    entries: WINDOW_DAYS.map((d) => windowEntry(board, d, '2026-08-24', 'SFT')),
+    boundaries: [['2026-03-01', 30], ['2026-01-01', 90], ['2026-03-02', 14],
+                 ['2024-03-01', 30]]
+      .map(([asOf, d]) => windowEntry(board, d, asOf, 'SFT')),
+    // Same reread problem the sprint id has: `contexts` reads boards from the
+    // list endpoint and `context` re-reads one on its own, and the two do not
+    // always describe `location` the same way.
+    fromBareBoard: windowEntry({ id: 2, name: 'Storefront Delivery' },
+      DEFAULT_WINDOW_DAYS, '2026-08-24', 'SFT').id,
+  },
   notFound: notFound('SFT/2/999'),
   cap: recentSprints(sprints, 2).map((s) => s.name),
   orgConfig: {

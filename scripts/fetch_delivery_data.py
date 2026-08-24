@@ -449,7 +449,12 @@ def jira_bundle(args):
             issues.extend(iss)
 
             ctx = {
-                "id": cid, "source": "jira",
+                # Which sort of period this context is bounded by. Written so a
+                # bundle describes itself rather than leaving a consumer to
+                # recover it from the id — see ADR 0011. Bundles written before
+                # this field existed hold only sprints, and `BundleBackend`
+                # defaults them.
+                "id": cid, "kind": "sprint", "source": "jira",
                 "projectKey": loc.get("projectKey"), "projectName": loc.get("projectName"),
                 "boardId": b, "boardName": info.get("name"), "team": info.get("name"),
                 "sprintName": sp.get("name"), "sprintState": sp.get("state"),

@@ -61,6 +61,20 @@ Separately, and not affected by the toggle: **elapsed time is reported in calend
 }
 ```
 
+### `contexts`
+
+Each entry in a bundle's `contexts` array describes one selectable period on one board.
+
+| Field | Type | Drives |
+|---|---|---|
+| `id` | string | `PROJECT/boardId/period` — the string the page keys everything on and round-trips back to a live transport |
+| `kind` | `sprint` / `window` | Which sort of period it is. Absent means `sprint`: bundles written before flow boards existed hold nothing else |
+| `sprintName`, `sprintState`, `sprintGoal` | string | The period's display name, state and goal. Named for sprints and carrying a window's answers on a flow board — the name is the contract, not a claim about the board |
+| `startDate`, `endDate` | date | The period's bounds |
+| `workingDays` | array | Optional; see above. **A window never carries one and never has one derived for it** |
+
+The third part of the id is a sprint id on a sprint board (`SFT/2/8891`) and a window token on a flow board (`SFT/2/win:30d`). Only the windows the picker offers — 14, 30 and 90 days — are accepted, in exactly that spelling; `win:030d` and `win:31d` are refused rather than clamped, because the page keys on this string and one context with two spellings is one context nobody can round-trip. A **window** bounds a selection and is deliberately not a clock: it has real dates, and every figure that would measure a team against them refuses instead. [ADR 0011](adr/0011-a-kanban-context-is-a-window-not-a-clock.md) has the reasoning and `kanban-boards.md` has the tile-by-tile consequences.
+
 `sourceLabel` is shown in the header badge and in the footer. The badge is green when `source` is anything other than `demo`. `workingDays` is recomputed on upload from the organisation config — the working week and the holiday calendar both come from `orgConfig` below, and no longer from a rule written in `src/app.js`.
 
 `workingDays` is optional per context. When a context carries a start and an end date but no list — which is what a Forge resolver sends, because which days are worked is organisation config and a resolver is the wrong place to decide it — the page derives the list from those dates under the same `orgConfig`, exactly as it derives `statusCategory` for a status name nobody resolved. A rollup context is the one exception and keeps its empty list: its dates span every sprint in it, so a derived list would be real and would describe nothing.

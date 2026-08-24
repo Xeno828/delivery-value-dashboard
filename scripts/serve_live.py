@@ -196,6 +196,72 @@ def sequence_for(data, cid):
     return res
 
 
+# ------------------------------------------------------------ flow boards
+#
+# A board that runs no sprints gets a **window** instead of one: a rolling
+# stretch of calendar days that bounds the selection and is deliberately not a
+# clock. ADR 0011 has the reasoning; `docs/kanban-boards.md` has the plan.
+#
+# These three constants and the builder below are mirrored in
+# `forge/src/jira.js`, and `tests/test_service.py` compares the two producers
+# key by key and value by value rather than only checking that the field sets
+# match. Two producers agreeing about which keys exist and disagreeing about
+# where a 30-day window starts is the harder bug, and a shape check cannot see
+# it — which is the same hole ADR 0009's parity test had for `workingDays`.
+
+WINDOW_DAYS = [14, 30, 90]
+DEFAULT_WINDOW_DAYS = 30
+
+
+def window_token(days):
+    """The third part of a flow board's context id. Prefixed rather than bare,
+    so a sprint id and a window length can never be read as each other."""
+    return "win:%dd" % days
+
+
+def window_entry(board_id, board_name, project_key, project_name, days, as_of):
+    """One selectable window, in the shape the sprint entry above uses.
+
+    Field for field a sprint context minus `_sprintId`, so the picker and every
+    renderer read one shape and not two. Three of those fields are named for
+    sprints and hold a window's answer — `sprintName`, `sprintState` and
+    `sprintGoal` — which is deliberate: they are the contract both transports
+    and every committed fixture already agree about, and renaming them to say
+    "period" would be a second product for the sake of a word.
+
+    `startDate` and `endDate` are real and bound the selection. They must never
+    become a clock: no working-day list is built here or sent, and the page owes
+    a window an explicit refusal rather than the derivation it performs for a
+    sprint.
+
+    `as_of` is passed rather than read from the clock, because an entry that
+    moves with the wall clock cannot be compared against another producer's.
+    """
+    end = datetime.date.fromisoformat(str(as_of)[:10])
+    # Inclusive of both ends, so a 30-day window covers 30 calendar days
+    # rather than 31. Calendar days, like every other elapsed figure here.
+    start = end - datetime.timedelta(days=days - 1)
+    return {
+        "id": "%s/%s/%s" % (project_key or "?", board_id, window_token(days)),
+        "kind": "window",
+        "source": "jira",
+        "projectKey": project_key,
+        "projectName": project_name,
+        "boardId": str(board_id),
+        "boardName": board_name,
+        "team": board_name,
+        "sprintName": "Last %d days" % days,
+        # Not a Jira sprint state, and not null: the picker's state chip
+        # switches on this, and the rollup already occupies the same slot.
+        "sprintState": "window",
+        "sprintGoal": "",
+        "startDate": start.isoformat(),
+        "endDate": end.isoformat(),
+        "asOfDate": end.isoformat(),
+        "issueCount": 0,
+    }
+
+
 # --------------------------------------------------------------- backends
 class BundleBackend:
     """Reads an existing bundle file. Used for demos, tests, and for working
@@ -213,7 +279,19 @@ class BundleBackend:
         return OC.from_dataset(self.data)
 
     def contexts(self):
-        return [{k: v for k, v in c.items() if k != "workingDays"}
+        # `kind` is defaulted rather than inferred. Bundles written before
+        # flow boards existed carry no such field, and every context in one is
+        # a sprint — so an absent value has exactly one honest reading. This is
+        # not the thing ADR 0011 forbids: what is banned is recovering the kind
+        # by re-reading the *id*, because that makes the discriminator a second
+        # implementation of the same fact. Defaulting a field the producer
+        # predates is what the page already does for `statusCategory`.
+        #
+        # It is defaulted here, in the backend, so that both transports put the
+        # field on the wire. A loopback answer that omitted it while the Forge
+        # resolver sent it is precisely the divergence ADR 0009 exists to stop.
+        return [dict({"kind": "sprint"},
+                     **{k: v for k, v in c.items() if k != "workingDays"})
                 for c in self.data.get("contexts", [])]
 
     def context(self, cid):
@@ -283,6 +361,7 @@ class JiraBackend:
                         "projectKey": proj.get("projectKey"), "projectName": proj.get("projectName"),
                         "boardId": b, "boardName": info.get("name"),
                         "team": info.get("name"),
+                        "kind": "sprint",
                         "sprintName": sp.get("name"), "sprintState": sp.get("state"),
                         "sprintGoal": sp.get("goal") or "",
                         "startDate": (sp.get("startDate") or "")[:10],

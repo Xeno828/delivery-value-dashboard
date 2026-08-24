@@ -19,6 +19,7 @@ Needs nothing but Python 3.
     python3 tests/test_service.py
 """
 
+import datetime
 import json
 import pathlib
 import re
@@ -29,10 +30,14 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "agent" / "tools"))
 sys.path.insert(0, str(ROOT / "service"))
+# The loopback transport's own module, imported rather than only launched, so
+# the window it builds can be compared against the resolver's directly.
+sys.path.insert(0, str(ROOT / "scripts"))
 
 import app as SVC        # noqa: E402
 import forecast as FC    # noqa: E402
 import orgconfig as OC   # noqa: E402
+import serve_live as LIVE  # noqa: E402
 
 failures = []
 #: Generated per run rather than written down. A literal token in a test file is
@@ -577,7 +582,8 @@ def test_the_two_transports_answer_the_same_shape():
           forge["idSurvivesReread"]["asked"] == forge["idSurvivesReread"]["rebuilt"],
           forge["idSurvivesReread"])
     check("an id round-trips through the resolver's parser",
-          forge["roundTrip"]["parsed"] == {"projectKey": "SFT", "boardId": "2", "sprintId": "43"},
+          forge["roundTrip"]["parsed"] == {"kind": "sprint", "projectKey": "SFT",
+                                           "boardId": "2", "sprintId": "43"},
           forge["roundTrip"])
 
     # The context object, which is separate from the entry in the picker and
@@ -716,6 +722,128 @@ def test_the_two_transports_answer_the_same_shape():
 
     check("the sprint cap keeps the newest, not the first Jira listed",
           forge["cap"] == ["Sprint 24", "Sprint 23"], forge["cap"])
+
+
+
+def test_the_two_transports_agree_about_windows():
+    """A flow board's window must be one object, not two that look alike.
+
+    A board that runs no sprints is offered a window instead — ADR 0011 — and
+    the window is built independently by `forge/src/jira.js` and by
+    `scripts/serve_live.py`, because neither transport can call the other. So
+    the two are compared here **value by value**, not field set by field set.
+
+    That distinction is the whole point of this test. The parity check above
+    compares which keys exist, and that is what let `workingDays` go missing
+    across a whole Forge install while the shapes still matched. Two producers
+    agreeing about which keys a window has and disagreeing about where a
+    30-day window starts would render two different pages from one id, and
+    nothing on either page would say so.
+
+    The boundary cases are month ends, a year end and a leap year, which is
+    where JavaScript's millisecond arithmetic and Python's `timedelta` would
+    diverge if they were going to.
+    """
+    node = subprocess.run(["node", str(ROOT / "tests" / "forge_shapes.mjs")],
+                          cwd=str(ROOT), capture_output=True, text=True, timeout=60)
+    if node.returncode != 0:
+        check("the Forge shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    forge = json.loads(node.stdout)["window"]
+
+    check("both transports offer the same windows",
+          forge["days"] == LIVE.WINDOW_DAYS, (forge["days"], LIVE.WINDOW_DAYS))
+    check("both default to the same window",
+          forge["defaultDays"] == LIVE.DEFAULT_WINDOW_DAYS,
+          (forge["defaultDays"], LIVE.DEFAULT_WINDOW_DAYS))
+    check("both spell the id's third part the same way",
+          forge["token"] == LIVE.window_token(LIVE.DEFAULT_WINDOW_DAYS),
+          (forge["token"], LIVE.window_token(LIVE.DEFAULT_WINDOW_DAYS)))
+
+    board = dict(board_id=2, board_name="Storefront Delivery",
+                 project_key="SFT", project_name="Storefront")
+    mine = {e["id"]: e for e in
+            (LIVE.window_entry(days=d, as_of="2026-08-24", **board)
+             for d in LIVE.WINDOW_DAYS)}
+    for entry in forge["entries"]:
+        peer = mine.get(entry["id"])
+        check("the loopback builds the same window as the resolver: %s" % entry["id"],
+              peer == entry,
+              {k: (entry.get(k), peer.get(k) if peer else None)
+               for k in set(entry) | set(peer or {})
+               if not peer or entry.get(k) != peer.get(k)})
+
+    # Where two languages' date arithmetic disagrees if it is going to. The
+    # list here is the same list the .mjs builds, in the same order, because a
+    # case only one side runs is a case neither side is checked on.
+    for asOf, days, entry in zip(["2026-03-01", "2026-01-01", "2026-03-02", "2024-03-01"],
+                                 [30, 90, 14, 30], forge["boundaries"]):
+        peer = LIVE.window_entry(days=days, as_of=asOf, **board)
+        check("a %d-day window ending %s starts on the same day both sides" % (days, asOf),
+              peer["startDate"] == entry["startDate"] and peer == entry,
+              (entry["startDate"], peer["startDate"]))
+
+    check("a window covers the calendar days it says it does",
+          all((datetime.date.fromisoformat(e["endDate"])
+               - datetime.date.fromisoformat(e["startDate"])).days + 1 == d
+              for d, e in zip(LIVE.WINDOW_DAYS, forge["entries"])),
+          [(e["startDate"], e["endDate"]) for e in forge["entries"]])
+
+    check("a window id survives the board being re-read without its location",
+          forge["fromBareBoard"] == forge["entries"][1]["id"],
+          (forge["fromBareBoard"], forge["entries"][1]["id"]))
+    check("a window id parses back to the window it names",
+          forge["roundTrip"] == {"kind": "window", "projectKey": "SFT",
+                                 "boardId": "2", "windowDays": 30},
+          forge["roundTrip"])
+
+    # Every id the picker cannot produce is refused rather than clamped,
+    # honoured or read as a sprint. `win:030d` is the one worth naming: it
+    # parsed as 30 until the token was required to be canonical, so one context
+    # had two spellings and the page keys everything on this string.
+    rejected = dict((bad, parsed) for bad, parsed in json.loads(node.stdout)["rejects"])
+    for bad in ("SFT/2/win:99999d", "SFT/2/win:31d", "SFT/2/win:0d",
+                "SFT/2/win:30", "SFT/2/win:-30d", "SFT/2/win:030d"):
+        check("the resolver refuses %s rather than answering it" % bad,
+              rejected.get(bad) is None, rejected.get(bad))
+
+
+def test_every_context_says_which_kind_it_is():
+    """`kind` is carried on the wire, by both transports, on every entry.
+
+    ADR 0011 forbids recovering it by re-reading the id: a discriminator
+    recovered by regex is a second implementation of the same fact, and the
+    page would be the one holding the wrong copy. So it is sent — including by
+    the bundle backend, over bundles written before flow boards existed, where
+    every context is a sprint and an absent value has exactly one honest
+    reading. A loopback answer that omitted the field while the resolver sent
+    it is the divergence ADR 0009 exists to stop.
+    """
+    bundle = LIVE.BundleBackend(ROOT / "data" / "sample-bundle.json")
+    entries = bundle.contexts()
+    check("the bundle backend has contexts to answer with", len(entries) > 1, len(entries))
+    check("every context the loopback sends says which kind it is",
+          all(c.get("kind") == "sprint" for c in entries),
+          sorted({c.get("kind") for c in entries}))
+    check("the bundle file itself predates the field, so this is the backend's doing",
+          all("kind" not in c for c in json.loads(
+              (ROOT / "data" / "sample-bundle.json").read_text())["contexts"]))
+
+    node = subprocess.run(["node", str(ROOT / "tests" / "forge_shapes.mjs")],
+                          cwd=str(ROOT), capture_output=True, text=True, timeout=60)
+    if node.returncode != 0:
+        check("the Forge shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    forge = json.loads(node.stdout)
+    check("and every context the resolver sends says so too",
+          all(c.get("kind") == "sprint" for c in forge["contexts"]["contexts"]),
+          sorted({c.get("kind") for c in forge["contexts"]["contexts"]}))
+    check("a sprint entry and a window entry differ only where they must",
+          sorted(set(forge["contexts"]["contexts"][0]) - {"_sprintId"})
+          == sorted(forge["window"]["entries"][0]),
+          sorted(set(forge["contexts"]["contexts"][0]) ^ set(forge["window"]["entries"][0])))
 
 
 def test_forge_app_dependencies():
@@ -859,6 +987,9 @@ if __name__ == "__main__":
     test_split_build_has_no_inline_assets()
     print("one contract, two transports")
     test_the_two_transports_answer_the_same_shape()
+    print("a board without sprints")
+    test_the_two_transports_agree_about_windows()
+    test_every_context_says_which_kind_it_is()
     print("the Forge app's dependencies")
     test_forge_app_dependencies()
     print("the container image")
