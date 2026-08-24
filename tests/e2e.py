@@ -9,6 +9,7 @@ wizard with the fixture files, asserting the dashboard actually changes.
 
 import json
 import pathlib
+import re
 import sys
 
 from playwright.sync_api import sync_playwright
@@ -51,6 +52,138 @@ def open_picker(page):
     if not page.is_visible("#view-pop"):
         page.click("#btn-view")
     page.wait_for_selector("#view-pop:not(.hidden)", timeout=5000)
+
+
+def health_composition(b):
+    """A component that could not be measured is dropped, not scored zero.
+
+    Delivery pace carries the largest of the four weights. Over a sprint whose
+    dates were unknown it scored 0/100 and dragged the sample sprint from 52
+    and "Needs attention" to 22 and "Off track" — a verdict about delivery,
+    produced by the absence of two dates. The disclosure that exists so a
+    reader can argue with the method said "no sprint calendar", and said it for
+    all three causes, including a rollup that has dates and a points view of
+    issues nobody estimated.
+
+    Both halves are pinned here: that the page derives the calendar when
+    whatever produced the data did not, and that when it genuinely cannot the
+    component leaves the composition instead of scoring it.
+    """
+    print("\n  health composition")
+
+    CHIP = "() => document.getElementById('t-health').textContent.trim()"
+    TT = "() => document.getElementById('t-health').dataset.tt"
+
+    sample = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+    bundle = json.loads((ROOT / "data" / "demo-bundle.json").read_text())
+
+    def without(keys):
+        d = json.loads(json.dumps(sample))
+        for k in keys:
+            d["meta"].pop(k, None)
+        for c in d.get("contexts") or []:
+            for k in keys:
+                c.pop(k, None)
+        return d
+
+    page = b.new_page(viewport={"width": 1500, "height": 1000})
+    errs = []
+    page.on("pageerror", lambda e: errs.append(str(e)))
+    page.goto(DIST.as_uri())
+    page.wait_for_timeout(700)
+
+    # ---------- baseline ----------
+    page.evaluate("d => window.DVD.applyDataset(d)", sample)
+    page.wait_for_timeout(500)
+    full = page.evaluate(CHIP)
+    check("a sprint with a calendar scores from all four measures",
+          "/100)" in full and "measures" not in full, full)
+
+    # ---------- the calendar is derived, not demanded ----------
+    # forge/src/jira.js sends no workingDays on purpose — which days are worked
+    # is organisation config, and resolving it in a resolver would be a fourth
+    # opinion. The page derives it under ORG(), exactly as it already derives
+    # statusCategory, which is why the score must come out identical. Before it
+    # did, every sprint in a Forge tenant lost the largest component of its
+    # health score and the two transports rendered different figures from the
+    # same sprint.
+    page.evaluate("d => window.DVD.applyDataset(d)", without(["workingDays"]))
+    page.wait_for_timeout(500)
+    check("the page derives the working days the producer left out",
+          page.evaluate(CHIP) == full, (page.evaluate(CHIP), full))
+    js = page.evaluate("""() => {
+      const v = window.DVD.debug.view();
+      return [v.meta.workingDays,
+              window.DVD.workingDays(v.meta.startDate, v.meta.endDate, window.DVD.orgConfig())];
+    }""")
+    check("and derives exactly the list orgconfig.py would have written",
+          js[0] == js[1] and len(js[0]) > 0, js[0][:3])
+
+    # ---------- no dates at all: the component leaves the composition ----------
+    page.evaluate("d => window.DVD.applyDataset(d)",
+                  without(["workingDays", "startDate", "endDate"]))
+    page.wait_for_timeout(500)
+    chip, tt = page.evaluate(CHIP), page.evaluate(TT)
+    check("a sprint with no dates drops delivery pace rather than scoring it 0",
+          "Delivery pace — <b>not measured</b>" in tt, tt[:130])
+    check("the chip says how many measures the score was built from",
+          "3 of 4 measures" in chip, chip)
+    check("and the score is what the three measured, not that capped by the fourth",
+          "(33/100" in chip, chip)
+
+    # No silent caps: the weights a reader is shown must be the weights that
+    # multiplied, and they must add up. Printing the nominal 22% beside a
+    # figure that was multiplied by 33% is a disclosure that does not reconcile.
+    weights = [int(w) for w in re.findall(r"\((\d+)% weight\)", tt)]
+    check("the disclosed weights are the re-weighted ones and sum to 100",
+          len(weights) == 3 and 99 <= sum(weights) <= 101, weights)
+
+    # ---------- a rollup has dates and still has no clock ----------
+    page.evaluate("d => window.DVD.applyDataset(d)", bundle)
+    page.wait_for_timeout(500)
+    roll = [c for c in page.evaluate("() => window.DVD.debug.contexts().map(c => c.id)")
+            if c.startswith("roll:")][0]
+    page.evaluate("i => window.DVD.debug.selectContext(i)", roll)
+    page.wait_for_timeout(500)
+    tt = page.evaluate(TT)
+    check("a rollup drops delivery pace too",
+          "Delivery pace — <b>not measured</b>" in tt, tt[:130])
+    check("and says it is the rollup, not missing dates — it has dates",
+          "rolls up" in tt and "not in the data" not in tt, tt[:190])
+    check("the pace KPI names the same cause in its own words",
+          "no single sprint clock" in page.text_content("#kpis .kpi:nth-child(2)"),
+          page.text_content("#kpis .kpi:nth-child(2)"))
+
+    # ---------- a measure the data does not carry ----------
+    # Two of four components read work volume, so in points over an unestimated
+    # dataset both are undefined — and they failed in opposite directions:
+    # pace scored 0 for a calendar that was present and correct, scope
+    # stability scored 100/100 for "no mid-sprint additions" out of nothing.
+    unpriced = json.loads(json.dumps(sample))
+    for i in unpriced["issues"]:
+        i["storyPoints"] = 0
+    page.evaluate("d => window.DVD.applyDataset(d)", unpriced)
+    page.wait_for_timeout(500)
+    check("issues with no estimates still score in items",
+          "/100)" in page.evaluate(CHIP), page.evaluate(CHIP))
+    page.evaluate("() => window.DVD.debug.setUnit('points')")
+    page.wait_for_timeout(500)
+    chip, tt = page.evaluate(CHIP), page.evaluate(TT)
+    check("but reading them in points refuses rather than scoring half a method",
+          "not scored" in chip, chip)
+    check("the refusal names the measure, not the calendar",
+          "story points" in tt and "sprint calendar" not in tt, tt[:170])
+    check("it ends with the clause, untrimmed",
+          "the evidence is absent, not noisy" in tt, tt[:200])
+    check("and names the measure that would work",
+          "Switch the measure to items" in tt, tt[:260])
+    check("scope stability is not quietly given full marks for measuring nothing",
+          "Scope stability — <b>not measured</b>" in tt, tt[:260])
+    page.evaluate("() => window.DVD.debug.setUnit('items')")
+    page.wait_for_timeout(400)
+
+    check("no console errors while composing the score", not errs, errs[:2])
+    page.close()
 
 
 def empty_selection(b):
@@ -832,6 +965,7 @@ def main():
         page.screenshot(path=str(ROOT / "tests" / "last-run.png"), full_page=True)
 
         empty_selection(b)
+        health_composition(b)
         transports(b)
 
         b.close()

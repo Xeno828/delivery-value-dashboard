@@ -38,6 +38,13 @@ export const parseContextId = (id) => {
  * `workingDays` is deliberately absent. Which days are worked is organisation
  * config, and resolving it here would be a fourth opinion arriving by a fourth
  * route. `BundleBackend.contexts()` strips it for the same reason.
+ *
+ * The page derives it from `startDate`/`endDate` under its own config, the way
+ * it already derives `statusCategory` from a raw status name — see
+ * `contextWorkingDays()` in `src/app.js`. Leaving it out is a silence, not a
+ * gap; before the page filled it, every sprint in a tenant lost the largest
+ * component of its health score and the two transports disagreed about the
+ * same sprint.
  */
 export const contextEntry = (board, sprint) => {
   const loc = board.location || {};

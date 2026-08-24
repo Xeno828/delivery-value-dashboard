@@ -24,10 +24,30 @@ Counts of an empty set that are honestly nil keep their nil. What refuses is the
 
 That distinction is why the ageing chart's sentence is not simply deleted. With issues present and none of them open, *"Nothing open has outlived a sprint. That is the healthy state"* is true and worth saying. It is only false when there was never anything to age. The same holds for the risk register: no risks triggered against thirty issues is a finding; against none it is silence.
 
+## The same rule one level down: inside the score
+
+A composite figure has the same problem in miniature, and the health score had it twice.
+
+**A component that could not be measured is dropped from the composition, not scored zero.** Delivery pace carries 0.34 of the four weights — the largest, and the only forward-looking one. Over a sprint whose dates were unknown it scored 0/100, which took the sample sprint from 52 and *Needs attention* to 22 and *Off track*. A zero is a finding. "We do not know when this sprint runs" is not a finding about delivery, and it should not be able to change the colour of the chip.
+
+The measured components are re-weighted to sum to one, so what is reported is the honest score of what could be taken rather than that score capped by the weight of what could not. That makes it a different quantity from a four-component score, so the chip says `3 of 4 measures` and the disclosure prints the weights that actually multiplied — 33%, not the nominal 22%. This is the *no silent caps* rule: a composition that bounds itself must say what it dropped.
+
+**Below half the weight, the score refuses.** Two of the four components read work volume, so in points over a dataset nobody estimated both are undefined — and they failed in opposite directions, pace scoring 0 and scope stability scoring 100/100 for "no mid-sprint additions" out of nothing. What survives is blockers and ageing work, which describe hygiene rather than whether the sprint will land. Calling that "sprint health" is a claim the remainder cannot carry.
+
+**And the disclosure has to name the right cause.** All three of those situations printed *"no sprint calendar"*, including a rollup that has dates and a points view whose calendar was present and complete. The disclosure exists so a reader can argue with the method; one that names the wrong cause sends them to fix the wrong thing. There are three causes and there are now three sentences.
+
+### Where the calendar actually went
+
+Most of those missing calendars were not missing. `forge/src/jira.js` sends no `workingDays`, deliberately — which days are worked is organisation config, and resolving it in a resolver would be a fourth opinion arriving by a fourth route. But the page holds that config and already derives `statusCategory` from it for exactly the same reason, so it derives the day list too. Until it did, every sprint in a Forge tenant lost the largest component of its score, *Pace vs clock* read `—` across the whole install, and the two transports rendered different figures from the same sprint — the thing [ADR 0009](0009-one-contract-two-transports.md) exists to prevent, invisible to its parity test because that test feeds the bridge the loopback's own bodies.
+
+A rollup keeps its empty list. Its dates span every sprint in it, so a derived list would be perfectly real and would describe nothing: *how far through nineteen sprints are we* is not a pace, and it would compute to a confident number.
+
 ## What it rules out
 
 **A single "no data" banner over the grid.** It would have been fewer lines and it would have passed any test written against the score alone. It also throws away the two things the page still knows — that it has zero issues, and which tiles were already refusing for their own reasons (no burndown series, no assignees, no live connection). A tile that says why it in particular has nothing to show is the product; a banner is a loading state.
 
 **Dimming instead of saying.** The grid used to be faded to 0.45 opacity over an empty context, which was the honest instinct reached through the only channel that could not carry the reason. Once the tiles state their condition in words, fading them puts the only text on the page below the AA contrast floor. The fade is gone.
+
+**Scoring the gap instead of dropping it.** Zero was one option and a neutral 0.5 was the other. Zero is a penalty for missing data; 0.5 is a figure nobody measured, placed in the middle of a scale so it moves the answer while looking like it does not. Neither is available to a reader who wants to know what was measured.
 
 **A softened sentence.** The refusals end in *the evidence is absent, not noisy*, the same clause the tools use, and for the same reason: it is the part that says waiting or widening will not fill this in. `tests/e2e.py` asserts the clause survives, and separately sweeps those tiles for digits — so a later change that reinstates a figure fails whether or not it kept the words.
