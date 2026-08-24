@@ -366,6 +366,25 @@ def test_forge_manifest_matches_the_code():
     check("the staged resources are git-ignored, not committed twice",
           "forge/static/" in (ROOT / ".gitignore").read_text())
 
+    # Forge's packager validates the literal <html> element in every static
+    # resource's index.html. Browsers imply html/head/body when they are absent,
+    # so a page that renders perfectly in a browser is rejected at deploy with
+    # "Invalid index.html file" — which names the file and not the reason.
+    for path in declared:
+        src_dir = {"forge/static/dashboard/build": ROOT / "src",
+                   "forge/static/probe": ROOT / "forge" / "probe"}.get(path)
+        if src_dir is None:
+            continue
+        html = src_dir / "index.html"
+        if not html.exists():
+            continue
+        text = html.read_text()
+        ok = re.search(r"<html[\s>]", text, re.I) and re.search(r"</html>", text, re.I)
+        check("%s has an explicit <html> root" % html.relative_to(ROOT), bool(ok),
+              "" if ok else "Forge rejects a resource whose index.html omits it, "
+                            "even though a browser renders it fine")
+
+
     # The scaffold must keep saying so; a manifest that quietly looks finished
     # is one somebody deploys.
     check("the manifest still declares itself a scaffold",
