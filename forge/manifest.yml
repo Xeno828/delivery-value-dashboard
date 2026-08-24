@@ -32,6 +32,16 @@ modules:
       function: resolver
       interval: week
 
+# Produced by `make forge-static`, which stages dist/ into this path. It is
+# git-ignored: it is a copy of an artefact this repository already commits, and
+# a second copy is a second thing that can go stale. Build before you lint or
+# deploy — `forge lint` reports a missing resource, not a missing build step.
+#
+# Staging it makes the page render. It does not make the page work: the built
+# file reaches live mode over same-origin `api/*`, and inside a Forge iframe
+# there is no such endpoint. Until the resolver is wired to the bridge the
+# forecast tile shows its offline notice, which is the honest failure but not a
+# shippable one.
 resources:
   - key: main
     path: static/dashboard/build
@@ -51,18 +61,29 @@ permissions:
     fetch:
       backend:
         - remote: calculator
-
   scopes:
-    # Read-only, and the shortest list that produces the dashboard. Matches
-    # SCOPES in scripts/jira_auth.py — if one changes, change both, or the two
-    # routes will quietly see different issues.
+    # Read-only, and every one of them is asserted read-only on every push —
+    # an app that asks for write access to close a deal is one whose consent
+    # screen stops a security reviewer.
+    #
+    # Two vocabularies are present. The granular pair came from `forge lint
+    # --fix`; the classic pair is the equivalent the 3LO client in
+    # scripts/jira_auth.py uses, and the two routes must not end up seeing
+    # different issues.
+    #
+    # OPEN: this currently requests the union of both, which is broader than
+    # needed and shows up as extra lines on the consent screen. Drop the classic
+    # pair once a real install confirms the granular two cover the board paging
+    # in src/index.js — not before, because losing board access fails at runtime
+    # in a tenant rather than at build time here.
+    - read:board-scope:jira-software
+    - read:issue-details:jira
     - read:jira-work
     - read:jira-user
 
 app:
   runtime:
-    name: nodejs20.x
-
+    name: nodejs22.x
 # Egress costs the "Runs on Atlassian" badge. That is a real marketing loss
 # with no engineering answer, and it is the price of not having two
 # implementations of the forecast. It is written down in ADR 0008 so the

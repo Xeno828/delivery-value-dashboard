@@ -298,16 +298,33 @@ def test_forge_manifest_matches_the_code():
     client or the egress rule points at a remote that exists."""
     man = (ROOT / "forge" / "manifest.yml").read_text()
 
-    scopes = re.findall(r"^\s+- (read|write|manage|delete):([\w-]+)$", man, re.M)
-    scope_strs = sorted("%s:%s" % (a, b) for a, b in scopes)
-    auth_src = (ROOT / "scripts" / "jira_auth.py").read_text()
-    m = re.search(r"SCOPES\s*=\s*\[(.*?)\]", auth_src, re.S)
-    oauth = sorted(s for s in re.findall(r'"([^"]+)"', m.group(1))
-                   if s != "offline_access")   # OAuth-only; Forge has no refresh flow
-    check("the Forge scopes match the OAuth client's",
-          scope_strs == oauth, {"manifest": scope_strs, "jira_auth": oauth})
-    check("no write, manage or delete scope is requested",
-          not [s for s in scope_strs if not s.startswith("read:")], scope_strs)
+    # Atlassian has two scope vocabularies — classic (`read:jira-work`) and
+    # granular (`read:issue-details:jira`) — and the granular ones carry an extra
+    # colon. The first version of this matched a single colon only, so every
+    # granular scope was invisible to both checks below. `forge lint --fix` then
+    # added two, and this passed while describing a manifest that no longer
+    # existed. A write scope in the granular vocabulary would have sailed past it.
+    scope_strs = sorted(set(re.findall(r"^\s+- ([a-z]+:[\w:-]+)$", man, re.M)))
+    check("scopes are found in both vocabularies", len(scope_strs) >= 2, scope_strs)
+
+    # The check that actually matters, and the one a reviewer will look for.
+    check("every scope is read-only",
+          all(s.startswith("read:") for s in scope_strs),
+          [s for s in scope_strs if not s.startswith("read:")] or scope_strs)
+
+    # An allow-list rather than parity with jira_auth.SCOPES: Forge wants
+    # granular scopes and the 3LO client uses classic ones, so the two lists are
+    # equivalent in intent and cannot be equal as strings. Adding a scope must be
+    # a deliberate edit here, with a reason, rather than something a --fix run
+    # can do quietly.
+    ALLOWED = {
+        "read:jira-work",                  # classic: read issues, boards, sprints
+        "read:jira-user",                  # classic: display names on thecharts
+        "read:issue-details:jira",         # granular equivalent of the issue read
+        "read:board-scope:jira-software",  # granular: the board the resolver pages
+    }
+    check("no scope outside the reviewed allow-list",
+          set(scope_strs) <= ALLOWED, sorted(set(scope_strs) - ALLOWED) or "none")
 
     declared = re.findall(r"^remotes:\s*$\n(?:\s+- key:\s*(\S+)\s*$)", man, re.M)
     referenced = re.findall(r"^\s+- remote:\s*(\S+)\s*$", man, re.M)
@@ -315,9 +332,36 @@ def test_forge_manifest_matches_the_code():
           referenced and set(referenced) <= set(declared),
           {"declared": declared, "referenced": referenced})
 
-    # `forge register` writes an app id into the manifest. Committing it hands
-    # everyone who clones the repository a manifest aimed at one person's app.
-    check("no app id is committed", not re.search(r"^\s*id:\s*ari:", man, re.M))
+    # `forge register` writes an app id into the manifest, and having one locally
+    # is the correct state for anyone who has registered. Only committing it is
+    # the problem — it hands everyone who clones the repository a manifest aimed
+    # at one person's app. So check what is in HEAD, not what is on disk; the
+    # first version of this asserted on the working tree and failed the suite for
+    # exactly the person following the runbook properly.
+    committed = subprocess.run(["git", "show", "HEAD:forge/manifest.yml"],
+                               cwd=str(ROOT), capture_output=True, text=True)
+    if committed.returncode == 0:
+        clean = not re.search(r"^\s*id:\s*ari:", committed.stdout, re.M)
+        check("no app id is committed", clean,
+              "" if clean else "an app id is in HEAD — remove it before pushing")
+    else:
+        check("no app id is committed", True, "skipped: not a git checkout")
+
+    # `forge lint` reports a missing resource, which reads as a broken manifest
+    # rather than an unbuilt one. The path it wants and the path `make
+    # forge-static` writes have to be the same string, or the next person spends
+    # an afternoon on it.
+    res = re.search(r"^resources:\s*$\n\s+- key:\s*\S+\s*$\n\s+path:\s*(\S+)\s*$", man, re.M)
+    check("the manifest declares a resource path", res is not None)
+    if res:
+        declared = "forge/" + res.group(1).rstrip("/")
+        mk = (ROOT / "Makefile").read_text()
+        staged = re.findall(r"forge/static/\S*", mk)
+        check("the Makefile stages the path the manifest references",
+              any(t.startswith(declared) for t in staged),
+              {"manifest": declared, "makefile": sorted(set(staged))})
+        check("the staged resource is git-ignored, not committed twice",
+              "forge/static/" in (ROOT / ".gitignore").read_text())
 
     # The scaffold must keep saying so; a manifest that quietly looks finished
     # is one somebody deploys.
