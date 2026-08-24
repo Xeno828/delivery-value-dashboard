@@ -69,7 +69,9 @@ serve-calc:       ## the hosted calculator, for local development only
 
 forge-static: build forge-deps  ## stage both Forge static resources
 	@mkdir -p forge/static/dashboard/build forge/static/probe
-	@cp dist/delivery-value-dashboard.html forge/static/dashboard/build/index.html
+	@# Not a copy of dist/. A Forge iframe's CSP blocks inline style and
+	@# script, so the same sources are linked rather than inlined.
+	python3 build.py --split forge/static/dashboard/build
 	@cp forge/probe/index.html forge/probe/probe.css forge/static/probe/
 	@# @forge/bridge is CommonJS, so the probe has to be bundled rather than
 	@# copied. esbuild is a forge/ devDependency; the dashboard still has none.

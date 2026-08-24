@@ -82,6 +82,24 @@ A development installation is disposable. Reaching for that early is cheaper tha
 
 Two things that look like evidence and are not. An app **absent from Settings → Manage apps** does not mean it is uninstalled; development installs do not surface there the way Marketplace ones do. And **one module rendering while another does not** is the signature of a stale installation, not of a bad module — if any page draws, the app is installed and serving.
 
+### The iframe forbids inline style and script, so the Forge build is not a copy
+
+`dist/` is one self-contained file: one inline `<style>`, four inline `<script>` blocks, no external references at all. That is the product's defining property and it is the one thing a Forge Custom UI iframe will not serve — its CSP blocks both, **silently**. The page renders with the browser's default stylesheet, none of its JavaScript runs, and it looks like a broken build rather than a blocked one.
+
+`make forge-static` therefore runs `build.py --split` rather than copying `dist/`. Same four sources, linked instead of inlined:
+
+```
+forge/static/dashboard/build/
+  index.html      structure, with <link> and <script src>
+  styles.css      byte-identical to src/styles.css
+  app.js          byte-identical to src/app.js
+  import.js       byte-identical to src/import.js
+```
+
+Two assemblies of one set of sources, never two sources — `tests/test_service.py` asserts the byte-equality, that nothing inline survives, and that the shipped single file stays inlined.
+
+The JSON seed is still inline, as `type="application/json"`. It is data the page reads rather than script the browser executes, so a CSP should permit it. If it turns out not to, the symptom is a **styled page with no numbers on it**, and the fix is to fetch it rather than inline it.
+
 ### A deploy proves less than it looks like
 
 It proves the manifest is valid, the bundle builds and the static resources exist. It proves **nothing about permissions**, because at that point nothing has called Jira. Install the app and open the project page and you will see the dashboard rendering *Highpeak Commerce — Sprint 24 — Demo data*: a fictional company's 22 issues, inside your Jira, with the forecast tile showing its offline notice. That is not a fault. It is what "the static resource is staged but the bridge is unwritten" looks like.

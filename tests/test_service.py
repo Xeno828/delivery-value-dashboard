@@ -391,6 +391,51 @@ def test_forge_manifest_matches_the_code():
           "SCAFFOLD" in man.upper(), man.splitlines()[0][:60])
 
 
+def test_split_build_has_no_inline_assets():
+    """A Forge Custom UI iframe blocks inline <style> and <script>, silently.
+
+    The page renders with the browser's default stylesheet and none of its
+    JavaScript runs, which reads as a broken build rather than a blocked one —
+    it cost a deploy cycle to identify. `build.py --split` emits the same
+    sources as linked files instead.
+
+    The property asserted here is that the split output contains nothing inline
+    and that its assets are byte-identical to src/. The second half is the one
+    that matters: two assemblies of one set of sources, never two sources.
+    """
+    import shutil, subprocess, tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        r = subprocess.run([sys.executable, "build.py", "--split", tmp],
+                           cwd=str(ROOT), capture_output=True, text=True, timeout=120)
+        check("the split build runs", r.returncode == 0, (r.stderr or r.stdout)[-200:])
+        if r.returncode != 0:
+            return
+
+        html = (pathlib.Path(tmp) / "index.html").read_text()
+        inline_style = re.findall(r"<style[\s>]", html)
+        # A script with no src, unless it is the JSON seed the page reads as data
+        inline_script = re.findall(r"<script(?![^>]*(?:src=|type=\"application/json\"))", html)
+        check("the split page has no inline <style>", inline_style == [], inline_style)
+        check("the split page has no inline <script>", inline_script == [], inline_script)
+
+        for name in ("styles.css", "app.js", "import.js"):
+            emitted = pathlib.Path(tmp) / name
+            check("%s is emitted alongside" % name, emitted.exists(),
+                  "" if emitted.exists() else "missing from the split output")
+            if emitted.exists():
+                check("%s is byte-identical to src/" % name,
+                      emitted.read_bytes() == (ROOT / "src" / name).read_bytes(),
+                      "" if emitted.read_bytes() == (ROOT / "src" / name).read_bytes()
+                      else "the split build is transforming a source, not just moving it")
+            check("%s is linked from the page" % name, name in html,
+                  "" if name in html else "emitted but never referenced")
+
+        # The single-file build is the product and must stay inlined.
+        dist = (ROOT / "dist" / "delivery-value-dashboard.html").read_text()
+        check("the shipped single file is still fully inlined",
+              "<style" in dist and 'href="styles.css"' not in dist)
+
+
 def test_forge_app_dependencies():
     """This code runs inside a customer's Jira tenant, so what it depends on is
     a security question rather than a packaging one.
@@ -521,6 +566,8 @@ if __name__ == "__main__":
     test_auth_seam_fails_closed()
     print("the Forge manifest")
     test_forge_manifest_matches_the_code()
+    print("the split build")
+    test_split_build_has_no_inline_assets()
     print("the Forge app's dependencies")
     test_forge_app_dependencies()
     print("the container image")
