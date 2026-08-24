@@ -1,7 +1,7 @@
 BUNDLE ?= data/demo-intake-bundle.json
 BOARD  ?= 42
 
-.PHONY: build check test test-agent test-a11y test-security test-service perf report intake intake-scale intake-sequence demo serve serve-live serve-calc forge-static bundle fetch clean
+.PHONY: build check test test-agent test-a11y test-security test-service perf report intake intake-scale intake-sequence demo serve serve-live serve-calc forge-static forge-lint forge-deploy bundle fetch clean
 
 build:            ## assemble dist/delivery-value-dashboard.html from src/
 	python3 build.py
@@ -71,8 +71,16 @@ forge-static: build  ## stage dist/ as the Forge app's static resource
 	@mkdir -p forge/static/dashboard/build
 	@cp dist/delivery-value-dashboard.html forge/static/dashboard/build/index.html
 	@echo "staged forge/static/dashboard/build/index.html"
-	@echo "  run this before 'forge lint' or 'forge deploy' — the manifest"
-	@echo "  references the path and lint reports it missing, not unbuilt."
+
+# Staging and linting as one target, because forgetting the first makes the
+# second report a broken manifest rather than an unbuilt one — and because the
+# Makefile lives at the repository root while the CLI has to run in forge/,
+# which is its own small trap.
+forge-lint: forge-static  ## stage the static resource, then run forge lint
+	cd forge && forge lint
+
+forge-deploy: forge-static ## stage, then deploy to the development environment
+	cd forge && forge deploy -e development
 
 bundle:           ## regenerate the demo bundles (delivery + intake reference class)
 	python3 scripts/make_sample_bundle.py

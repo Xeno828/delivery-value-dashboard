@@ -23,21 +23,24 @@ Nothing here is required to use the product. OAuth 2.0 (3LO) in [`scripts/jira_a
 ```bash
 npm install -g @forge/cli
 forge login                     # opens a browser
-cd forge
-forge register                  # names the app and writes an id into manifest.yml
-forge lint
+cd forge && forge register      # names the app, writes an id into manifest.yml
+cd ..                           # the Makefile lives at the repository root
+make forge-lint                 # stages the static resource, then lints
 ```
 
 `forge lint` is the step that matters. It validates the manifest against the current schema, which is the thing this repository cannot check for itself.
+
+Two things that will otherwise cost you a few minutes each. The manifest references a static resource that `make forge-static` produces, and lint reports it as **missing** rather than unbuilt — `make forge-lint` stages it first, which is the only reason that target exists. And `make` has to run from the repository root while the CLI has to run inside `forge/`, so a bare `make forge-lint` from the wrong directory just says there is no such target.
 
 ### Then, before committing anything
 
 `forge register` writes an `app.id` into `manifest.yml`. **Do not commit it.** It ties the manifest to one developer's Atlassian account, and everyone who clones the repository afterwards gets a manifest pointing at somebody else's app.
 
 ```bash
-git diff forge/manifest.yml     # expect exactly one added line, the id
-git checkout forge/manifest.yml # then put it back
+git diff forge/manifest.yml     # the id, and whatever --fix rewrote
 ```
+
+Expect more than the id: `forge lint --fix` also rewrites the runtime and can add granular scopes. Keep those changes, drop the id line. The suite fails if an id reaches `HEAD`, but catching it there is worse than not committing it.
 
 `tests/test_service.py` fails if an app id is committed, so this is caught, but catching it after the fact is worse than not doing it.
 
@@ -45,13 +48,17 @@ Keep the registered id somewhere your team shares — a password manager or the 
 
 ### What lint will not tell you
 
-Three things have to agree with this repository, and a schema linter has no opinion on any of them. `tests/test_service.py` asserts all three on every push:
+Several things have to agree with this repository, and a schema linter has no opinion on any of them. `tests/test_service.py` asserts each on every push:
 
 | | Why |
 |---|---|
-| Scopes match `SCOPES` in `jira_auth.py` | Two routes seeing different issues is a bug that presents as a data problem |
+| Every scope is read-only | An app asking for write access to close a deal is one whose consent screen stops a security reviewer |
+| No scope outside a reviewed allow-list | Adding one should be a deliberate edit with a reason, not something a `--fix` run does quietly |
 | The egress `remote:` names a declared remote | A typo here fails at runtime, in a tenant, not at build time |
-| No write, manage or delete scope | An app asking for write access to close a deal is one whose consent screen stops a security reviewer |
+| The manifest's resource path is what `make forge-static` writes | Lint calls a missing resource a broken manifest, not an unbuilt one |
+| No app id in `HEAD` | Having one locally is correct; committing it points every clone at one developer's app |
+
+Note the allow-list rather than parity with `SCOPES` in `jira_auth.py`. Forge uses granular scopes (`read:issue-details:jira`) and the 3LO client uses classic ones (`read:jira-work`); the two are equivalent in intent and can never be equal as strings. The first version of that check matched a single colon only, so granular scopes were invisible to it — including, had one appeared, a granular write scope.
 
 ### Done when
 
