@@ -637,10 +637,16 @@ def test_forge_app_dependencies():
     # names the module rather than the omission.
     sources = [ROOT / "forge" / "src" / "index.js", ROOT / "forge" / "probe" / "probe.js",
                ROOT / "forge" / "bridge" / "bridge.js"]
+    # Both spellings. The bridge adapter is CommonJS on purpose — it has to
+    # catch the SDK failing to connect, which an `import` evaluated before any
+    # of its code cannot — so a check that only knew about `from '…'` would
+    # have gone quiet at exactly the moment a new dependency appeared.
     imported = set()
     for src in sources:
         if src.exists():
-            imported |= set(re.findall(r"from '(@forge/[\w-]+)'", src.read_text()))
+            text = src.read_text()
+            imported |= set(re.findall(r"from '(@forge/[\w-]+)'", text))
+            imported |= set(re.findall(r"require\(\s*'(@forge/[\w-]+)'", text))
     missing = sorted(imported - set(deps))
     check("every SDK package the resolver imports is declared",
           missing == [], missing or sorted(imported))

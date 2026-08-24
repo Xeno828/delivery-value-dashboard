@@ -211,6 +211,46 @@ def transports(b):
         finally:
             seeded.unlink(missing_ok=True)
 
+        # ---------- the real adapter, not the stub ----------
+        # Everything above uses a stub bridge, and a stub cannot fail the way
+        # the real one did: `@forge/bridge` connects to its host when it loads,
+        # and outside a Forge iframe that throws. As an ES import that aborted
+        # the adapter before it installed anything, and the only trace was an
+        # uncaught error in the console — the page just quietly had no
+        # transport. Inside a real iframe the same throw would read as a
+        # dashboard that is merely offline.
+        staged = ROOT / "forge" / "static" / "dashboard" / "build" / "bridge.js"
+        if not staged.exists():
+            # Reported, not skipped in silence. This needs `make forge-static`,
+            # which needs the Forge SDK installed under forge/.
+            check("the bundled adapter can be loaded (needs make forge-static)",
+                  False, "forge/static/dashboard/build/bridge.js is not staged")
+        else:
+            import functools, http.server, threading
+            H = functools.partial(http.server.SimpleHTTPRequestHandler,
+                                  directory=str(staged.parent))
+            srv = http.server.ThreadingHTTPServer(("127.0.0.1", 8735), H)
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+            try:
+                errs, logs = [], []
+                page = b.new_page(viewport={"width": 1500, "height": 1000})
+                page.on("pageerror", lambda e: errs.append(str(e)))
+                page.on("console",
+                        lambda m: logs.append(m.text) if m.type == "error" else None)
+                page.goto("http://127.0.0.1:8735/index.html")
+                page.wait_for_timeout(1500)
+                check("the real adapter raises no uncaught error outside Forge",
+                      errs == [], [e[:90] for e in errs][:2])
+                check("and says why it did not install itself",
+                      any("Forge bridge did not initialise" in t for t in logs),
+                      [t[:70] for t in logs][:2])
+                check("so the page falls back rather than believing it is connected",
+                      page.evaluate("() => window.DVD.debug.transport()") == "loopback",
+                      page.evaluate("() => window.DVD.debug.transport()"))
+                page.close()
+            finally:
+                srv.shutdown()
+
         # The point of all of it.
         for field in ("foot", "kpis", "contexts", "issues", "ctx"):
             check("the two transports render the same %s" % field,
