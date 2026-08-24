@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 2,
+  "meta": {
+    "organisation": "",
+    "team": "",
+    "sprintName": "No sprint loaded",
+    "source": "forge",
+    "sourceLabel": "this site's Jira — nothing loaded yet",
+    "currency": ""
+  },
+  "issues": [],
+  "burndown": [],
+  "history": [],
+  "releases": [],
+  "dora": null
+}

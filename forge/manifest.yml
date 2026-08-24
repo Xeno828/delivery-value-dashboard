@@ -1,16 +1,20 @@
-# Forge app manifest — SCAFFOLD, NOT WIRED UP.
+# Forge app manifest.
 #
-# This is the second of the two routes in roadmap item 1. The working route is
-# OAuth 2.0 (3LO) in scripts/jira_auth.py, which is live and tested. This
-# directory exists so the Forge option stays a decision rather than a rewrite,
-# and so the scope list and the resolver boundary are written down while the
-# reasons are fresh.
+# This is the second of the two routes in roadmap item 1. The other is OAuth
+# 2.0 (3LO) in scripts/jira_auth.py, which is live and tested and is not going
+# away — it needs no app registration and is the right thing for pulling your
+# own board.
 #
-# It has never been deployed, and no app has been registered. The resolver it
-# points at is real — it projects, calls the calculator and re-attaches the
-# summaries — but the Forge-specific syntax below has never been run through
-# `forge lint`. Check it against current Atlassian docs before trusting it;
-# platform manifest schemas move. See forge/README.md.
+# What is real: the app is registered, `forge lint` is clean, and it deploys to
+# development and installs on a dev site. The dashboard renders inside the
+# iframe and reads the tenant's own boards, sprints and issues over the bridge
+# in forge/bridge/bridge.js.
+#
+# What is not: the hosted calculator. `remotes[0].baseUrl` below still points at
+# `.invalid` and no environment has been provisioned, so the forecast and the
+# ask-sequencing answer with a refusal naming that. tests/test_service.py ties
+# the two together, so a real baseUrl with the refusal still in place — or the
+# reverse — fails rather than shipping.
 
 modules:
   jira:projectPage:
@@ -45,16 +49,16 @@ modules:
       function: resolver
       interval: week
 
-# Produced by `make forge-static`, which stages dist/ into this path. It is
-# git-ignored: it is a copy of an artefact this repository already commits, and
-# a second copy is a second thing that can go stale. Build before you lint or
-# deploy — `forge lint` reports a missing resource, not a missing build step.
+# Produced by `make forge-static`. Both paths are git-ignored: they are built
+# from sources this repository already commits, and a second copy is a second
+# thing that can go stale. Build before you lint or deploy — `forge lint`
+# reports a missing resource, not a missing build step.
 #
-# Staging it makes the page render. It does not make the page work: the built
-# file reaches live mode over same-origin `api/*`, and inside a Forge iframe
-# there is no such endpoint. Until the resolver is wired to the bridge the
-# forecast tile shows its offline notice, which is the honest failure but not a
-# shippable one.
+# `main` is not a copy of dist/. It is `build.py --split`, because this iframe's
+# CSP blocks inline style and script; it is seeded from forge/seed.json rather
+# than the demo dataset, because the tenant's own sprints are the point; and it
+# links forge/bridge/bridge.js ahead of app.js, which is how the page finds a
+# transport without importing one.
 resources:
   - key: main
     path: static/dashboard/build
@@ -98,16 +102,47 @@ permissions:
     - read:issue-details:jira
     - read:jira-work
     - read:jira-user
+    # Added deliberately, and it is the scope this app removed once already.
+    #
+    # A `boards` resolver was dropped from the connection check rather than
+    # granted this, on the grounds that it existed only to make a diagnostic
+    # more convenient. The note it left said: "if the real context picker ever
+    # needs to enumerate boards, read:project:jira is the price, and that is a
+    # decision to take on its own merits."
+    #
+    # This is that moment. The product's context picker offers the boards of
+    # the project the page is open in, and GET /rest/agile/1.0/board needs
+    # this. Without it the alternative is a page that opens empty and asks an
+    # end user to type a numeric board id, which is a diagnostic, not a
+    # product. Still read-only, still one line on the consent screen.
+    # ADR 0009 has the reasoning.
+    - read:project:jira
+    # Both demanded by `forge lint` for GET /board/{id}/sprint/{sid}/issue —
+    # the one call that reads a sprint's issues, which is the product. There is
+    # no cheaper endpoint: the board-issue endpoint returns what is on the
+    # board now, not what a closed sprint contained, and recovering the sprint
+    # from an issue means reading a custom field whose id differs per site.
+    #
+    # read:jql:jira looks broader than the rest and is worth understanding
+    # rather than waving through: that agile endpoint is JQL-backed underneath,
+    # so Atlassian requires the JQL read scope for it. It is still read-only,
+    # and this app issues no JQL of its own — the only queries it makes are the
+    # four routes in src/index.js, none of which takes a query from the page.
+    - read:sprint:jira-software
+    - read:jql:jira
 
 app:
   runtime:
     name: nodejs22.x
+
 # Egress costs the "Runs on Atlassian" badge. That is a real marketing loss
 # with no engineering answer, and it is the price of not having two
 # implementations of the forecast. It is written down in ADR 0008 so the
 # trade is a decision rather than a discovery at listing time.
 #
-# Deliberately absent: an `id`. Running `forge register` writes one, and it ties
-# this manifest to one developer's Atlassian account. Committing that id would
-# hand everyone who clones the repository a manifest pointing at somebody
-# else's app.
+# Deliberately absent from what is committed: an `id`. Running `forge register`
+# writes one, and it ties this manifest to one developer's Atlassian account.
+# Having one locally is the correct state for anyone who has registered;
+# committing it would hand everyone who clones the repository a manifest
+# pointing at somebody else's app. Strip it before `git add`, restore it after
+# — tests/test_service.py checks HEAD, not the working tree.

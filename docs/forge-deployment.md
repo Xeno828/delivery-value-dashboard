@@ -1,6 +1,6 @@
 # Finishing the Forge route
 
-Three things in the Forge work are unfinished, and all three are unfinished for the same reason: they need an account, a platform or a tool that the code cannot supply itself. Each section below is a runbook — what you need, what to do, and how to know it worked.
+Three things in the Forge work were unfinished, and all three for the same reason: they needed an account, a platform or a tool that the code cannot supply itself. Section 1 is now done and is kept as the runbook for the next person who registers their own app. Sections 2 and 3 are still open. Each is what you need, what to do, and how to know it worked.
 
 Nothing here is required to use the product. OAuth 2.0 (3LO) in [`scripts/jira_auth.py`](../scripts/jira_auth.py) is the working connection. This is the path to a Marketplace listing. Why the route is shaped this way: [ADR 0008](adr/0008-forge-calls-a-hosted-calculator.md).
 
@@ -8,9 +8,11 @@ Nothing here is required to use the product. OAuth 2.0 (3LO) in [`scripts/jira_a
 
 ---
 
-## 1. Register the app and lint the manifest
+## 1. Register the app and lint the manifest — done
 
-`forge/manifest.yml` has never been through `forge lint`, and no app has been registered. The Forge-specific syntax — the `remotes` block in particular — is written from documentation rather than from a successful run.
+The app is registered as **Shipping Forecast**, `forge lint` is clean, it deploys to `development` and installs on a dev site, and the dashboard inside the iframe reads that site's own boards, sprints and issues. The scopes are proven against real Jira rather than read off a documentation page.
+
+Everything below still applies to anyone registering their own app, because the id is per-developer and never committed.
 
 ### You need
 
@@ -86,7 +88,7 @@ Two things that look like evidence and are not. An app **absent from Settings �
 
 `dist/` is one self-contained file: one inline `<style>`, four inline `<script>` blocks, no external references at all. That is the product's defining property and it is the one thing a Forge Custom UI iframe will not serve — its CSP blocks both, **silently**. The page renders with the browser's default stylesheet, none of its JavaScript runs, and it looks like a broken build rather than a blocked one.
 
-`make forge-static` therefore runs `build.py --split` rather than copying `dist/`. Same four sources, linked instead of inlined:
+`make forge-static` therefore runs `build.py --split` rather than copying `dist/`. Same four sources, linked instead of inlined, plus the transport adapter and a different seed:
 
 ```
 forge/static/dashboard/build/
@@ -94,17 +96,29 @@ forge/static/dashboard/build/
   styles.css      byte-identical to src/styles.css
   app.js          byte-identical to src/app.js
   import.js       byte-identical to src/import.js
+  bridge.js       forge/bridge/bridge.js, bundled; linked ahead of app.js
 ```
 
 Two assemblies of one set of sources, never two sources — `tests/test_service.py` asserts the byte-equality, that nothing inline survives, and that the shipped single file stays inlined.
 
 The JSON seed is still inline, as `type="application/json"`. It is data the page reads rather than script the browser executes, so a CSP should permit it. If it turns out not to, the symptom is a **styled page with no numbers on it**, and the fix is to fetch it rather than inline it.
 
-### A deploy proves less than it looks like
+### The bridge, and why the page does not know it is on Forge
 
-It proves the manifest is valid, the bundle builds and the static resources exist. It proves **nothing about permissions**, because at that point nothing has called Jira. Install the app and open the project page and you will see the dashboard rendering *Highpeak Commerce — Sprint 24 — Demo data*: a fictional company's 22 issues, inside your Jira, with the forecast tile showing its offline notice. That is not a fault. It is what "the static resource is staged but the bridge is unwritten" looks like.
+The dashboard reaches live data through a transport it discovers rather than one it imports. Over `http(s)` that is a same-origin `GET api/…` answered by `serve_live.py`; inside this iframe there is no same-origin `api/` at all, so `forge/bridge/bridge.js` puts an `invoke()` on `window.__DVD_BRIDGE__` before the page loads and the page uses that. [ADR 0009](adr/0009-one-contract-two-transports.md) has the reasoning; the parts that will cost you an afternoon otherwise:
+
+- **The adapter must be a classic script, linked before `app.js`.** `app.js` decides at load which transport it has. An ES module is deferred, so a module adapter sets the global *after* that decision — and the symptom is a page that silently believes it is offline, which looks exactly like a broken resolver. `make forge-static` bundles it `--format=iife` and `build.py --split --bridge` places the tag.
+- **The Forge build is not seeded with the demo dataset.** It uses `forge/seed.json`, which is empty. The tenant's own sprints are the point, and Highpeak Commerce's would otherwise sit in the picker beside them — one click from being read as the customer's own numbers. The page carries one placeholder context until the bridge answers and then opens on the site's newest sprint.
+- **The resolvers return `{status, body}`, not a body.** The body is the contract `serve_live.py` defines; the status is what the same answer would have carried over HTTP, because a 404 for a sprint this site does not have and a failure to answer at all are different things and the page says different words for each.
+- **What the bridge does not carry is deliberate and is written down.** No `statusCategory` (the page categorises under its own config), no `started` (recognising an "In Progress" transition needs that config), no burndown series (that is Python, and Python is not running here). Each degrades to a sentence on the page rather than a zero. `addedMidSprint` is the exception that is computed, because false-by-default is not a silence — it is the claim that nothing was added, and the health score scores it as full marks.
+
+### A deploy still proves less than it looks like
+
+It proves the manifest is valid, the bundle builds and the static resources exist. It proves **nothing about permissions**, because at that point nothing has called Jira. A scope that is wrong fails at runtime, in a tenant.
 
 ### So there is a second page: the connection check
+
+It was written to be deleted once the real bridge existed. It has been kept, and the reason changed rather than the plan being forgotten: it is the only thing that shows the outbound payload for one issue, and it is how you find out that `customfield_10016` is not this site's story-point field — `storyPoints` missing from the projected payload in section 3 is that diagnosis and there is no other.
 
 **Shipping Forecast — connection check** appears under Jira settings → Apps. It is not the product; it makes the calls a deploy leaves untested:
 
@@ -122,11 +136,15 @@ It is an **admin** page, not a second project page, for two reasons. Forge permi
 
 It also degrades honestly. Outside a Forge iframe `invoke()` neither resolves nor rejects — it waits — so every call has a fifteen-second timeout and says so. The first version sat on *checking* indefinitely, which is the least useful thing a diagnostic can do.
 
-Delete `forge/probe/`, its `connection-check` module and the three probe resolvers once the real bridge exists. They are marked as deletable in all three places.
+Kept rather than deleted, per the note above. If it does go, take `forge/probe/`, the `connection-check` module and the two probe resolvers together.
+
+### After a scope change, reinstall
+
+Adding the context picker added `read:project:jira`, `read:sprint:jira-software` and `read:jql:jira`. `forge lint` reports a scope change as a major version upgrade, and Jira does not widen an existing consent on its own — so after deploying, uninstall and install again rather than upgrading. The failure has no error message: the page renders and every Jira call comes back 403.
 
 ### Done when
 
-`forge install` succeeds and all four sections of the connection check are green. That is the point at which the declared scopes are known to be sufficient — and the point at which the scope-narrowing decision below can actually be taken.
+`forge install` succeeds, all four sections of the connection check are green, and the project page shows **your** boards in the picker rather than a placeholder. That is the point at which the declared scopes are known to be sufficient.
 
 ---
 

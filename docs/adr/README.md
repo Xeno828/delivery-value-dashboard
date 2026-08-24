@@ -1,6 +1,6 @@
 # Decision records
 
-Eight decisions that explain why the product is shaped the way it is. Each one exists because the alternative was tried, argued for, or nearly shipped — none of them is a statement of general principle.
+Nine decisions that explain why the product is shaped the way it is. Each one exists because the alternative was tried, argued for, or nearly shipped — none of them is a statement of general principle.
 
 Read these before proposing a change that a constraint in `CLAUDE.md` appears to block. The constraint is the rule; the record is the reason, and the reason is what tells you whether your case is the exception.
 
@@ -14,6 +14,7 @@ Read these before proposing a change that a constraint in `CLAUDE.md` appears to
 | [0006](0006-forecast-in-items-not-points.md) | Forecasts count items, never story points | Six point-observations pretending to be a distribution |
 | [0007](0007-refuse-rather-than-widen.md) | Below the evidence thresholds, refuse rather than widen the interval | An interval so wide it is technically true and practically useless |
 | [0008](0008-forge-calls-a-hosted-calculator.md) | If we ship on Forge, Forge calls a hosted calculator | A second Monte Carlo, written in JavaScript |
+| [0009](0009-one-contract-two-transports.md) | Live mode has two transports and one set of body shapes | A page that behaves differently depending on how it was reached |
 
 ## Writing a new one
 

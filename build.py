@@ -10,6 +10,7 @@ is one file anyone can open, audit or email.
     python3 build.py --data data/x.json   # bake a different dataset in
     python3 build.py --check              # verify the build is reproducible
     python3 build.py --split DIR          # the same sources, NOT inlined
+    python3 build.py --split DIR --bridge b.js   # ... plus a transport adapter
 
 Two assemblies, one set of sources
 ----------------------------------
@@ -78,7 +79,7 @@ SPLIT_ELEMENTS = [
 ]
 
 
-def build_split(data_path: pathlib.Path, out_dir: pathlib.Path):
+def build_split(data_path: pathlib.Path, out_dir: pathlib.Path, bridge: str = None):
     """The same sources as separate files, for a host that forbids inline assets.
 
     The seed stays inline. It is `type="application/json"`, so it is data the
@@ -100,14 +101,33 @@ def build_split(data_path: pathlib.Path, out_dir: pathlib.Path):
         sys.exit("unsubstituted placeholders remain: %s"
                  % ", ".join(sorted(set(re.findall(r"@@\w+@@", html)))))
 
+    # One extra linked script, ahead of the page's own.
+    #
+    # A host with no same-origin `api/` has to hand the page a transport, and
+    # src/app.js looks for one on the window rather than importing anything —
+    # it is the shipped product and stays dependency-free. The adapter must be
+    # a classic script and must be linked *before* app.js, because app.js
+    # decides at load whether it has a transport, and a script arriving
+    # afterwards is a script arriving too late.
+    #
+    # Named rather than hard-coded: this file knows there is an adapter, not
+    # what platform it adapts to.
+    if bridge:
+        tag = '<script src="app.js"></script>'
+        if tag not in html:
+            sys.exit("the split build cannot place %s — the app.js tag is not where "
+                     "it was written" % bridge)
+        html = html.replace(tag, '<script src="%s"></script>\n  %s' % (bridge, tag), 1)
+
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "index.html").write_text(html, encoding="utf-8")
     for name, body in written:
         (out_dir / name).write_text(body, encoding="utf-8")
 
     total = len(html) + sum(len(b) for _, b in written)
-    print("Split build -> %s — %d files, %d KB, %d issues baked in"
-          % (out_dir, len(written) + 1, total / 1024, len(data["issues"])))
+    print("Split build -> %s — %d files, %d KB, %d issues baked in%s"
+          % (out_dir, len(written) + 1, total / 1024, len(data["issues"]),
+             (", linking %s ahead of app.js" % bridge) if bridge else ""))
 
 
 def main():
@@ -120,11 +140,18 @@ def main():
     ap.add_argument("--split", metavar="DIR",
                     help="write the same sources as separate linked assets, for a "
                          "host whose CSP forbids inline style and script")
+    ap.add_argument("--bridge", metavar="SRC",
+                    help="split builds only: link this script immediately before "
+                         "app.js, so a host can install a transport on the window "
+                         "before the page looks for one")
     args = ap.parse_args()
 
     if args.split:
-        build_split(ROOT / args.data, pathlib.Path(args.split))
+        build_split(ROOT / args.data, pathlib.Path(args.split), args.bridge)
         return
+    if args.bridge:
+        sys.exit("--bridge applies to --split only. The single-file build links "
+                 "nothing; that is the property it exists to have.")
 
     html = build(ROOT / args.data)
     out = pathlib.Path(args.out)

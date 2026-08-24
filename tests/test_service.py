@@ -322,6 +322,17 @@ def test_forge_manifest_matches_the_code():
         "read:jira-user",                  # classic: display names on thecharts
         "read:issue-details:jira",         # granular equivalent of the issue read
         "read:board-scope:jira-software",  # granular: the board the resolver pages
+        # The three the context picker cost, each demanded by `forge lint` for a
+        # call the product cannot do without. read:project:jira enumerates the
+        # boards of the project the page is open in — the scope this app removed
+        # from the connection check rather than granted, taken now on its own
+        # merits (ADR 0009). The other two are what GET
+        # /board/{id}/sprint/{sid}/issue requires; that agile endpoint is
+        # JQL-backed underneath, which is why a JQL read appears in an app that
+        # issues no JQL of its own.
+        "read:project:jira",
+        "read:sprint:jira-software",
+        "read:jql:jira",
     }
     check("no scope outside the reviewed allow-list",
           set(scope_strs) <= ALLOWED, sorted(set(scope_strs) - ALLOWED) or "none")
@@ -385,10 +396,23 @@ def test_forge_manifest_matches_the_code():
                             "even though a browser renders it fine")
 
 
-    # The scaffold must keep saying so; a manifest that quietly looks finished
-    # is one somebody deploys.
-    check("the manifest still declares itself a scaffold",
-          "SCAFFOLD" in man.upper(), man.splitlines()[0][:60])
+    # This used to assert the word SCAFFOLD appeared, so a manifest that looked
+    # finished could not quietly be deployed. It stopped being true the moment
+    # the app was registered, deployed and reading a tenant's own boards — and a
+    # check that forces a false word into a file is worse than no check.
+    #
+    # What is still unfinished is nameable instead, and can be tied to the code
+    # rather than to prose: the calculator has no host, `remotes[0].baseUrl`
+    # says `.invalid`, and the forecast resolvers answer with a refusal that
+    # says so. Asserted as a biconditional, because both directions are a bug —
+    # a real baseUrl with the refusal still in place is a forecast tile that
+    # stays dark for no reason anybody can see.
+    idx = (ROOT / "forge" / "src" / "index.js").read_text()
+    placeholder = ".invalid" in man
+    refuses = "NO_CALCULATOR" in idx
+    check("an unhosted calculator and a refusing forecast go together",
+          placeholder == refuses,
+          "manifest says unhosted=%s, resolver refuses=%s" % (placeholder, refuses))
 
 
 def test_split_build_has_no_inline_assets():
@@ -436,6 +460,157 @@ def test_split_build_has_no_inline_assets():
               "<style" in dist and 'href="styles.css"' not in dist)
 
 
+def _serve_live_bodies(port=8731):
+    """What `scripts/serve_live.py` really puts on the wire, for both routes.
+
+    The envelope for `api/contexts` is built inside the request handler rather
+    than by a backend method, so reading it means going through a socket. It is
+    the contract, so it is read from where the contract lives.
+    """
+    import time
+    import urllib.request
+
+    proc = subprocess.Popen(
+        [sys.executable, str(ROOT / "scripts" / "serve_live.py"),
+         "--bundle", "data/sample-bundle.json", "--port", str(port)],
+        cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        base = "http://127.0.0.1:%d/" % port
+        deadline = time.time() + 20
+        while True:
+            try:
+                with urllib.request.urlopen(base + "api/contexts", timeout=2) as r:
+                    contexts = json.loads(r.read())
+                break
+            except Exception:
+                if time.time() > deadline or proc.poll() is not None:
+                    return None, None
+                time.sleep(0.2)
+        cid = contexts["contexts"][0]["id"]
+        with urllib.request.urlopen(base + "api/context?id=" + cid, timeout=10) as r:
+            context = json.loads(r.read())
+        return contexts, context
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
+def test_the_two_transports_answer_the_same_shape():
+    """One contract, two transports.
+
+    The page reaches live mode either over a same-origin GET answered by
+    `serve_live.py` or over `invoke()` answered by the Forge resolver. Which one
+    it has must not change what it renders, so the *bodies* the two produce have
+    to be the same shape — the status a reply carries is transport-level and
+    each supplies its own, but the body is the product.
+
+    The Forge half is `forge/src/jira.js`, kept free of the SDK and of the
+    network precisely so it can be run here. `tests/forge_shapes.mjs` drives it
+    over a synthetic Jira response and prints what the bridge would return.
+
+    A key that appears on one side and not the other is the whole failure mode:
+    the page reads `j.burndown` and gets undefined, draws nothing, and the
+    difference is a chart that is missing rather than an error anybody sees.
+    """
+    node = subprocess.run(["node", str(ROOT / "tests" / "forge_shapes.mjs")],
+                          cwd=str(ROOT), capture_output=True, text=True, timeout=60)
+    if node.returncode != 0:
+        # Reported, never skipped silently. A parity check that quietly did not
+        # run reads exactly like one that passed.
+        check("the Forge shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    forge = json.loads(node.stdout)
+
+    live_contexts, live_context = _serve_live_bodies()
+    if live_contexts is None:
+        check("the live server answers, to compare against", False,
+              "serve_live.py did not come up")
+        return
+
+    check("api/contexts and the contexts resolver return the same envelope",
+          sorted(live_contexts) == sorted(forge["contexts"]),
+          {"live": sorted(live_contexts), "forge": sorted(forge["contexts"])})
+
+    check("api/context and the context resolver return the same envelope",
+          sorted(live_context) == sorted(forge["context"]),
+          {"live": sorted(live_context), "forge": sorted(forge["context"])})
+
+    # The context entry is the object the page merges into its own list and
+    # keys everything else on. Two fields are compared out, and both are
+    # properties of a bundle rather than of the contract:
+    #
+    #   workingDays  which days are worked is organisation config. The bundle
+    #                backend strips it for the same reason the resolver never
+    #                builds it — a third place resolving it is the divergence
+    #                the config exists to prevent.
+    #   doneCount    written when a bundle is built. Neither live backend emits
+    #                it; the page counts done items out of the issues it holds,
+    #                and `m.doneCount` is that count, not this field.
+    #
+    # Anything else missing is a real gap, and the symptom is a picker entry
+    # with a blank where a board name should be.
+    live_entry = live_contexts["contexts"][0]
+    forge_entry = forge["contexts"]["contexts"][0]
+    missing = sorted(set(live_entry) - set(forge_entry) - {"workingDays", "doneCount"})
+    check("the Forge context entry carries every field the live one does",
+          missing == [], missing)
+
+    # And the id format, because the page hands it straight back to `context`.
+    # Two formats would be two products.
+    check("both build the same context id shape",
+          re.fullmatch(r"[^/]+/\d+/\d+", str(forge_entry["id"])) is not None
+          and re.fullmatch(r"[^/]+/[^/]+/[^/]+", str(live_entry["id"])) is not None,
+          {"live": live_entry["id"], "forge": forge_entry["id"]})
+    check("a malformed context id is refused rather than parsed",
+          all(parsed is None for _, parsed in forge["rejects"]),
+          [bad for bad, parsed in forge["rejects"] if parsed is not None])
+    check("an id round-trips through the resolver's parser",
+          forge["roundTrip"]["parsed"] == {"projectKey": "SFT", "boardId": "2", "sprintId": "43"},
+          forge["roundTrip"])
+
+    # The issue schema. The resolver plays the fetcher's part here, so what it
+    # emits has to be fields the page already reads — an invented name is a
+    # field nothing renders, and a missing one is a tile that quietly says zero.
+    #
+    # Checked against the page's own column list rather than against whichever
+    # fields one bundle happens to carry. `sample-bundle.json` has no `url` on
+    # its issues, and comparing to it would have called a schema field an
+    # invention.
+    app_js = (ROOT / "src" / "app.js").read_text()
+    cols = re.search(r"const ISSUE_COLS = \[(.*?)\];", app_js, re.S)
+    schema = set(re.findall(r'"(\w+)"', cols.group(1))) | {"contextId", "epicKey"}
+    forge_issue = forge["context"]["issues"][0]
+    invented = sorted(set(forge_issue) - schema)
+    check("the Forge issue invents no field the page does not read",
+          invented == [], invented)
+
+    # Absent on purpose, each with a reason written next to it in
+    # forge/src/jira.js: the page derives statusCategory under its own config,
+    # tags contextId itself on the way in, and says out loud that it has no
+    # start dates rather than reporting a flow efficiency built on a rule the
+    # resolver invented. This list changing is the thing to notice — it means a
+    # field stopped being sent and nothing said why.
+    live_issue = live_context["issues"][0]
+    absent = sorted(set(live_issue) & schema - set(forge_issue))
+    check("the fields the resolver leaves out are only the ones it explains",
+          absent == ["contextId", "started", "statusCategory"], absent)
+
+    # The one default that is a claim rather than a silence. False everywhere
+    # means "nothing was added mid-sprint", the health score reads it as full
+    # marks for scope stability, and nothing on the page says it was never
+    # measured.
+    added = [i["addedMidSprint"] for i in forge["context"]["issues"]]
+    check("addedMidSprint is read from the changelog, not defaulted",
+          added == [True, False], added)
+
+    check("the sprint cap keeps the newest, not the first Jira listed",
+          forge["cap"] == ["Sprint 24", "Sprint 23"], forge["cap"])
+
+
 def test_forge_app_dependencies():
     """This code runs inside a customer's Jira tenant, so what it depends on is
     a security question rather than a packaging one.
@@ -460,7 +635,8 @@ def test_forge_app_dependencies():
     # Both source trees: the resolver and the Custom UI probe import different
     # SDK packages, and a missing one fails at bundle time with an error that
     # names the module rather than the omission.
-    sources = [ROOT / "forge" / "src" / "index.js", ROOT / "forge" / "probe" / "probe.js"]
+    sources = [ROOT / "forge" / "src" / "index.js", ROOT / "forge" / "probe" / "probe.js",
+               ROOT / "forge" / "bridge" / "bridge.js"]
     imported = set()
     for src in sources:
         if src.exists():
@@ -568,6 +744,8 @@ if __name__ == "__main__":
     test_forge_manifest_matches_the_code()
     print("the split build")
     test_split_build_has_no_inline_assets()
+    print("one contract, two transports")
+    test_the_two_transports_answer_the_same_shape()
     print("the Forge app's dependencies")
     test_forge_app_dependencies()
     print("the container image")

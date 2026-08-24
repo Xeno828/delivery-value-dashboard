@@ -1,14 +1,33 @@
-# Forge scaffold
+# The Forge app
 
-**Not deployed. No app registered.** The working Jira connection is OAuth 2.0
-(3LO) — `scripts/jira_auth.py`, with `--auth oauth` on the fetcher. Nothing here
-is needed to use the product.
+**Registered, deployed to development, and reading a real tenant's data.** The
+other Jira connection is OAuth 2.0 (3LO) — `scripts/jira_auth.py`, with
+`--auth oauth` on the fetcher — and it is not going away: it needs no app
+registration and is the right thing for pulling your own board. Nothing here is
+needed to use the product.
 
 ## What this is for
 
 Roadmap item 1 says *"a Forge or Connect app"*, and the roadmap calls that the
 one genuinely open decision in phase 1. This directory exists so choosing Forge
-later is a decision rather than a rewrite.
+is a decision rather than a rewrite.
+
+## The four files
+
+| | |
+|---|---|
+| `manifest.yml` | Modules, resources, scopes and the egress declaration |
+| `src/index.js` | The resolvers. Talks to Jira, calls the calculator, computes nothing |
+| `src/jira.js` | The shaping, as pure functions of a Jira response. No SDK, no network — which is what lets `tests/test_service.py` run it and compare its output with the live server's |
+| `bridge/bridge.js` | The transport adapter. Puts an `invoke()` on `window.__DVD_BRIDGE__` so `src/app.js` can reach a resolver without importing anything |
+
+The last one is the seam, and [ADR 0009](../docs/adr/0009-one-contract-two-transports.md)
+is why it is shaped that way. `src/app.js` is the shipped product: dependency-free,
+no network call from `file://`, and it must not learn what Forge is. So the page
+looks for a transport on the window and this puts one there — bundled as a
+classic script (a module is deferred, and an adapter that arrives after the page
+has decided it is offline is an adapter that never ran) and linked only into the
+split build.
 
 ## The functionality is not the problem
 
@@ -41,19 +60,36 @@ the panel; `service/app.py` runs the same Python everything else runs.
 
 ## What is real here and what is not
 
-**Real, and tested:** `src/index.js` — the projection, the free-text assertion,
-the call to the calculator and the re-attachment by key. `tests/test_service.py`
-asserts the projection loses nothing a calculation reads, using the same field
-list this file uses.
+**Real:** the app is registered, `forge lint` is clean, it deploys to
+development and installs on a dev site, and the dashboard renders inside the
+iframe showing that site's own boards, sprints and issues. The scopes have been
+proven against real Jira rather than read off a documentation page.
 
-**Never run:** Forge itself. No app registered, nothing deployed, and
-`manifest.yml` has not been through `forge lint`. Platform manifest schemas
-move — check the Forge-specific syntax against current Atlassian docs before
-trusting it, particularly the `remotes` block and the invocation-token contract
-the calculator's auth would key off.
+**Real, and tested without Forge:** `src/jira.js` — every shape the bridge puts
+on the wire, compared field for field against a running `serve_live.py` in
+`tests/test_service.py`. And `src/index.js`'s projection, free-text assertion,
+calculator call and re-attachment by key, which `tests/test_service.py` asserts
+loses nothing a calculation reads.
 
-**Absent on purpose:** the app `id`. `forge register` writes one and it ties the
-manifest to a single Atlassian account.
+**Not hosted:** the calculator. `remotes[0].baseUrl` still says `.invalid` and
+no environment has been provisioned, so the forecast and the ask-sequencing
+answer with a refusal naming that reason. The test suite ties the two together,
+so a real `baseUrl` with the refusal still in place fails rather than shipping a
+tile that is dark for no visible reason.
+
+**Known, and it returns a plausible wrong number rather than failing:** story
+points are read from `customfield_10016`. That id differs per Jira site; the
+Python fetcher discovers it by display name, this hardcodes the common one. On a
+site that uses a different id every issue reads as zero points and the burndown
+flattens in points mode with nothing saying why. Items — the default unit
+everywhere, and the only unit the forecaster reads — are unaffected. Fixing it
+needs a field-read scope, so it is a decision rather than a patch, and the
+connection check shows it: `storyPoints` absent from the projected payload means
+the id is wrong for that site.
+
+**Absent on purpose from what is committed:** the app `id`. `forge register`
+writes one and it ties the manifest to a single Atlassian account. Having one
+locally is correct; strip it before `git add` and restore it after.
 
 ## If you take this route
 
@@ -61,14 +97,18 @@ Step-by-step runbooks for all of it, including what `forge lint` will not tell
 you: [docs/forge-deployment.md](../docs/forge-deployment.md).
 
 1. `npm install -g @forge/cli && forge login && forge register`
-2. Deploy `service/` somewhere and point `remotes[0].baseUrl` at it.
+2. Deploy `service/` somewhere and point `remotes[0].baseUrl` at it, then turn
+   the two refusals in `src/index.js` back into `compute()` calls — the
+   projection and re-attachment they need are already written and tested.
 3. Replace the calculator's shared-secret check with verification of the Forge
    invocation token. `service/app.py` uses a bearer secret today, which is
    honest and works, but the tenant-aware thing is the Atlassian-issued JWT.
-4. Build the dashboard into `static/dashboard/build`. `dist/` is a single
-   self-contained file so this is close to a copy — but a Forge iframe is not an
-   emailed file, and the security suite's no-network, no-storage assertions are
-   about the file, not about this.
+4. `make forge-static` builds the dashboard into `static/dashboard/build`. It
+   is **not** a copy of `dist/`: this iframe's CSP blocks inline style and
+   script, so `build.py --split` links them instead; the seed is `seed.json`
+   rather than the demo dataset, because the tenant's own sprints are the point
+   and a demo company's would sit in the picker beside them; and `--bridge`
+   links the adapter ahead of `app.js`.
 5. Keep the scopes in `manifest.yml` identical to `SCOPES` in
    `scripts/jira_auth.py`. Two routes seeing different issues is a bug that
    presents as a data problem.

@@ -24,7 +24,7 @@ The browser suites need Playwright (`pip install playwright && playwright instal
 
 ## Architecture in one paragraph
 
-`src/` is four files assembled by `build.py` into a single self-contained HTML file. `agent/tools/` is four dependency-free Python modules — `metrics.py` (facts), `forecast.py` (Monte Carlo on work that exists), `intake.py` (forecasting an ask before any of it exists), `orgconfig.py` (the per-organisation assumptions the other three read out of the dataset). `agent/SKILL.md` is the agent definition; it narrates what the tools return and computes nothing. `scripts/` fetches and generates data. `service/` is a stateless HTTP wrapper over those same tools, for a Forge build that cannot run Python — it computes nothing of its own. `tests/` is five suites. `forge/` is a scaffold: the resolver is real and tested, Forge itself has never run.
+`src/` is four files assembled by `build.py` into a single self-contained HTML file. `agent/tools/` is four dependency-free Python modules — `metrics.py` (facts), `forecast.py` (Monte Carlo on work that exists), `intake.py` (forecasting an ask before any of it exists), `orgconfig.py` (the per-organisation assumptions the other three read out of the dataset). `agent/SKILL.md` is the agent definition; it narrates what the tools return and computes nothing. `scripts/` fetches and generates data. `service/` is a stateless HTTP wrapper over those same tools, for a Forge build that cannot run Python — it computes nothing of its own. `tests/` is five suites. `forge/` is deployed: the app is registered, the dashboard renders inside the iframe and reads the tenant's own boards over the bridge in `forge/bridge/bridge.js`; the hosted calculator it would call for a forecast is not provisioned, so that one tile refuses and says why.
 
 ---
 
@@ -41,6 +41,8 @@ These are product decisions, not style. Violating one is a bug even when the tes
 **Nothing between the tools and a reader may do arithmetic either.** The rule below applies to the agent, and equally to `service/app.py` and the Forge resolver: they validate, delegate and pass figures through. `tests/test_service.py` asserts the service's answer equals the tool called directly, byte for byte. A wrapper that computes one percentage is a second implementation, and the day it disagrees, every number in the product becomes something to check rather than read.
 
 **The agent never does arithmetic.** Every figure in every report comes from a tool. This is enforced structurally — the tools emit numbers, the agent quotes them, the tests assert the tools agree with the dashboard. The moment the agent computes a percentage itself, nothing in the report is auditable and its entire value is gone.
+
+**Live mode has two transports and one set of body shapes.** The page asks four questions by route name and gets `{ok, status, body}` back, over a same-origin `GET` answered by `serve_live.py` or over an `invoke()` an adapter left on the window. The *bodies* are the contract and the Forge resolvers return them unchanged; the status is transport-level. `src/app.js` must never learn which it has, must never import `@forge/bridge`, and the adapter stays a separate script linked only into the split build. `docs/adr/0009-one-contract-two-transports.md`.
 
 **The built file makes zero network calls and uses zero browser storage.** No CDN, no fonts, no analytics, no `localStorage`, no cookies. The threat model is that this file gets emailed. The security suite asserts all of it.
 
@@ -93,6 +95,7 @@ These are product decisions, not style. Violating one is a bug even when the tes
 | Connecting a customer's Jira with OAuth | `docs/connecting-jira-asana.md` |
 | What a term means, and which words to avoid | `CONTEXT.md` |
 | Why Forge would call a hosted calculator | `docs/adr/0008-forge-calls-a-hosted-calculator.md` |
+| How the page reaches live data over two transports | `docs/adr/0009-one-contract-two-transports.md` |
 | Finishing the Forge route — the three unfinished pieces | `docs/forge-deployment.md` |
 | The decisions behind the constraints above | `docs/adr/` |
 

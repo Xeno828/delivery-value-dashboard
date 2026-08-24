@@ -53,6 +53,178 @@ def open_picker(page):
     page.wait_for_selector("#view-pop:not(.hidden)", timeout=5000)
 
 
+def transports(b):
+    """The two live-mode transports, and that the page cannot tell them apart.
+
+    Live mode reaches its answers either over a same-origin GET, answered by
+    scripts/serve_live.py, or over an invoke() an adapter left on the window —
+    which is what a Forge Custom UI iframe has, because it has no same-origin
+    `api/` at all. The page must not learn which it has.
+
+    So this drives the *same page* against the *same data* twice, once each
+    way, and compares what ends up on screen. The bridge run is fed the bodies
+    the loopback run really received, so a difference in the rendering can only
+    come from the transport itself. `tests/test_service.py` checks the other
+    half — that the Forge resolver builds those bodies in the first place.
+    """
+    import json
+    import subprocess
+    import time
+    import urllib.request
+
+    print("\n  transports")
+
+    # ---------- none: an emailed copy asks nothing ----------
+    page = b.new_page()
+    reqs = []
+    page.on("request", lambda r: reqs.append(r.url))
+    page.goto(DIST.as_uri())
+    page.wait_for_timeout(700)
+    check("a file:// copy has no transport at all",
+          page.evaluate("() => window.DVD.debug.transport()") is None)
+    check("and makes no request off the filesystem",
+          [u for u in reqs if not u.startswith("file://")] == [],
+          [u for u in reqs if not u.startswith("file://")][:3])
+    page.close()
+
+    port = 8734
+    proc = subprocess.Popen(
+        [sys.executable, str(ROOT / "scripts" / "serve_live.py"),
+         "--bundle", "data/sample-bundle.json", "--port", str(port)],
+        cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    url = "http://127.0.0.1:%d/dist/delivery-value-dashboard.html" % port
+    api = "http://127.0.0.1:%d/api/" % port
+    try:
+        deadline = time.time() + 20
+        while True:
+            try:
+                with urllib.request.urlopen(api + "contexts", timeout=2) as r:
+                    contexts_body = json.loads(r.read())
+                break
+            except Exception:
+                if time.time() > deadline or proc.poll() is not None:
+                    check("the live server comes up", False, "serve_live.py did not start")
+                    return
+                time.sleep(0.2)
+
+        cid = contexts_body["contexts"][0]["id"]
+        with urllib.request.urlopen(api + "context?id=" + cid, timeout=20) as r:
+            context_body = json.loads(r.read())
+
+        # A fingerprint of what the page decided, not of how it looks. The
+        # footer carries the issue count and the sprint count; the KPI strip
+        # carries the figures; the picker carries what is selectable.
+        # The footer ends with a wall-clock render time, which differs between
+        # two runs for reasons that are not the transport. Everything before it
+        # is the part that describes the data.
+        fingerprint = """() => ({
+            foot: document.querySelector('#foot').innerText.split('· rendered')[0],
+            kpis: document.querySelector('#kpis').innerText,
+            contexts: window.DVD.data.contexts.map(c => c.id).sort(),
+            issues: window.DVD.data.issues.length,
+            ctx: window.DVD.debug.view().ctx.id
+        })"""
+
+        # ---------- loopback ----------
+        page = b.new_page(viewport={"width": 1500, "height": 1000})
+        page.goto(url)
+        page.wait_for_timeout(400)
+        check("over http the page finds the loopback transport",
+              page.evaluate("() => window.DVD.debug.transport()") == "loopback",
+              page.evaluate("() => window.DVD.debug.transport()"))
+        # Selected through the page's own entry point, not by poking state, so
+        # the fetch really happens and the render is the one a user would get.
+        page.evaluate("id => window.DVD.debug.selectContext(id)", cid)
+        page.wait_for_timeout(1500)
+        loop_print = page.evaluate(fingerprint)
+        page.close()
+
+        # ---------- bridge ----------
+        stub = """
+        window.__DVD_BRIDGE__ = {
+          name: 'stub',
+          invoke: (route, params) => {
+            window.__stubCalls = (window.__stubCalls || []).concat(route);
+            const bodies = %s;
+            if (route === 'contexts') return Promise.resolve({status: 200, body: bodies.contexts});
+            if (route === 'context') {
+              return Promise.resolve(params.id === %s
+                ? {status: 200, body: bodies.context}
+                : {status: 404, body: {error: 'unknown context'}});
+            }
+            return Promise.resolve({status: 404, body: null});
+          }
+        };
+        """ % (json.dumps({"contexts": contexts_body, "context": context_body}),
+               json.dumps(cid))
+
+        page = b.new_page(viewport={"width": 1500, "height": 1000})
+        reqs = []
+        page.on("request", lambda r: reqs.append(r.url))
+        page.add_init_script(stub)
+        page.goto(url)
+        page.wait_for_timeout(400)
+        check("a bridge on the window wins over the same-origin fetch",
+              page.evaluate("() => window.DVD.debug.transport()") == "stub",
+              page.evaluate("() => window.DVD.debug.transport()"))
+        page.evaluate("id => window.DVD.debug.selectContext(id)", cid)
+        page.wait_for_timeout(1200)
+        bridge_print = page.evaluate(fingerprint)
+
+        check("nothing is fetched from api/ when a bridge is present",
+              [u for u in reqs if "/api/" in u] == [],
+              [u for u in reqs if "/api/" in u][:3])
+        # The forecast tile asks too, and gets a 404 from the stub — it is not
+        # what this is testing, but a route the page invented would be.
+        asked = set(page.evaluate("() => window.__stubCalls || []"))
+        check("the bridge was asked for both context routes",
+              {"contexts", "context"} <= asked, sorted(asked))
+        check("and for no route the loopback transport does not have",
+              asked <= {"contexts", "context", "forecast", "sequence"}, sorted(asked))
+        page.close()
+
+        # ---------- a file with no data of its own ----------
+        # This is the path a Forge install really takes: the split build is
+        # seeded from forge/seed.json, which carries no issues, so the page
+        # holds one placeholder context until the transport answers. Untested,
+        # it fails as a dashboard of nothing with the real sprints one click
+        # away and no reason on screen to click.
+        seeded = ROOT / "dist" / ".transport-test.html"
+        subprocess.run([sys.executable, "build.py", "--data", "forge/seed.json",
+                        "--out", str(seeded)], cwd=str(ROOT), check=True,
+                       capture_output=True)
+        try:
+            page = b.new_page(viewport={"width": 1500, "height": 1000})
+            page.goto("http://127.0.0.1:%d/dist/.transport-test.html" % port)
+            page.wait_for_timeout(2000)
+            ids = page.evaluate("() => window.DVD.data.contexts.map(c => c.id)")
+            check("an empty file drops its placeholder once the connection answers",
+                  "single" not in ids, ids[:3])
+            check("and opens on one of the connection's own sprints",
+                  page.evaluate("() => window.DVD.debug.view().ctx.id") in
+                  [c["id"] for c in contexts_body["contexts"]],
+                  page.evaluate("() => window.DVD.debug.view().ctx.id"))
+            check("with that sprint's issues actually loaded",
+                  page.evaluate("() => window.DVD.data.issues.length") > 0,
+                  page.evaluate("() => window.DVD.data.issues.length"))
+            page.close()
+        finally:
+            seeded.unlink(missing_ok=True)
+
+        # The point of all of it.
+        for field in ("foot", "kpis", "contexts", "issues", "ctx"):
+            check("the two transports render the same %s" % field,
+                  loop_print[field] == bridge_print[field],
+                  {"loopback": str(loop_print[field])[:120],
+                   "bridge": str(bridge_print[field])[:120]})
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
 def main():
     if not DIST.exists():
         sys.exit("build first: python3 build.py")
@@ -501,6 +673,9 @@ def main():
 
         check("no console errors", not console, console[:3])
         page.screenshot(path=str(ROOT / "tests" / "last-run.png"), full_page=True)
+
+        transports(b)
+
         b.close()
 
     print()

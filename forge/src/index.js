@@ -10,15 +10,22 @@
  * survives that. Nothing in this file computes a number.
  * See docs/adr/0008-forge-calls-a-hosted-calculator.md.
  *
- * Status: the projection, re-attachment and call plumbing below are real and
- * tested against the calculator (tests/test_service.py asserts the projection
- * loses nothing). What has never run is Forge itself — no app has been
- * registered and nothing has been deployed. Treat the manifest's Forge-specific
- * syntax as needing a check against current Atlassian docs.
+ * Status: the app is registered, deployed to development and installed on a
+ * dev site; `forge lint` is clean and the declared scopes have been proven
+ * against real Jira. The context path below — `contexts` and `context` — is
+ * what the dashboard reaches over the bridge, and it is the live one. The
+ * `forecast`, `facts` and `sequence` resolvers still point at a calculator
+ * that is not hosted anywhere, so they answer with the offline notice until
+ * `remotes[0].baseUrl` names a real deployment.
  */
 
 import Resolver from '@forge/resolver';
 import api, { route, fetch } from '@forge/api';
+
+import {
+  contextEntry, contextsBody, contextBody, contextId, parseContextId,
+  issueFrom, notFound, recentSprints,
+} from './jira.js';
 
 const resolver = new Resolver();
 
@@ -183,6 +190,224 @@ const compute = async (path, { boardId, orgConfig, meta, extra }) => {
 };
 
 /* ------------------------------------------------------------------------
+   The context path — what the dashboard itself asks for over the bridge.
+
+   These answer the same two questions `scripts/serve_live.py` answers over
+   `api/contexts` and `api/context?id=`, and they return the same body shapes.
+   One contract, two transports: a page that behaved differently depending on
+   how it was reached would be the divergence ADR 0005 exists to prevent, and
+   `tests/test_service.py` compares the two envelopes on every push.
+
+   The reply is wrapped as {status, body} because the page's transport wants
+   the thing an HTTP status carries — 404 for a sprint this site does not have
+   is a different answer from a failure, and the page says different words for
+   each. The *body* is the contract; the status is transport-level and each
+   transport supplies its own.
+   --------------------------------------------------------------------- */
+
+/** Sprints per board offered in the picker. The live server's default, for the
+ *  same reason: a forecast samples a team's recent history, not its whole life. */
+const SPRINTS_PER_BOARD = 6;
+
+/** A page count no real project reaches, so a Jira that stopped sending
+ *  `isLast` stops this rather than looping. It throws rather than returning
+ *  what it has — a truncated list of a customer's boards reads as a complete
+ *  one, and this repository has shipped that bug twice. */
+const MAX_PAGES = 20;
+
+/** Every page of an Agile list endpoint (`{values, isLast, total}`). */
+const pagedValues = async (routeAt, what) => {
+  const out = [];
+  let startAt = 0;
+  for (let page = 0; ; page += 1) {
+    if (page >= MAX_PAGES) {
+      throw new Error(
+        `${what}: more than ${MAX_PAGES} pages. ${out.length} were read and none are ` +
+        'reported, because a list cut short here would read as a complete one.',
+      );
+    }
+    const res = await api.asUser().requestJira(routeAt(startAt));
+    if (!res.ok) throw new Error(`${what}: Jira returned ${res.status}`);
+    const body = await res.json();
+    const values = body.values ?? [];
+    out.push(...values);
+    startAt += values.length;
+    if (!values.length || body.isLast === true) break;
+    if (typeof body.total === 'number' && startAt >= body.total) break;
+  }
+  return out;
+};
+
+/** Every issue in one sprint. `expand=changelog` is what makes addedMidSprint
+ *  real rather than false-by-default — see the note in jira.js about why that
+ *  particular default is a wrong answer rather than a missing one. */
+const fetchSprintIssues = async (boardId, sprintId) => {
+  const fields = [
+    'summary', 'issuetype', 'status', 'assignee', 'priority', 'parent',
+    'created', 'resolutiondate', 'duedate', 'labels', 'flagged',
+    'customfield_10016',
+  ].join(',');
+
+  const out = [];
+  let startAt = 0;
+  for (let page = 0; ; page += 1) {
+    if (page >= MAX_PAGES) {
+      throw new Error(
+        `issues in sprint ${sprintId}: more than ${MAX_PAGES} pages. ${out.length} were ` +
+        'read and none are reported — a sprint shown short is a burndown that is wrong.',
+      );
+    }
+    const res = await api.asUser().requestJira(
+      route`/rest/agile/1.0/board/${boardId}/sprint/${sprintId}/issue?startAt=${startAt}&maxResults=100&fields=${fields}&expand=changelog`,
+    );
+    if (!res.ok) throw new Error(`issues in sprint ${sprintId}: Jira returned ${res.status}`);
+    const body = await res.json();
+    const page_ = body.issues ?? [];
+    out.push(...page_);
+    startAt += page_.length;
+    if (!page_.length || startAt >= (body.total ?? startAt)) break;
+  }
+  return out;
+};
+
+/** Board metadata plus its recent sprints. A board with no sprints at all —
+ *  a kanban board — makes Jira refuse the sprint endpoint; that is a fact
+ *  about the board, not a failure, so it is reported and skipped rather than
+ *  taking the whole picker down with it. */
+const sprintsFor = async (board) => {
+  try {
+    return await pagedValues(
+      (startAt) => route`/rest/agile/1.0/board/${board.id}/sprint?state=active,closed&startAt=${startAt}&maxResults=50`,
+      `sprints on board ${board.id}`,
+    );
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Every sprint on every board of the project this page is open in.
+ *
+ * The project comes from Forge's own context rather than from the page, so the
+ * page sends nothing and cannot ask about a project it is not displayed in.
+ */
+resolver.define('contexts', async ({ context }) => {
+  const projectKey = context?.extension?.project?.key;
+  if (!projectKey) {
+    return {
+      status: 400,
+      body: {
+        error: 'This module was not opened on a Jira project, so there is no project '
+             + 'to read boards from. Nothing was queried.',
+      },
+    };
+  }
+
+  const boards = await pagedValues(
+    (startAt) => route`/rest/agile/1.0/board?projectKeyOrId=${projectKey}&startAt=${startAt}&maxResults=50`,
+    `boards in project ${projectKey}`,
+  );
+
+  const contexts = [];
+  let withoutSprints = 0;
+  for (const board of boards) {
+    const sprints = await sprintsFor(board);
+    if (sprints === null) { withoutSprints += 1; continue; }
+    for (const sprint of recentSprints(sprints, SPRINTS_PER_BOARD)) {
+      contexts.push(contextEntry(board, sprint));
+    }
+  }
+
+  // What was left out is said out loud, in the line the page prints in its
+  // footer. A picker quietly missing a board is indistinguishable from a
+  // project that does not have one.
+  const label = `Jira, project ${projectKey} — ${boards.length - withoutSprints} board`
+    + (boards.length - withoutSprints === 1 ? '' : 's')
+    + (withoutSprints ? `, ${withoutSprints} without sprints and not offered` : '');
+
+  return { status: 200, body: contextsBody(label, contexts) };
+});
+
+/**
+ * One sprint's issues.
+ *
+ * The id carries project, board and sprint, so nothing is held between calls.
+ * It is checked rather than trusted: the entry is rebuilt from what Jira says
+ * the board and sprint are, and if that does not reproduce the id the caller
+ * asked for, the answer is 404. A project key supplied by the page would
+ * otherwise label another project's board.
+ */
+resolver.define('context', async ({ payload, context }) => {
+  const asked = payload?.id;
+  const parsed = parseContextId(asked);
+  if (!parsed) return { status: 404, body: notFound(asked) };
+
+  const boardRes = await api.asUser().requestJira(
+    route`/rest/agile/1.0/board/${parsed.boardId}`,
+  );
+  if (boardRes.status === 404) return { status: 404, body: notFound(asked) };
+  if (!boardRes.ok) throw new Error(`board ${parsed.boardId}: Jira returned ${boardRes.status}`);
+  const board = await boardRes.json();
+
+  // Found through the board rather than by /sprint/{id} directly, so this
+  // needs no scope the contexts call does not already need — and so a sprint
+  // id from another board cannot be read through this one.
+  const sprints = await sprintsFor(board);
+  const sprint = (sprints ?? []).find((sp) => String(sp.id) === parsed.sprintId);
+  if (!sprint) return { status: 404, body: notFound(asked) };
+
+  const entry = contextEntry(board, sprint);
+  if (entry.id !== asked) return { status: 404, body: notFound(asked) };
+
+  const raw = await fetchSprintIssues(parsed.boardId, parsed.sprintId);
+  const issues = raw.map((r) => issueFrom(r, {
+    sprintStart: entry.startDate,
+    // Only so an issue key is a link. Absent, the page leaves it as text
+    // rather than guessing a host.
+    siteUrl: context?.siteUrl,
+  }));
+
+  return { status: 200, body: contextBody(entry, issues) };
+});
+
+/**
+ * The forecast and the sequencing, over the bridge.
+ *
+ * Both are computed by the hosted calculator, and no calculator is hosted —
+ * `remotes[0].baseUrl` in the manifest still points at `.invalid` and no
+ * environment has been provisioned. The honest answer is the tool's own
+ * refusal shape saying exactly that, not a number and not an error: the rest
+ * of the page is the tenant's real data and works.
+ *
+ * Delete these two the moment `CALCULATOR_URL` names a real deployment, and
+ * route them through `compute()` — the projection and re-attachment are
+ * already written and tested.
+ */
+const NO_CALCULATOR =
+  'The forecast is computed by a hosted calculator, and this installation has not '
+  + 'been pointed at one. Nothing was simulated. Everything else on this page is '
+  + "this site's own data.";
+
+resolver.define('forecast', () => ({
+  status: 200,
+  body: {
+    sprint_completion: { available: false, reason: NO_CALCULATOR },
+    capacity_to_target: { available: false, reason: NO_CALCULATOR },
+    next_commitment: { available: false, reason: NO_CALCULATOR },
+    asked: {}, sampled_from: {}, inputs: {},
+  },
+}));
+
+resolver.define('sequence', () => ({
+  status: 200,
+  body: {
+    available: false,
+    sentence: 'Ask sequencing is computed by a hosted calculator, and this installation '
+            + 'has not been pointed at one. Nothing was sequenced.',
+  },
+}));
+
+/* ------------------------------------------------------------------------
    Connection-check resolvers. Used only by forge/probe/, and deletable with
    it once the real bridge exists.
 
@@ -259,8 +484,13 @@ resolver.define('probeBoardIssues', async ({ payload }) => {
   };
 });
 
-resolver.define('forecast', ({ payload }) => compute('/v1/forecast', payload ?? {}));
+/* `facts` is the one resolver still wired to compute(). The projection, the
+   free-text assertion, the call and the re-attachment are real and tested
+   (tests/test_service.py); what is missing is a calculator to call and the
+   mapping from a context id to the board a calculation reads. When
+   CALCULATOR_URL names a real deployment, the two refusals above become
+   compute('/v1/forecast', …) and compute('/v1/sequence', …) with that
+   mapping, and nothing else here changes. */
 resolver.define('facts', ({ payload }) => compute('/v1/facts', payload ?? {}));
-resolver.define('sequence', ({ payload }) => compute('/v1/sequence', payload ?? {}));
 
 export const handler = resolver.getDefinitions();

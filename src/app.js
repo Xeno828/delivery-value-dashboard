@@ -272,7 +272,14 @@ function normalise(d) {
       sprintGoal: d.meta.sprintGoal || "",
       startDate: d.meta.startDate, endDate: d.meta.endDate,
       asOfDate: d.meta.asOfDate, workingDays: d.meta.workingDays || [],
-      issueCount: d.issues.length
+      issueCount: d.issues.length,
+      /* A file built with no data of its own — the Forge build is one, because
+         the tenant's sprints are the point and a demo company's are not. The
+         context exists so there is something to render before the connection
+         answers; probeLive() replaces it rather than listing it beside real
+         ones. A dataset that carries issues is never a placeholder, so a
+         genuinely empty sprint in a bundle keeps its place in the picker. */
+      placeholder: !d.issues.length
     }];
     d.defaultContextId = id;
     d.byContext = { single: {
@@ -1503,8 +1510,8 @@ function fcKey(id) {
 function fetchSequence(id) {
   if (S.seqPending[id]) return;
   S.seqPending[id] = true;
-  fetch("api/sequence?id=" + encodeURIComponent(id), { cache: "no-store" })
-    .then(r => (r.ok ? r.json() : (r.status === 404 ? { unknown: true } : null)))
+  LIVE.get("sequence", { id: id })
+    .then(r => (r.ok ? r.body : (r.status === 404 ? { unknown: true } : null)))
     .then(j => { S.sequences[id] = j || null; })
     .catch(() => { S.sequences[id] = null; })
     .then(() => { delete S.seqPending[id]; if (S.ctx === id) renderForecast(); });
@@ -1583,16 +1590,11 @@ function renderSequence(el, ctrl) {
 function fetchForecast(id, key) {
   if (S.fcPending[key]) return;
   S.fcPending[key] = true;
-  let url = "api/forecast?id=" + encodeURIComponent(id);
-  if (S.fcItems != null) url += "&items=" + encodeURIComponent(S.fcItems);
-  if (S.fcDate) url += "&date=" + encodeURIComponent(S.fcDate);
-  fetch(url, { cache: "no-store" })
-    .then(r => r.json().then(j => ({ ok: r.ok, status: r.status, j: j }))
-                       .catch(() => ({ ok: false, status: r.status, j: null })))
+  LIVE.get("forecast", { id: id, items: S.fcItems, date: S.fcDate })
     .then(res => {
-      S.forecasts[key] = res.ok ? res.j
+      S.forecasts[key] = res.ok ? res.body
         : res.status === 404 ? { unknown: true }
-        : { badInput: (res.j && res.j.error) || "the server rejected that input" };
+        : { badInput: (res.body && res.body.error) || "the server rejected that input" };
     })
     .catch(() => { S.forecasts[key] = null; })
     .then(() => { delete S.fcPending[key]; if (fcKey(S.ctx) === key) renderForecast(); });
@@ -2117,20 +2119,83 @@ addEventListener("resize", () => { clearTimeout(rafT); rafT = setTimeout(render,
 /* =====================================================================
    live mode — optional, and absent by default
    ---------------------------------------------------------------------
-   The page never talks to Jira or Asana. It talks to a small server on the
-   same origin, which someone has deliberately started (scripts/serve_live.py).
-   If nothing answers, everything below silently does not exist and the file
-   keeps working offline from whatever contexts were bundled into it.
+   The page never talks to Jira or Asana. It asks four questions of whatever
+   is on the other end of the transport below, and renders the answers. If
+   nothing is, everything here silently does not exist and the file keeps
+   working offline from whatever contexts were bundled into it.
    ================================================================== */
-async function probeLive() {
+
+/* --------------------------------------------------------------- transport
+   Two hosts, one set of questions.
+
+     loopback   a same-origin GET, answered by scripts/serve_live.py, when
+                somebody has deliberately started it over http(s)
+     bridge     an invoke() left on the window by an adapter loaded before
+                this file — inside a Forge Custom UI iframe there is no
+                same-origin `api/`, and nothing here knows that is why
+     none       an emailed copy on file://, which asks nothing at all
+
+   The page must not learn which it has, and the four call sites below do not
+   change shape between them. The *body* shapes are one contract, defined by
+   serve_live.py and returned unchanged by the Forge resolvers; a status is
+   transport-level, so each transport supplies its own. A page that behaved
+   differently depending on how it was reached is the divergence ADR 0005
+   exists to prevent.
+
+   This file does not import @forge/bridge and must not: dist/ is one file
+   with no dependencies that makes no network call from file://, and the
+   security suite asserts all three. The adapter is a separate script,
+   included only in the split build.
+   ------------------------------------------------------------------------ */
+const ROUTES = {
+  contexts: () => "api/contexts",
+  context: p => "api/context?id=" + encodeURIComponent(p.id),
+  sequence: p => "api/sequence?id=" + encodeURIComponent(p.id),
+  forecast: p => "api/forecast?id=" + encodeURIComponent(p.id) +
+    (p.items != null ? "&items=" + encodeURIComponent(p.items) : "") +
+    (p.date ? "&date=" + encodeURIComponent(p.date) : "")
+};
+
+/** The transport, chosen once at load. `get` resolves to {ok, status, body}
+ *  whichever it is; it rejects only when the host itself failed, which is the
+ *  normal case for loopback when no server is running. */
+const LIVE = (function () {
+  const b = window.__DVD_BRIDGE__;
+  if (b && typeof b.invoke === "function") {
+    // The adapter answers {status, body} — the resolver's reply, with the
+    // status it would have carried over HTTP. `ok` is derived in one place
+    // rather than in each adapter, so the two transports cannot disagree
+    // about what counts as an answer.
+    return {
+      name: b.name || "bridge",
+      get: (route, params) => Promise.resolve(b.invoke(route, params || {}))
+        .then(r => ({ ok: ((r && r.status) || 0) < 400,
+                      status: (r && r.status) || 0,
+                      body: r ? r.body : null }))
+    };
+  }
   // Only meaningful over http(s). On file:// the fetch is rejected at the
   // scheme level and the browser logs it regardless of any catch, so don't
   // ask — an emailed copy of this file should produce a silent console.
-  if (!/^https?:$/.test(location.protocol)) return;
+  if (/^https?:$/.test(location.protocol)) {
+    return {
+      name: "loopback",
+      get: (route, params) => fetch(ROUTES[route](params || {}), { cache: "no-store" })
+        .then(r => r.json().then(body => ({ ok: r.ok, status: r.status, body: body }))
+          // A body that is not JSON is not an answer. Keep the status: 404
+          // and 400 mean different things to the callers below.
+          .catch(() => ({ ok: false, status: r.status, body: null })))
+    };
+  }
+  return null;
+})();
+
+async function probeLive() {
+  if (!LIVE) return;
   try {
-    const r = await fetch("api/contexts", { cache: "no-store" });
+    const r = await LIVE.get("contexts");
     if (!r.ok) return;
-    const j = await r.json();
+    const j = r.body;
     if (!j || !Array.isArray(j.contexts)) return;
     S.live = { source: j.source || "server", label: j.label || "live server" };
 
@@ -2155,6 +2220,24 @@ async function probeLive() {
       S.data.byContext[c.id] = { burndown: [], history: [], releases: [], dora: null };
       added++;
     });
+    // A file with no data of its own opens on the connection's, rather than
+    // on the empty placeholder it was built with. Without this the first
+    // thing a Forge install shows is a dashboard of nothing, with the real
+    // sprints one click away and no reason on screen to click.
+    const ph = S.data.contexts.filter(c => c.placeholder);
+    if (added && ph.length) {
+      S.data.contexts = S.data.contexts.filter(c => !c.placeholder);
+      ph.forEach(c => { delete S.data.byContext[c.id]; });
+      const pick = j.contexts.find(c => c.sprintState === "active") || j.contexts[0];
+      const target = S.data.contexts.find(c => c.id === pick.id);
+      S.ctx = pick.id;
+      await loadContext(pick.id);
+      // loadContext clears .stub on success and renders. If it is still set
+      // the load failed and said so; draw the picker anyway, so the other
+      // sprints are reachable rather than the page sitting on its old paint.
+      if (target && target.stub) render();
+      return;
+    }
     if (added) render();
     else renderContextBar();
   } catch (e) { /* no server; this is the normal case */ }
@@ -2164,9 +2247,9 @@ async function loadContext(id) {
   const bar = $("#ctxbar");
   bar.classList.add("loading");
   try {
-    const r = await fetch("api/context?id=" + encodeURIComponent(id), { cache: "no-store" });
+    const r = await LIVE.get("context", { id: id });
     if (!r.ok) throw new Error("server returned " + r.status);
-    const j = await r.json();
+    const j = r.body;
     const ctx = S.data.contexts.find(c => c.id === id);
     if (ctx) { Object.assign(ctx, j.context || {}); delete ctx.stub; }
     const fresh = (j.issues || []).map(i => {
@@ -2221,6 +2304,10 @@ window.DVD = {
   statusCategoryOf: statusCategoryOf,
   /** Hooks for tests/perf.py. Not used by the page itself. */
   debug: {
+    /** Which transport live mode picked, or null for none. The page must
+     *  behave identically whichever it has, so the tests need to know which
+     *  one they are looking at. */
+    transport: () => (LIVE ? LIVE.name : null),
     contexts: () => selectableContexts(),
     view: () => S.view,
     tiles: () => [...S.shown],
@@ -2230,7 +2317,11 @@ window.DVD = {
     order: () => S.order.slice(),
     setOrder: ids => { S.order = normaliseOrder(ids); applyOrder(); syncTileUrl(); paintPicker(); },
     moveTile: (id, d) => moveTile(id, d),
-    selectContext: id => { S.ctx = id; render(); },
+    /* The real one, not a shortcut past it. Setting S.ctx directly skips the
+       fetch a stub context needs, so a test driving live mode through here
+       would assert against a sprint that was never loaded. Offline it behaves
+       exactly as the old shortcut did, because there is nothing to fetch. */
+    selectContext: id => selectContext(id),
     setFilter: (k, v) => { S.filters[k] = v; render(); },
     setUnit: u => { S.unit = u; render(); },
     render: () => render()

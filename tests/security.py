@@ -188,6 +188,22 @@ def source_checks():
           "localStorage" not in js and "sessionStorage" not in js)
     check("no external origin referenced by the built file",
           not re.search(r'(src|href)\s*=\s*["\']https?://', built))
+    # The Forge bridge is a separate script, and this is the assertion that
+    # keeps it that way. src/app.js discovers a transport on the window; the
+    # moment it imports one instead, dist/ stops being a file anyone can open
+    # from an email and the dependency-free claim above becomes false.
+    # Matched on the syntax rather than on the words: both files talk *about*
+    # imports in their comments, and a check that reads prose is a check that
+    # goes off for the wrong reason and gets deleted.
+    modules = (re.findall(r"^\s*import\s+[\w{*'\"]", js, re.M)
+               + re.findall(r"^\s*export\s+(?:default|const|let|var|function|class|\{)", js, re.M)
+               + re.findall(r"\brequire\s*\(\s*['\"]", js))
+    check("the page imports nothing", modules == [], modules[:3])
+    forge = re.findall(r"(?:from|require\s*\(\s*)['\"]@forge/[\w-]+", js)
+    check("no Forge SDK reaches the page's own sources", forge == [], forge)
+    # The single-file build must stay self-contained; the adapter belongs to
+    # the split build only.
+    check("and the built file links no adapter", "bridge.js" not in built)
     check("no inline event-handler attributes in the markup",
           not re.search(r'\son[a-z]+\s*=\s*["\']', (ROOT / "src" / "index.html").read_text()))
     # escaping discipline
