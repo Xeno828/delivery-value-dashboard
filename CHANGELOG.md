@@ -2,6 +2,9 @@
 
 ## 1.20.2
 
+**The calculator is hosted.** us-central1 and europe-west3, scale-to-zero, both refusing unauthenticated callers and both refusing issue text at the door. The forecast each region returns and the one `forecast.build()` returns when called directly are byte-identical — 5,825 bytes, three machines, two continents, one answer. That is the seeded Monte Carlo and the no-arithmetic-in-the-wrapper rule demonstrated rather than asserted, and it is the check worth having made: a wrapper that rounded a single percentile would have shown up here.
+
+
 **The service refused the correct credential, and could not have told you why.** `_verify_shared_secret` stripped the token it was *presented* and not the one it was *configured with*, so the two sides of the comparison were never comparable. Any secret store that appends a trailing newline — which is most of them, and every workflow built on `echo` or a piped `openssl rand` — produced a service that answered 401 to a caller sending exactly the right string, while looking perfectly configured from every angle an operator can see.
 
 **It shipped, and the wizard is what shipped it.** `service/provision-gcp.sh` piped `openssl rand -hex 32` straight into Secret Manager. `openssl` prints a newline after the hex, `--data-file=-` stores every byte it is given, and Cloud Run injected all sixty-five. The stored secret really did end `0a`, so from the service's side the credential genuinely did not match — there is no log line it could have written that would have pointed at the cause.

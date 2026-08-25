@@ -374,7 +374,18 @@ Nothing here can be half-done: `tests/test_service.py` fails both a real `baseUr
 
 1. **Provision Google Cloud: `bash service/provision-gcp.sh`.** Eight stages, and every one of them is something only a person with the billing account can do — project, APIs, a registry per region, two service accounts, the GitHub federation, and the one temporary secret. It ends by writing four repository variables with `gh`. Re-running it is free; every create is guarded by its own describe.
 2. **Push to `main`.** `.github/workflows/deploy.yml` builds the image, runs `service/smoke.sh`, runs `service/scan.sh`, and only then pushes to both regional registries and deploys. The scan policy (§11) and the weekly rebuild (§10) are in that workflow, so the first deployed image is one the policy has already passed — which is why this step is not "deploy, then add the gates later".
-3. **Confirm hosting on its own.** `curl` both `*.run.app` URLs for `/healthz`, then post a real dataset to `/v1/forecast` with the shared secret and check a figure comes back. Nothing about Forge is involved yet, so a failure here is hosting and only hosting.
+3. **Confirm hosting on its own.** Not `/healthz` — see §7. Post a real dataset to `/v1/forecast` with the shared secret and check a figure comes back. Nothing about Forge is involved yet, so a failure here is hosting and only hosting.
+
+**Steps 1 to 3 are done.** Project `calculator-506614`, deployed 2026-08-25:
+
+| Region | URL |
+|---|---|
+| us-central1 | `https://calculator-jtfw7qf4ea-uc.a.run.app` |
+| europe-west3 | `https://calculator-jtfw7qf4ea-ey.a.run.app` |
+
+Both refuse an unauthenticated caller with `401`, refuse a payload carrying `summary` with `400` and the sentence about it not being stored, and return a real forecast in 0.31s (EU) and 0.57s (US) — inside the 0.5s the costing assumed, on a warm instance.
+
+The check worth having made is stronger than "a figure came back". The forecast returned by **each region and by `forecast.build()` called directly are byte-identical**, all 5,825 of them. That is the seeded Monte Carlo holding across three machines in two continents, and it is the standing constraint — the service does no arithmetic — demonstrated rather than asserted. If a wrapper had rounded one percentile, this is where it would have shown.
 4. **Run `make forge-lint` and deploy to `development`.** The code changes in §3's table are already in — `invokeRemote`, `operations: [compute]`, the nested tenant claim — but nothing has linted them, and the removed `fetch` permission is the line to watch. The calculator tiles still refuse here, correctly, because `baseUrl` is still `.invalid`.
 5. **Confirm `FORGE_AUDIENCE` against the registered app id**, switch both services to `SERVICE_AUTH=forge-token`, and confirm they start.
 6. **The atomic commit**: region-pinned `baseUrl`, the offline refusals removed from the forecast and ask-sequencing resolvers, the corrected manifest comment. Deploy with `--approve MAJOR_VERSION_RULE`, then **uninstall and install** — not upgrade — because the `baseUrl` format change is a major version change and Jira does not widen an existing installation on its own.
