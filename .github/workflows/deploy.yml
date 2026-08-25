@@ -108,6 +108,42 @@ jobs:
           SHA="${{ steps.name.outputs.sha }}"
           DATE="${{ steps.name.outputs.date }}"
 
+          # ── which auth mode this deployment runs in ──────────────────────
+          #
+          # Three of the four values Atlassian's invocation token needs are the
+          # same for every Forge app, so they live here, with the date each was
+          # confirmed against Atlassian's own documentation. The fourth is this
+          # app's id, which is per-developer and must never be committed — it
+          # comes from a repository variable for exactly that reason, not
+          # because it is secret. docs/hosting-the-calculator.md Appendix A.
+          #
+          #   FORGE_JWKS_URL     confirmed 2026-08-25, and fetched live the same
+          #                      day: 6 RSA keys, every one alg=RS256 use=sig,
+          #                      kids prefixed `forge/invocation-token/`. That
+          #                      is independent corroboration of both the URL
+          #                      and the RS256 pin in service/app.py.
+          #   FORGE_ISSUER       confirmed 2026-08-25
+          #   FORGE_TENANT_CLAIM confirmed 2026-08-25 — nested, hence _claim_at
+          #
+          # The mode is chosen by whether FORGE_AUDIENCE is set, so unsetting
+          # that one variable and re-running this workflow rolls the whole
+          # deployment back to shared-secret. That matters while the four values
+          # have never been through a real token: the rollback is a variable, not
+          # a code change under pressure.
+          if [ -n "${{ vars.FORGE_AUDIENCE }}" ]; then
+            echo "auth: forge-token (tenant-aware; this service holds no secret)"
+            AUTH_ARGS=(
+              --set-env-vars="SERVICE_AUTH=forge-token,FORGE_JWKS_URL=https://forge.cdn.prod.atlassian-dev.net/.well-known/jwks.json,FORGE_ISSUER=forge/invocation-token,FORGE_AUDIENCE=${{ vars.FORGE_AUDIENCE }},FORGE_TENANT_CLAIM=app.installationId"
+              --clear-secrets
+            )
+          else
+            echo "auth: shared-secret (proving hosting; not tenant-aware)"
+            AUTH_ARGS=(
+              --set-env-vars="SERVICE_AUTH=shared-secret"
+              --set-secrets="SERVICE_SHARED_SECRET=calculator-shared-secret:latest"
+            )
+          fi
+
           for region in us-central1 europe-west3; do
             host="${region}-docker.pkg.dev"
             repo="${host}/${{ vars.GCP_PROJECT_ID }}/${AR_REPO}/${SERVICE}"
@@ -167,8 +203,7 @@ jobs:
               --memory=512Mi \
               --concurrency=1 \
               --timeout=30s \
-              --set-env-vars="SERVICE_AUTH=shared-secret" \
-              --set-secrets="SERVICE_SHARED_SECRET=calculator-shared-secret:latest" \
+              "${AUTH_ARGS[@]}" \
               --quiet
 
             url=$(gcloud run services describe "$SERVICE" --region="$region" \
@@ -213,11 +248,15 @@ jobs:
             echo "| us-central1 | ${URL_US_CENTRAL1:-not reported} |"
             echo "| europe-west3 | ${URL_EUROPE_WEST3:-not reported} |"
             echo
-            echo "Running \`SERVICE_AUTH=shared-secret\`, which is step 3 of"
-            echo "\`docs/hosting-the-calculator.md\` §13 — hosting proved on its"
-            echo "own, before Forge is anywhere near it. Step 5 switches both"
-            echo "services to \`forge-token\`, after which the shared secret is"
-            echo "deleted and the service holds no credential at all."
+            if [ -n "${{ vars.FORGE_AUDIENCE }}" ]; then
+              echo "Running \`SERVICE_AUTH=forge-token\`: tenant-aware, and this"
+              echo "service holds no credential of its own. Roll back by unsetting"
+              echo "the \`FORGE_AUDIENCE\` repository variable and re-running."
+            else
+              echo "Running \`SERVICE_AUTH=shared-secret\`, which is step 3 of"
+              echo "\`docs/hosting-the-calculator.md\` §13 — hosting proved on its"
+              echo "own, before Forge is anywhere near it."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   skipped:
