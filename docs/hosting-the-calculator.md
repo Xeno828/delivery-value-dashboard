@@ -280,6 +280,19 @@ What it does change is what a post-deploy probe can use, and this is the part wo
 
 The wider lesson is the one this repository keeps relearning: the failure was silent and it pointed at the wrong thing. The deploy succeeded, the revision was `Ready`, `allUsers` had `run.invoker`, ingress was `all`, DNS resolved, and the startup probe passed — every signal green, and one `curl` saying the service was dead. What settled it was reading the container's own stderr and finding `GET / -> 404` in the service's own log format: the request had arrived, so routing was never the problem.
 
+### The cold start, measured
+
+The budget above was written from documentation. One observation against the deployed service, taken 2026-08-25 on a revision created seconds earlier, so the instance was genuinely cold:
+
+| | Cold | Warm |
+|---|---|---|
+| us-central1 | **1.15 s** | 0.57 s |
+| europe-west3 | **0.39 s** | 0.31 s |
+
+Total wall time for a full `/v1/forecast` over TLS from a laptop, 92 issues, including the calculation itself. So the cold-start overhead is roughly half a second on top of the work, against a 25-second token life and a 25-second remote timeout. Comfortable — and the reason `min-instances=0` stays: the thing that would justify paying $9.86 a month per region to avoid cold starts is not happening.
+
+Two honest limits on that number. It is one observation each, not a distribution, and it was taken from a machine on a domestic connection rather than from Atlassian's infrastructure, so the network component is not the one Forge will see. What it does rule out is the failure that mattered — a platform slow enough to start that the invocation token expires before the answer is produced. Nothing here is within an order of magnitude of that.
+
 If p99 latency ever becomes a complaint, the fix is `min-instances=1` at $9.86/month/region (§4.2) — and it is worth knowing that the price of that fix is five times the entire bill before reaching for it.
 
 ---
@@ -383,7 +396,9 @@ Nothing here can be half-done: `tests/test_service.py` fails both a real `baseUr
 | us-central1 | `https://calculator-jtfw7qf4ea-uc.a.run.app` |
 | europe-west3 | `https://calculator-jtfw7qf4ea-ey.a.run.app` |
 
-Both refuse an unauthenticated caller with `401`, refuse a payload carrying `summary` with `400` and the sentence about it not being stored, and return a real forecast in 0.31s (EU) and 0.57s (US) — inside the 0.5s the costing assumed, on a warm instance.
+Both refuse an unauthenticated caller with `401`, refuse a payload carrying `summary` with `400` and the sentence about it not being stored, and return a real forecast in 0.31s (EU) and 0.57s (US) warm. Cold numbers are in §7.
+
+The shared secret is at version **2**; version 1 is disabled rather than destroyed. Version 1 is the one that carried the trailing newline described in the changelog for 1.20.2 — the same secret material, one byte longer. Both regions were cold-started with version 1 disabled to prove nothing still resolves it.
 
 The check worth having made is stronger than "a figure came back". The forecast returned by **each region and by `forecast.build()` called directly are byte-identical**, all 5,825 of them. That is the seeded Monte Carlo holding across three machines in two continents, and it is the standing constraint — the service does no arithmetic — demonstrated rather than asserted. If a wrapper had rounded one percentile, this is where it would have shown.
 4. **Run `make forge-lint` and deploy to `development`.** The code changes in §3's table are already in — `invokeRemote`, `operations: [compute]`, the nested tenant claim — but nothing has linted them, and the removed `fetch` permission is the line to watch. The calculator tiles still refuse here, correctly, because `baseUrl` is still `.invalid`.

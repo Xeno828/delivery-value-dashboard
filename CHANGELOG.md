@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.20.3
+
+**The cold start is measured rather than feared.** §7 argued from documentation that a slow-starting platform would be a correctness problem here and not merely a slow tile, because the Forge invocation token lives about 25 seconds and a cold start spends that budget. One observation each against the deployed service, on revisions created seconds earlier so the instances were genuinely cold: **1.15s** in us-central1 and **0.39s** in europe-west3, full `/v1/forecast` over TLS including the calculation. Roughly half a second of cold-start overhead against a twenty-five second budget. That is the argument for keeping `min-instances=0` and not paying $9.86 a month per region to avoid something that is not happening — and it is written down with its limits, since one observation from a domestic connection is not the network Forge will see.
+
+**The shared secret is on version 2, and version 1 is disabled rather than destroyed.** Version 1 is the one that carried the trailing newline. Version 2 is the same secret material, one byte shorter. Both regions were cold-started with version 1 disabled before it was left that way, so nothing still resolving it is a fact rather than an assumption. Disabled and not destroyed because disabling is reversible and there was no reason to need the stronger action.
+
 ## 1.20.2
 
 **The calculator is hosted.** us-central1 and europe-west3, scale-to-zero, both refusing unauthenticated callers and both refusing issue text at the door. The forecast each region returns and the one `forecast.build()` returns when called directly are byte-identical — 5,825 bytes, three machines, two continents, one answer. That is the seeded Monte Carlo and the no-arithmetic-in-the-wrapper rule demonstrated rather than asserted, and it is the check worth having made: a wrapper that rounded a single percentile would have shown up here.
