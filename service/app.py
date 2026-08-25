@@ -141,7 +141,28 @@ def _auth_mode():
 
 
 def _expected_secret():
-    return os.environ.get("SERVICE_SHARED_SECRET") or ""
+    """The configured shared secret, with surrounding whitespace removed.
+
+    The strip is not cosmetic and it is not a convenience. `_verify_shared_secret`
+    already strips the *presented* token, and stripping one side of a comparison
+    but not the other means the two are not comparable: a secret store that
+    appends a trailing newline — which is most of them, and every workflow built
+    on `echo` or a piped `openssl rand` — produces a service that refuses every
+    correct credential while looking perfectly configured.
+
+    That shipped. `service/provision-gcp.sh` piped `openssl rand -hex 32`
+    straight into Secret Manager, which stored the 64 hex characters and the
+    newline `openssl` prints after them; Cloud Run injected all 65 bytes; and
+    the deployment answered 401 to a caller presenting exactly the right secret.
+    Nothing in the running service could have told you that, because from its
+    side the credential genuinely did not match.
+
+    A secret whose leading or trailing whitespace is meaningful cannot be
+    authenticated by this service in any case, since the presented side is
+    stripped before comparison. Stripping both makes the two sides agree about
+    what is being compared.
+    """
+    return (os.environ.get("SERVICE_SHARED_SECRET") or "").strip()
 
 
 def _verify_shared_secret(headers):

@@ -446,7 +446,11 @@ printf '\n'
 if exists gcloud secrets describe "$SECRET_NAME" --project="$GCP_PROJECT_ID"; then
   note "$SECRET_NAME already exists — leaving the existing value alone"
 else
-  openssl rand -hex 32 | gcloud secrets create "$SECRET_NAME" \
+  # `tr -d` because openssl prints a newline after the hex, --data-file=- stores
+  # every byte it is given, and the platform then injects all 65 of them as the
+  # environment variable. A secret with a trailing newline in it is a service
+  # that refuses the correct credential and cannot say why. This shipped once.
+  openssl rand -hex 32 | tr -d '\n' | gcloud secrets create "$SECRET_NAME" \
     --data-file=- --replication-policy=automatic --project="$GCP_PROJECT_ID"
   printf '  %s✓%s created %s\n' "$GREEN" "$RESET" "$SECRET_NAME"
 fi

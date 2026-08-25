@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.20.2
+
+**The service refused the correct credential, and could not have told you why.** `_verify_shared_secret` stripped the token it was *presented* and not the one it was *configured with*, so the two sides of the comparison were never comparable. Any secret store that appends a trailing newline — which is most of them, and every workflow built on `echo` or a piped `openssl rand` — produced a service that answered 401 to a caller sending exactly the right string, while looking perfectly configured from every angle an operator can see.
+
+**It shipped, and the wizard is what shipped it.** `service/provision-gcp.sh` piped `openssl rand -hex 32` straight into Secret Manager. `openssl` prints a newline after the hex, `--data-file=-` stores every byte it is given, and Cloud Run injected all sixty-five. The stored secret really did end `0a`, so from the service's side the credential genuinely did not match — there is no log line it could have written that would have pointed at the cause.
+
+Both halves are fixed. The wizard pipes through `tr -d '\n'`, and `_expected_secret()` strips, because stripping one side of a comparison and not the other is the bug rather than the newline being it. A secret whose surrounding whitespace is meaningful could never have authenticated against this service anyway — the presented side was already stripped.
+
+**The strip must not manufacture a secret out of nothing**, so a whitespace-only value is still no value: it refuses to start and refuses every request, exactly as an unset one does. An open calculator is free compute for whoever finds it.
+
+Four assertions pin it, and reverting the strip fails all four. The trailing-newline case is the one that shipped; the leading and surrounding cases are there because the asymmetry, not the newline, is what was wrong.
+
 ## 1.20.1
 
 **The calculator is deployed and serving in us-central1, and the first deploy reported it as dead.** It was not. Google's front end swallows the exact literal path `/healthz` on Cloud Run: it answers with its own 404 page and the request never reaches the container. `/healthzz`, `/healthz/`, `/HEALTHZ` and `/health` all pass straight through and get the service's own JSON 404, and `/v1/meta` returns its own `401`. One path, intercepted, and it happened to be the one the post-deploy probe used.

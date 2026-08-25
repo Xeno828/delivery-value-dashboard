@@ -328,6 +328,35 @@ def test_auth_seam_fails_closed():
         check("a configured service may start", SVC.startup_problem() is None)
         check("every declared mode has a verifier",
               sorted(SVC.VERIFIERS) == sorted(SVC.AUTH_MODES), sorted(SVC.VERIFIERS))
+
+        # ---------- a secret store's trailing newline must not lock everyone out
+        #
+        # This shipped. `openssl rand -hex 32` prints a newline after the hex,
+        # Secret Manager stored all 65 bytes, Cloud Run injected all 65, and the
+        # deployment answered 401 to a caller presenting exactly the right
+        # secret. The verifier stripped the token it was *given* and not the one
+        # it was *configured with*, so the two sides were never comparable — and
+        # from inside the service the credential really did not match, which is
+        # why nothing it could log would have pointed at the cause.
+        #
+        # Every secret store and every echo-based workflow does this, so the
+        # asymmetry is the bug rather than the newline.
+        for label, stored in [("a trailing newline", SECRET + "\n"),
+                              ("a leading newline", "\n" + SECRET),
+                              ("surrounding whitespace", "  " + SECRET + "  \n")]:
+            os.environ["SERVICE_SHARED_SECRET"] = stored
+            who = SVC.authorised({"Authorization": "Bearer " + SECRET})
+            check("a secret stored with %s still authenticates" % label,
+                  bool(who) and who.get("mode") == "shared-secret", who)
+
+        # And the strip must not turn a blank secret into a configured one: an
+        # open calculator is free compute for whoever finds it.
+        os.environ["SERVICE_SHARED_SECRET"] = "   \n  "
+        check("a whitespace-only secret is no secret, and refuses to start",
+              bool(SVC.startup_problem()))
+        check("and refuses every request",
+              SVC.authorised({"Authorization": "Bearer    "}) is None)
+        os.environ["SERVICE_SHARED_SECRET"] = SECRET
     finally:
         os.environ.clear()
         os.environ.update(saved)
