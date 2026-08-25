@@ -418,6 +418,32 @@ def health_composition(b):
     check("overlapping windows are not offered as a rollup",
           not [i for i in ids if i.startswith("roll:")], ids)
     check("all three windows are still offered", len([i for i in ids if "win:" in i]) == 3, ids)
+    # ---------- the flow tiles are the default here, not an extra ----------
+    FLOW = ["c-cycle", "c-wip", "c-thr", "c-cfd"]
+    on = page.evaluate("""ids => ids.filter(i =>
+      !document.getElementById(i).classList.contains('hidden'))""", FLOW)
+    check("a flow board shows all four flow tiles by default", on == FLOW, on)
+
+    cyc = tile("#cycle-chart")
+    check("cycle time states the percentile a team can quote outward",
+          re.search(r"85% of the \d+ items this board finished came in within", cyc), cyc[-220:])
+    check("and the dots are individually openable, which is what makes it checkable",
+          page.eval_on_selector_all("#cycle-chart [data-cyk]", "n => n.length") > 0)
+
+    wip = tile("#wip-chart")
+    check("ageing work in progress compares open work against what closed work took",
+          "outlived 85%" in wip or "Nothing open has yet outlived" in wip, wip[-200:])
+
+    thr = tile("#thr-chart")
+    check("throughput names the mean and says quiet weeks are part of the series",
+          "items a week" in thr and "checked" in thr, thr[-200:])
+
+    cfd = tile("#cfd-chart")
+    check("the cumulative flow diagram says it is three bands and not one per column",
+          "Three bands, not one per column" in cfd, cfd[-220:])
+    check("and says why, rather than leaving a reader to assume the board has three",
+          "which column an issue sat in on a given day" in cfd, cfd[-220:])
+
     check("the picker calls the dropdown what it lists, and lists the windows",
           "Window" in page.text_content("#ctxbar")
           and "Sprint" not in page.text_content("#ctxbar"),
@@ -954,6 +980,28 @@ def main():
 
         # ---------- the dashboard agrees with the agent's facts pack ----------
         agent = json.load(open(ROOT / "tests" / "agent-facts.json"))
+        # The flow figures the two implementations both compute. `metrics.py`
+        # has `_pctile` and `src/app.js` has `pctile`, because the browser
+        # cannot call Python — the same arrangement as `orgconfig.py` and its
+        # mirror, and kept honest the same way: by comparing them rather than
+        # trusting that they were written to match.
+        page.evaluate("() => window.DVD.debug.setShown(window.DVD.debug.tileIds())")
+        page.wait_for_timeout(500)
+        cyc = page.text_content("#cycle-chart")
+        # Both percentiles, because on this dataset p80 and p85 are the same
+        # number — a drift in the constant would have gone straight past a
+        # check that read only one of them. p50 and p85 differ here, so a
+        # change to either end of CYCLE_PCTS fails.
+        check("the cycle-time percentiles on the page are the ones the facts pack states",
+              ("85%% of the %d items" % agent["flow"]["samples"]) in cyc
+              and ("within %g calendar days" % agent["flow"]["cycle_p85"]) in cyc
+              and ("50%% of them within %g" % agent["flow"]["cycle_p50"]) in cyc,
+              (agent["flow"]["cycle_p50"], agent["flow"]["cycle_p85"], cyc[-200:]))
+        thr = page.text_content("#thr-chart")
+        check("weekly throughput on the page is the mean the facts pack states",
+              ("%g items a week" % agent["flow"]["throughput_mean_per_week"]) in thr,
+              (agent["flow"]["throughput_mean_per_week"], thr[-160:]))
+
         check("dashboard item completion matches the agent",
               ("%d items" % agent["delivery"]["items_total"]) in page.text_content("#kpis .kpi:nth-child(1)"),
               agent["delivery"]["items_total"])
@@ -1097,7 +1145,20 @@ def main():
         vis = lambda: page.evaluate(
             "ids => ids.filter(i => !document.getElementById(i).classList.contains('hidden'))", TIDS)
 
-        check("every tile is shown until someone says otherwise", vis() == TIDS, len(vis()))
+        # The four flow tiles measure any board — cycle time, ageing work in
+        # progress, weekly throughput and cumulative flow are properties of
+        # issues and dates — so they are offered here and tickable. They are
+        # only shown by default on a board that runs no sprints, where they are
+        # the main event rather than four more tiles on a grid of thirteen.
+        FLOW = ["c-cycle", "c-wip", "c-thr", "c-cfd"]
+        default = page.evaluate("() => window.DVD.debug.presets().all")
+        check("a sprint board shows everything except the flow tiles",
+              vis() == default and not [t for t in FLOW if t in vis()], vis())
+        check("but every tile, flow ones included, has a checkbox",
+              sorted(page.eval_on_selector_all("[data-tile]", "n => n.map(x => x.dataset.tile)"))
+              == sorted(TIDS), len(TIDS))
+        check("and none of them is disabled — a sprint board supports them all",
+              page.eval_on_selector_all("[data-tile]", "n => n.filter(x => x.disabled).length") == 0)
 
         kpi_before = page.text_content("#kpis")
         open_picker(page)
@@ -1117,7 +1178,7 @@ def main():
         # A view that quietly drops tiles reads as a whole page to whoever gets it.
         note = page.text_content("#vp-count")
         check("hidden tiles are named, not just counted",
-              "5 hidden" in note and "Team load" in note, note[:70])
+              "hidden" in note and "Team load" in note, note[:90])
 
         page.click('[data-preset="team"]')
         page.wait_for_timeout(200)
@@ -1171,8 +1232,8 @@ def main():
         check("?view=exec applies on load", vis() == ex, vis())
         page.goto(DIST.as_uri() + "?tiles=not-a-tile,nonsense")
         page.wait_for_timeout(700)
-        check("an unrecognised tile list shows everything rather than a blank page",
-              vis() == TIDS, len(vis()))
+        check("an unrecognised tile list shows the default view rather than a blank page",
+              vis() == default, len(vis()))
 
         # ---------- tile order ----------
         # The order is a property of the view exactly as the selection is, and

@@ -89,8 +89,16 @@ How long an open issue has been alive, in calendar days.
 _Avoid_: Staleness, rot
 
 **Throughput**:
-Items completed per working day, sampled across a trailing window. Zero days are part of the distribution, not gaps in it.
+Items completed per working day, sampled across a trailing window. Zero days are part of the distribution, not gaps in it. Reported per **calendar week** where it is shown as a series, because a per-day chart on a board without a sprint boundary is mostly zeroes and reads as a team that keeps stopping.
 _Avoid_: Velocity, capacity (which means something else here), productivity, output
+
+**Cycle time percentile**:
+What 50%, 85% or 95% of finished items came in under. The 85th is the figure to quote outward — a statement about the system, never a promise about one item.
+_Avoid_: Average cycle time (a mean over a skewed distribution describes nothing), SLA, guarantee
+
+**Cumulative flow**:
+How many items sat in each status **category** on each day, stacked. Three bands and not one per column, because nothing in a dataset records which column an issue sat in on a given day. The limitation is printed on the tile.
+_Avoid_: CFD as a first use (define it, then abbreviate), flow diagram (unqualified)
 
 **Work in progress**:
 Items started but unfinished at the end of a period. Half of team load, and derived from status alone.

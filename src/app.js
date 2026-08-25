@@ -187,6 +187,10 @@ const HELP = {
   dist: "<b>What it is</b><br>Story points per person, split into done, in progress and not started.<br><br><b>How to read it</b><br>Look for one person carrying a tall in-progress block — that is work in progress piling up, which slows the whole team down more than an uneven total would.<br><br><b>How to improve it</b><br>Cap how many items one person has in progress at once (two is a common limit) and finish before starting.",
   flowtime: "<b>What it is</b><br>For each closed item: total time from being raised to being done (lead time), split into time actively worked (cycle time) and time waiting in a queue.<br><br><b>How to read it</b><br>Long pale bars are the real problem. Waiting is invisible in most reports and is usually the majority of elapsed time.<br><br><b>How to improve it</b><br>Attack the queues, not the coding. Refine sooner, review faster, and stop starting work you cannot immediately progress.",
   age: "<b>What it is</b><br>How long each unfinished item has existed, in bands sized for a two-week sprint.<br><br><b>Why these bands</b><br>Monthly bands are useless at sprint scale — everything lands in the first bucket. Anything past 14 days has already survived a full sprint.<br><br><b>How to improve it</b><br>Review the oldest item first at every stand-up. Age, not priority, is the best predictor of an item never finishing.",
+  cycle: "<b>What it is</b><br>Every closed item plotted on the day it finished, against how many calendar days it took from being started. The three lines are the 50th, 85th and 95th percentiles of that set.<br><br><b>How to read it</b><br>The 85th percentile is the sentence to take outward: <i>85% of what we finish, we finish within N days</i>. It is a statement about the system rather than a promise about any one item, which is exactly why it survives contact with a stakeholder.<br><br><b>Watch the dots, not the line</b><br>A cluster drifting upward is the distribution changing. A single dot far above it is one item worth naming &mdash; click it.<br><br><b>How to improve it</b><br>Shrink the spread before you chase the median. A team whose 85th percentile is close to its median can be relied on; one with a long tail cannot, however fast its typical item is.",
+  wip: "<b>What it is</b><br>Everything not yet finished, plotted against how old it already is, with the percentile lines from the closed items beside it.<br><br><b>Why it is the tile to act on</b><br>Every other chart here describes work that is already done. This one describes work you can still change. An item sitting above the 85th percentile line has already taken longer than 85% of everything this board has ever finished &mdash; and it is not finished.<br><br><b>How to improve it</b><br>Start the stand-up at the top of this chart and work down. Ageing predicts abandonment better than priority does, and an old item is rarely old for a reason anyone can still remember.",
+  thr: "<b>What it is</b><br>Items finished in each calendar week. The dashed line is the mean.<br><br><b>Why weeks</b><br>A per-day series on a board without a sprint boundary is mostly zeroes and reads as a team that keeps stopping. Weeks are the smallest honest grain.<br><br><b>Why quiet weeks stay in</b><br>They are part of the distribution, not gaps in it. Dropping them is the most common way a forecast turns optimistic, because a model that never samples a zero will never predict a stall.<br><br><b>What it is for</b><br>This is the series the Monte Carlo forecast samples. It is here so the forecast can be checked rather than taken on trust.",
+  cfd: "<b>What it is</b><br>How many items sat in each status category on each day, stacked. The height of the middle band is work in progress; the vertical gap between the top two lines is everything waiting to be started.<br><br><b>How to read it</b><br>Bands that widen are queues forming. The two outer lines diverging means work is arriving faster than it is leaving, which no amount of effort inside the team will fix.<br><br><b>Three bands, not one per column</b><br>A full cumulative flow diagram has a band for every column on the board. Nothing in this dataset records which column an issue sat in on a given day, so these are the three status <i>categories</i> instead. That is a real limitation and it is stated rather than hidden &mdash; a three-band chart labelled as a seven-column one would be a different picture of the same board.",
   pred: "<b>What it is</b><br>What the team committed to versus what it completed, over the last six sprints.<br><br><b>How to read it</b><br>The number that matters is consistency, not height. A team that reliably delivers 34 points is more useful to a business than one that swings between 20 and 50.<br><br><b>How to improve it</b><br>Set the next commitment from the average of the last three completions, not from optimism.",
   forecast: "<b>What it is</b><br>A Monte Carlo simulation run by <code>agent/tools/forecast.py</code> &mdash; the same tool the reporting agent uses, reached over the local live-mode connection. The page does not compute it and does not reimplement it, so the tile and a written brief cannot disagree about the same sprint.<br><br><b>What it samples</b><br>Every recorded day of this <i>team's</i> history, not just the sprint on screen. One sprint offers too few observations to sample and the tool refuses; the team's full record is what makes an answer possible. Only the <i>remaining work</i> comes from the selected sprint.<br><br><b>How to read it</b><br>Quote the 85th percentile, not the median. A median is a coin flip by construction, and a commitment set there misses half the time.<br><br><b>When it refuses</b><br>Below its evidence thresholds it says so rather than widening the range. That sentence is the answer, printed as the tool wrote it.",
   dora: "<b>What it is</b><br>The four DORA measures: how often you release, how often a release breaks something, how long a change takes to reach customers, and how fast you recover.<br><br><b>How to read it</b><br>Deployment frequency and lead time measure speed; change failure rate and recovery time measure safety. Improving one at the cost of the other is not progress.<br><br><b>How to improve it</b><br>Smaller, more frequent releases usually improve all four at once.",
@@ -1473,6 +1477,386 @@ function renderFlowTime(m, items) {
 }
 
 /* =====================================================================
+   FLOW: cycle time, ageing work in progress, throughput, cumulative flow
+
+   Four charts that need neither a sprint nor a window — every figure below is
+   a property of issues and dates. `agent/tools/metrics.py` computes the same
+   series under `flow`, and `tests/test_agent.py` holds the two to the same
+   answers, because a chart whose numbers no tool produced is a chart nobody
+   can check.
+   ================================================================== */
+
+/** The percentile of a numeric list, linear interpolation, matching
+ *  `_pctile()` in metrics.py. Two implementations of one statistic is a
+ *  liability, so the test compares them rather than trusting the mirror. */
+function pctile(vals, p) {
+  const v = vals.slice().sort((a, b) => a - b);
+  if (!v.length) return null;
+  const k = (v.length - 1) * (p / 100), lo = Math.floor(k), hi = Math.ceil(k);
+  return lo === hi ? v[lo] : Math.round((v[lo] + (v[hi] - v[lo]) * (k - lo)) * 100) / 100;
+}
+
+/** Closed items carrying both dates, with their cycle time. The one input the
+ *  two charts below share, so they cannot disagree about the sample. */
+function cycleRows(m) {
+  return m.closedTimed
+    .map(i => ({ i: i, at: i.resolved, days: days(i.started, i.resolved) }))
+    .filter(r => r.days != null)
+    .sort((a, b) => String(a.at).localeCompare(String(b.at)));
+}
+
+const CYCLE_PCTS = [50, 85, 95];
+
+function renderCycle(m) {
+  const host = $("#cycle-chart");
+  const rows = cycleRows(m);
+  if (!rows.length) {
+    /* The same sentence the waiting-versus-working chart uses, because it is
+       the same absence: without a start date there is no cycle time, and on a
+       flow board that is the measure rather than a nicety. */
+    host.innerHTML = '<div class="note">' + esc(m.empty
+      ? noItems("there is no finished work to time")
+      : "No closed items with both a start and a resolved date in this selection, so " +
+        "there is no cycle time to plot — the evidence is absent, not noisy.") + "</div>";
+    host.onclick = null;
+    S.tables.cycle = { cols: ["Issue", "Summary", "Started", "Done", "Cycle (d)"], rows: [] };
+    drawTable("cycle");
+    return;
+  }
+  const vals = rows.map(r => r.days);
+  const marks = CYCLE_PCTS.map(p => ({ p: p, v: pctile(vals, p) }));
+  const W = cw(host), H = 250, P = { t: 14, r: 54, b: 34, l: 38 };
+  const iw = W - P.l - P.r, ih = H - P.t - P.b;
+  const maxY = Math.max.apply(null, vals.concat([marks[2].v])) * 1.12 || 1;
+  const t0 = D(rows[0].at).getTime(), t1 = D(rows[rows.length - 1].at).getTime();
+  const x = at => P.l + (t1 === t0 ? iw / 2 : ((D(at).getTime() - t0) / (t1 - t0)) * iw);
+  const y = v => P.t + ih - (v / maxY) * ih;
+  const s = svgEl(W, H);
+
+  yTicks(maxY, 4).forEach(t => {
+    s.add('<line class="grid-line" x1="' + P.l + '" y1="' + y(t) + '" x2="' + (W - P.r) + '" y2="' + y(t) + '"/>');
+    s.add('<text class="axis-lab" x="' + (P.l - 6) + '" y="' + (y(t) + 3.5) + '" text-anchor="end">' + t + "</text>");
+  });
+
+  /* The percentile lines are the point of the chart, so they are drawn over
+     the dots and labelled on the axis rather than in a legend a reader has to
+     hold in their head. Dashed, and in the UI ink tokens rather than the
+     series palette — they are annotation, not another series, and the series
+     colours are validated for colour-vision deficiency on their own terms. */
+  const inks = [CSSV("--muted"), CSSV("--warn-ink"), CSSV("--crit-ink")];
+  marks.forEach((mk, k) => {
+    if (mk.v == null) return;
+    s.add('<line x1="' + P.l + '" y1="' + y(mk.v) + '" x2="' + (W - P.r) + '" y2="' + y(mk.v) +
+      '" stroke="' + inks[k] + '" stroke-width="1.5" stroke-dasharray="5 4"/>');
+    s.add('<text class="axis-lab" x="' + (W - P.r + 5) + '" y="' + (y(mk.v) + 3.5) +
+      '" fill="' + inks[k] + '">p' + mk.p + " " + n1(mk.v) + "d</text>");
+  });
+
+  const dot = CSSV("--s1");
+  rows.forEach((r, k) => {
+    s.add('<circle class="hit" cx="' + n1(x(r.at)) + '" cy="' + n1(y(r.days)) + '" r="4.5" fill="' + dot +
+      '" fill-opacity="0.72" data-cyk="' + k + '" data-tt="' +
+      esc(ttBox(r.i.key, [["Finished", fmtD(r.at)], ["Started", fmtD(r.i.started)],
+                          ["Cycle time", n1(r.days) + " calendar days"]],
+        r.days > marks[1].v ? "<b>Above the 85th percentile.</b> Click to open it."
+                            : "Click to open it.")) + '"/>');
+  });
+  s.add('<line class="axis-line" x1="' + P.l + '" y1="' + (P.t + ih) + '" x2="' + (W - P.r) + '" y2="' + (P.t + ih) + '"/>');
+  s.add('<text class="axis-lab" x="' + P.l + '" y="' + (H - 8) + '">' + esc(fmtD(rows[0].at)) + "</text>");
+  s.add('<text class="axis-lab" x="' + (W - P.r) + '" y="' + (H - 8) + '" text-anchor="end">' +
+    esc(fmtD(rows[rows.length - 1].at)) + "</text>");
+
+  /* The percentages in this sentence come from CYCLE_PCTS, not from the
+     keyboard. Written as literals they were a caption that would keep saying
+     "85%" beside whatever figure the constant was changed to, which is a
+     mislabelled number rather than a wrong one — and harder to notice. */
+  host.innerHTML = s.out() + '<div class="note" style="margin-top:8px">' +
+    "<b>" + marks[1].p + "% of the " + rows.length + " items this board finished came in within " +
+    n1(marks[1].v) + " calendar days</b>, " + marks[0].p + "% of them within " + n1(marks[0].v) +
+    ". That is a statement about the system, not a promise about any one item — which is why " +
+    "it survives being quoted outside the team.</div>";
+  host.onclick = e => {
+    const t = e.target.closest("[data-cyk]"); if (!t) return;
+    const r = rows[+t.dataset.cyk];
+    openDrill(r.i.key, "Cycle time " + n1(r.days) + " calendar days, finished " + fmtD(r.at) + ".", [r.i]);
+  };
+  S.tables.cycle = { cols: ["Issue", "Summary", "Started", "Done", "Cycle (d)"],
+    rows: rows.map(r => [r.i.key, r.i.summary, fmtD(r.i.started), fmtD(r.at), n1(r.days)]) };
+  drawTable("cycle");
+}
+
+function renderWip(m) {
+  const host = $("#wip-chart");
+  const open = m.ages.slice().sort((a, b) => b.age - a.age);
+  if (!open.length) {
+    host.innerHTML = '<div class="note">' + esc(m.empty
+      ? noItems("there is no work in progress to age")
+      : "Nothing is open in this selection, so there is no work in progress to age.") + "</div>";
+    host.onclick = null;
+    S.tables.wip = { cols: ["Issue", "Summary", "Status", "Age (d)"], rows: [] };
+    drawTable("wip");
+    return;
+  }
+  /* The comparison is the whole tile: open work measured against what closed
+     work actually took. Without the closed sample there are still ages worth
+     showing, so the chart draws and says which half is missing rather than
+     refusing a measurement it does have. */
+  const vals = cycleRows(m).map(r => r.days);
+  const marks = CYCLE_PCTS.map(p => ({ p: p, v: pctile(vals, p) }));
+  const p85 = marks[1].v;
+
+  const W = cw(host), rowH = 20, P = { t: 12, r: 54, b: 30, l: 92 };
+  const shown = open.slice(0, 18), dropped = open.length - shown.length;
+  const H = P.t + shown.length * rowH + P.b, iw = W - P.l - P.r;
+  const maxX = Math.max.apply(null, shown.map(a => a.age).concat([p85 || 0, 1])) * 1.1;
+  const x = v => P.l + (v / maxX) * iw;
+  const s = svgEl(W, H);
+
+  const inks = [CSSV("--muted"), CSSV("--warn-ink"), CSSV("--crit-ink")];
+  marks.forEach((mk, k) => {
+    if (mk.v == null || mk.v > maxX) return;
+    s.add('<line x1="' + n1(x(mk.v)) + '" y1="' + P.t + '" x2="' + n1(x(mk.v)) + '" y2="' + (P.t + shown.length * rowH) +
+      '" stroke="' + inks[k] + '" stroke-width="1.5" stroke-dasharray="5 4"/>');
+    s.add('<text class="axis-lab" x="' + n1(x(mk.v)) + '" y="' + (H - 8) + '" text-anchor="middle" fill="' +
+      inks[k] + '">p' + mk.p + "</text>");
+  });
+
+  shown.forEach((a, ri) => {
+    const yy = P.t + ri * rowH + 3, bh = 13;
+    const late = p85 != null && a.age > p85;
+    s.add('<text class="ser-lab" x="' + (P.l - 8) + '" y="' + (yy + bh / 2 + 4) + '" text-anchor="end">' +
+      esc(a.i.key) + "</text>");
+    s.add('<rect class="hit" x="' + P.l + '" y="' + yy + '" width="' + Math.max(x(a.age) - P.l, 3) +
+      '" height="' + bh + '" rx="3" fill="' + CSSV(late ? "--critical" : "--s1") +
+      '" fill-opacity="' + (late ? "0.9" : "0.65") + '" data-wipk="' + ri + '" data-tt="' +
+      esc(ttBox(a.i.key, [["Status", a.i.status || "—"], ["Open for", Math.round(a.age) + " calendar days"],
+                          ["85% of closed work took", p85 == null ? "not measured" : n1(p85) + " days or less"]],
+        late ? "<b>Already older than 85% of everything this board has finished.</b> Click to open it."
+             : "Click to open it.")) + '"/>');
+  });
+  s.add('<text class="axis-lab" x="' + P.l + '" y="' + (H - 8) + '">age in calendar days →</text>');
+
+  const late = open.filter(a => p85 != null && a.age > p85);
+  host.innerHTML = s.out() + '<div class="note" style="margin-top:8px">' +
+    (p85 == null
+      ? "No closed item here carries both a start and a resolved date, so there are no " +
+        "percentile lines to measure this against — the ages are real, the comparison is not available."
+      : late.length
+        ? "<b>" + late.length + " open item" + (late.length === 1 ? " has" : "s have") +
+          " already outlived 85% of everything this board has finished.</b> They are late now, " +
+          "not when they finish. Start the stand-up at the top of this list."
+        : "Nothing open has yet outlived 85% of what this board finishes. That is the healthy state.") +
+    (dropped > 0 ? " Showing the " + shown.length + " oldest of " + open.length +
+      " open items — the rest are in the table view, ranked the same way, and nothing is hidden." : "") +
+    "</div>";
+  host.onclick = e => {
+    const t = e.target.closest("[data-wipk]"); if (!t) return;
+    const a = shown[+t.dataset.wipk];
+    openDrill(a.i.key, "Open " + Math.round(a.age) + " calendar days, currently " + (a.i.status || "unknown") + ".", [a.i]);
+  };
+  S.tables.wip = { cols: ["Issue", "Summary", "Status", "Age (d)"],
+    rows: open.map(a => [a.i.key, a.i.summary, a.i.status || "—", Math.round(a.age)]) };
+  drawTable("wip");
+}
+
+/** Monday of the week an ISO date falls in. Weeks start Monday here because
+ *  the working week does; `orgconfig` can move the working days but not what a
+ *  calendar week is. */
+function weekOf(iso) {
+  const d = D(iso), day = (d.getDay() + 6) % 7;
+  const w = new Date(d.getTime() - day * 86400000);
+  return w.toISOString().slice(0, 10);
+}
+
+function renderThr(m) {
+  const host = $("#thr-chart");
+  const fin = m.done.filter(i => i.resolved).map(i => i.resolved).sort();
+  if (!fin.length) {
+    host.innerHTML = '<div class="note">' + esc(m.empty
+      ? noItems("there is no completed work to count")
+      : "Nothing in this selection has been completed, so there is no throughput to show.") + "</div>";
+    host.onclick = null;
+    S.tables.thr = { cols: ["Week starting", "Items finished"], rows: [] };
+    drawTable("thr");
+    return;
+  }
+  /* Every week between the first and last completion, including the empty
+     ones. A zero week is part of the distribution, not a gap in it — dropping
+     them is the most common way a forecast turns optimistic, and this is the
+     very series the forecaster samples. */
+  const counts = {};
+  let w = weekOf(fin[0]);
+  const last = weekOf(fin[fin.length - 1]);
+  while (w <= last) {
+    counts[w] = 0;
+    w = new Date(D(w).getTime() + 7 * 86400000).toISOString().slice(0, 10);
+  }
+  fin.forEach(r => { counts[weekOf(r)] += 1; });
+  const weeks = Object.keys(counts).sort().map(k => ({ w: k, n: counts[k] }));
+  const mean = sum(weeks, r => r.n) / weeks.length;
+
+  const W = cw(host), H = 208, P = { t: 14, r: 12, b: 34, l: 32 };
+  const iw = W - P.l - P.r, ih = H - P.t - P.b;
+  const maxY = Math.max.apply(null, weeks.map(r => r.n).concat([1])) * 1.15;
+  const bandW = iw / weeks.length, bw = Math.min(26, bandW * 0.66);
+  const y = v => P.t + ih - (v / maxY) * ih;
+  const s = svgEl(W, H);
+
+  yTicks(maxY, 4).forEach(t => {
+    s.add('<line class="grid-line" x1="' + P.l + '" y1="' + y(t) + '" x2="' + (W - P.r) + '" y2="' + y(t) + '"/>');
+    s.add('<text class="axis-lab" x="' + (P.l - 6) + '" y="' + (y(t) + 3.5) + '" text-anchor="end">' + t + "</text>");
+  });
+  weeks.forEach((r, k) => {
+    const cx = P.l + bandW * k + bandW / 2;
+    s.add('<rect class="hit" x="' + n1(cx - bw / 2) + '" y="' + n1(y(r.n)) + '" width="' + n1(bw) +
+      '" height="' + n1(y(0) - y(r.n)) + '" rx="2" fill="' + CSSV("--s1") + '" data-thrk="' + k +
+      '" data-tt="' + esc(ttBox("Week of " + fmtD(r.w), [["Items finished", r.n]],
+        r.n ? "Click to list them." : "<b>Nothing finished this week.</b> It stays in the series — a forecast that never samples a zero will never predict a stall.")) + '"/>');
+  });
+  s.add('<line x1="' + P.l + '" y1="' + n1(y(mean)) + '" x2="' + (W - P.r) + '" y2="' + n1(y(mean)) +
+    '" stroke="' + CSSV("--warn-ink") + '" stroke-width="1.5" stroke-dasharray="5 4"/>');
+  s.add('<text class="axis-lab" x="' + (W - P.r) + '" y="' + (y(mean) - 5) + '" text-anchor="end" fill="' +
+    CSSV("--warn-ink") + '">mean ' + n1(mean) + "/week</text>");
+  s.add('<line class="axis-line" x1="' + P.l + '" y1="' + y(0) + '" x2="' + (W - P.r) + '" y2="' + y(0) + '"/>');
+  s.add('<text class="axis-lab" x="' + P.l + '" y="' + (H - 8) + '">' + esc(fmtD(weeks[0].w)) + "</text>");
+  s.add('<text class="axis-lab" x="' + (W - P.r) + '" y="' + (H - 8) + '" text-anchor="end">' +
+    esc(fmtD(weeks[weeks.length - 1].w)) + "</text>");
+
+  const zero = weeks.filter(r => !r.n).length;
+  host.innerHTML = s.out() + '<div class="note" style="margin-top:8px">' +
+    "<b>" + n1(mean) + " items a week</b> across " + weeks.length + " weeks" +
+    (zero ? ", " + zero + " of which finished nothing" : "") +
+    ". This is the series the forecast samples — it is here so that figure can be checked " +
+    "rather than taken on trust.</div>";
+  host.onclick = e => {
+    const t = e.target.closest("[data-thrk]"); if (!t) return;
+    const r = weeks[+t.dataset.thrk];
+    openDrill("Finished in the week of " + fmtD(r.w), r.n + " items.",
+      m.done.filter(i => i.resolved && weekOf(i.resolved) === r.w));
+  };
+  S.tables.thr = { cols: ["Week starting", "Items finished"], rows: weeks.map(r => [r.w, r.n]) };
+  drawTable("thr");
+}
+
+/**
+ * Work in progress against throughput, reconciled with measured cycle time.
+ *
+ * Little's Law: the work in progress divided by the rate it leaves is how long
+ * the average item must be spending in progress. Measured cycle time is how
+ * long the items that actually *finished* took. On a board where the two line
+ * up, everything above can be read at face value.
+ *
+ * When they do not, there are two honest readings and this does not choose
+ * between them — the open work really is sitting far longer than anything that
+ * has finished, which is the ageing chart's story told a different way, or the
+ * start dates are not recording when work began. It states both figures and
+ * says they disagree. A verdict here would be a claim about a team built on
+ * whichever of the two readings the reader happened to assume.
+ *
+ * Only shown when they disagree by more than a factor of two. Tighter would
+ * fire on ordinary variation; looser would never fire at all.
+ */
+function littlesLaw(m) {
+  const started = m.open.filter(i => i.started).length;
+  const fin = m.done.filter(i => i.resolved).map(i => i.resolved).sort();
+  if (!started || fin.length < 2) return "";
+  const span = days(fin[0], fin[fin.length - 1]) + 1;
+  const rate = span > 0 ? fin.length / span : null;
+  const p50 = pctile(cycleRows(m).map(r => r.days), 50);
+  if (!rate || p50 == null || p50 === 0) return "";
+  const implied = started / rate;
+  const ratio = implied / p50;
+  if (ratio >= 0.5 && ratio <= 2) return "";
+  return "<br><br><b>These two readings of the same board do not line up.</b> " +
+    started + " items in progress leaving at " + n1(rate) + " a day implies about " +
+    n1(implied) + " days in progress each, and the items that actually finished took a median of " +
+    n1(p50) + ". Either the open work is sitting far longer than anything that has finished — " +
+    "which the ageing chart shows by name — or start dates are not recording when work began. " +
+    "Both are worth knowing and they are different problems.";
+}
+
+function renderCfd(m) {
+  const host = $("#cfd-chart");
+  const items = m.done.concat(m.open).filter(i => i.created);
+  if (!items.length) {
+    host.innerHTML = '<div class="note">' + esc(m.empty
+      ? noItems("there is no flow to accumulate")
+      : "No issue in this selection carries a created date, so there is nothing to accumulate.") + "</div>";
+    host.onclick = null;
+    S.tables.cfd = { cols: ["Date", "To Do", "In Progress", "Done"], rows: [] };
+    drawTable("cfd");
+    return;
+  }
+  const now = asOf();
+  const first = items.map(i => i.created).sort()[0];
+  const series = [];
+  for (let t = D(first).getTime(); t <= D(now).getTime(); t += 86400000) {
+    const iso = new Date(t).toISOString().slice(0, 10);
+    let todo = 0, ip = 0, dn = 0;
+    items.forEach(i => {
+      if (i.created > iso) return;
+      if (i.resolved && i.resolved <= iso) dn += 1;
+      else if (i.started && i.started <= iso) ip += 1;
+      else todo += 1;
+    });
+    series.push({ d: iso, todo: todo, ip: ip, dn: dn });
+  }
+  const W = cw(host), H = 250, P = { t: 14, r: 12, b: 34, l: 36 };
+  const iw = W - P.l - P.r, ih = H - P.t - P.b;
+  const maxY = Math.max.apply(null, series.map(r => r.todo + r.ip + r.dn)) * 1.06 || 1;
+  const x = k => P.l + (series.length === 1 ? iw / 2 : (k / (series.length - 1)) * iw);
+  const y = v => P.t + ih - (v / maxY) * ih;
+  const s = svgEl(W, H);
+
+  yTicks(maxY, 4).forEach(t => {
+    s.add('<line class="grid-line" x1="' + P.l + '" y1="' + y(t) + '" x2="' + (W - P.r) + '" y2="' + y(t) + '"/>');
+    s.add('<text class="axis-lab" x="' + (P.l - 6) + '" y="' + (y(t) + 3.5) + '" text-anchor="end">' + t + "</text>");
+  });
+  /* Done at the bottom, then in progress, then to do — the conventional order,
+     so the middle band's height reads directly as work in progress and the gap
+     between the top two lines reads as the queue waiting to start. */
+  const bands = [
+    { k: "dn", lab: "Done", col: CSSV("--s1") },
+    { k: "ip", lab: "In progress", col: CSSV("--s2") },
+    { k: "todo", lab: "To do", col: CSSV("--s3") }
+  ];
+  let base = series.map(() => 0);
+  bands.forEach(b => {
+    const top = series.map((r, k) => base[k] + r[b.k]);
+    const up = top.map((v, k) => n1(x(k)) + "," + n1(y(v))).join(" L");
+    const down = base.map((v, k) => n1(x(k)) + "," + n1(y(v))).reverse().join(" L");
+    s.add('<path d="M' + up + " L" + down + 'Z" fill="' + b.col + '" fill-opacity="0.82"/>');
+    base = top;
+  });
+  s.add('<line class="axis-line" x1="' + P.l + '" y1="' + y(0) + '" x2="' + (W - P.r) + '" y2="' + y(0) + '"/>');
+  s.add('<text class="axis-lab" x="' + P.l + '" y="' + (H - 8) + '">' + esc(fmtD(series[0].d)) + "</text>");
+  s.add('<text class="axis-lab" x="' + (W - P.r) + '" y="' + (H - 8) + '" text-anchor="end">' +
+    esc(fmtD(series[series.length - 1].d)) + "</text>");
+
+  const last = series[series.length - 1];
+  host.innerHTML =
+    '<div class="legend">' + bands.slice().reverse().map(b =>
+      '<span><i class="swatch" style="background:' + b.col + '"></i>' + b.lab + "</span>").join("") +
+    "</div>" + s.out() +
+    '<div class="note" style="margin-top:8px"><b>' + last.ip + " in progress and " + last.todo +
+    " waiting to start</b>, as at " + fmtD(last.d) + ". The middle band is work in progress; " +
+    "when the top two lines diverge, work is arriving faster than it is leaving — which nothing " +
+    "the team does inside the band will fix." +
+    /* No silent degradation. A cumulative flow diagram has one band per column
+       and this has three, because nothing in a dataset records which column an
+       issue sat in on a given day. A three-band chart presented as a full one
+       is a different picture of the same board. */
+    '<br><br><b>Three bands, not one per column.</b> Nothing in this dataset records which ' +
+    "column an issue sat in on a given day, so these are the three status categories. The " +
+    "shape is real; the column detail is not available here." +
+    littlesLaw(m) + "</div>";
+  host.onclick = null;
+  S.tables.cfd = { cols: ["Date", "To Do", "In Progress", "Done"],
+    rows: series.map(r => [r.d, r.todo, r.ip, r.dn]) };
+  drawTable("cfd");
+}
+
+/* =====================================================================
    CHART: work item ageing (sprint-scale bands)
    ================================================================== */
 function renderAge(m) {
@@ -2373,6 +2757,10 @@ const TILES = [
   { id: "c-dist",  label: "Where each person's work sits" },
   { id: "c-flow",  label: "How long work takes, and what waits" },
   { id: "c-age",   label: "How long open work has been sitting" },
+  { id: "c-cycle", label: "How long finished work took" },
+  { id: "c-wip",   label: "Work in progress, and how old it is" },
+  { id: "c-thr",   label: "How much finishes each week" },
+  { id: "c-cfd",   label: "Where the work has been sitting" },
   { id: "c-pred",  label: "Can we trust the forecast?" },
   { id: "c-forecast", label: "Monte Carlo forecast" },
   { id: "c-dora",  label: "Release quality & speed" },
@@ -2437,19 +2825,99 @@ function shownTiles() {
  *  commit next. A printed view and the agent's brief for the same audience
  *  disagreeing about what matters is a worse failure than either being
  *  slightly wrong on its own. */
-const PRESETS = {
-  all:  TILE_IDS.slice(),
-  exec: ["c-exec", "c-kpis", "c-pred", "c-forecast", "c-dora", "c-value", "c-rel", "c-risk"],
-  team: ["c-exec", "c-kpis", "c-burn", "c-dist", "c-flow", "c-age", "c-pred", "c-forecast",
-         "c-load", "c-risk"]
+/**
+ * The four flow tiles: cycle time, ageing work in progress, weekly throughput
+ * and cumulative flow.
+ *
+ * They need neither a sprint nor a window — every one of them is a property of
+ * issues and dates — so they are offered on any board and a sprint team can
+ * tick them on. They are only shown *by default* on a board that runs no
+ * sprints, where they are the main event rather than an addition to a grid
+ * that already has thirteen tiles on it.
+ */
+const FLOW_TILES = ["c-cycle", "c-wip", "c-thr", "c-cfd"];
+const notFlow = ids => ids.filter(id => FLOW_TILES.indexOf(id) < 0);
+
+/**
+ * Which tiles each audience gets, per board kind.
+ *
+ * Two columns rather than two sets of presets, because the audience question
+ * and the board question are different axes and crossing them would mean four
+ * presets to keep in step with two report templates. A reader who chose
+ * *Executive* keeps that choice across a board switch and gets the executive
+ * cut of whichever board they landed on.
+ *
+ * `all` means everything **this board shows**, which is what a reader pressing
+ * "Everything" expects. On a sprint board that excludes the flow tiles — they
+ * remain one tick away in the list below, and ticking one puts the view into
+ * `custom`, which is exactly what it is.
+ */
+const PRESET_SETS = {
+  all: {
+    sprint: notFlow(TILE_IDS),
+    flow: TILE_IDS.slice(),
+  },
+  exec: {
+    sprint: ["c-exec", "c-kpis", "c-pred", "c-forecast", "c-dora", "c-value", "c-rel", "c-risk"],
+    // No commitment history on a flow board, and cycle time is the sentence an
+    // executive can actually use: "85% of what we start, we finish within N days".
+    flow: ["c-exec", "c-kpis", "c-cycle", "c-forecast", "c-dora", "c-value", "c-rel", "c-risk"],
+  },
+  team: {
+    sprint: ["c-exec", "c-kpis", "c-burn", "c-dist", "c-flow", "c-age", "c-pred", "c-forecast",
+             "c-load", "c-risk"],
+    // Ageing work in progress leads, because it is the only tile on the page
+    // that describes work a stand-up can still change.
+    flow: ["c-exec", "c-kpis", "c-wip", "c-cycle", "c-thr", "c-cfd", "c-flow", "c-age",
+           "c-forecast", "c-risk"],
+  },
 };
 const PRESET_LABEL = { all: "Everything", exec: "Executive", team: "Team" };
+
+/** The preset sets for the board on screen. */
+function PRESETS_NOW() {
+  const kind = isWindow(S.view && S.view.ctx) ? "flow" : "sprint";
+  const out = {};
+  Object.keys(PRESET_SETS).forEach(k => { out[k] = PRESET_SETS[k][kind]; });
+  return out;
+}
 
 /** The preset whose set matches exactly, or "custom". Compared as sets so
  *  ticking a box back to a preset's shape re-selects that preset. */
 function presetOf(shown) {
-  for (const k of Object.keys(PRESETS)) {
-    const p = PRESETS[k];
+  const sets = PRESETS_NOW();
+  for (const k of Object.keys(sets)) {
+    const p = sets[k];
+    if (p.length === shown.size && p.every(id => shown.has(id))) return k;
+  }
+  return "custom";
+}
+
+/**
+ * Re-resolve the reader's preset for the board now on screen.
+ *
+ * A named preset is a statement of intent — *show me the executive view* —
+ * and it should survive switching to a board that expresses that view with
+ * different tiles. A custom set is a statement about tiles, so it is left
+ * exactly as it is; the applicability mask still hides anything the new board
+ * cannot support, and the picker still says what it hid.
+ *
+ * Called before the tiles are painted, so a board switch never shows one
+ * board's default set over another board's data.
+ */
+function reapplyPresetForBoard() {
+  const kind = isWindow(S.view && S.view.ctx) ? "flow" : "sprint";
+  if (S.presetKind === kind) return;
+  const name = S.presetKind == null ? "all" : presetOfKind(S.shown, S.presetKind);
+  S.presetKind = kind;
+  if (name !== "custom") S.shown = new Set(PRESET_SETS[name][kind]);
+}
+
+/** `presetOf`, but against a stated board kind rather than the current one —
+ *  needed while switching, when the two disagree by definition. */
+function presetOfKind(shown, kind) {
+  for (const k of Object.keys(PRESET_SETS)) {
+    const p = PRESET_SETS[k][kind];
     if (p.length === shown.size && p.every(id => shown.has(id))) return k;
   }
   return "custom";
@@ -2583,7 +3051,7 @@ function buildPicker() {
     'Both presets keep the narrative. The arrows reorder the page; tiles keep their ' +
     'widths as they move, so an order of your own can leave a row short.</div>' +
     '<div class="vp-presets" role="group" aria-label="Preset views">' +
-      Object.keys(PRESETS).map(k =>
+      Object.keys(PRESET_SETS).map(k =>
         '<button type="button" data-preset="' + esc(k) + '" aria-pressed="false">' +
         esc(PRESET_LABEL[k]) + "</button>").join("") +
     "</div>" +
@@ -2596,7 +3064,7 @@ function buildPicker() {
     '<div class="vp-live" id="vp-live" role="status" aria-live="polite"></div>';
 
   pop.querySelectorAll("[data-preset]").forEach(b =>
-    b.onclick = () => setShown(PRESETS[b.dataset.preset]));
+    b.onclick = () => setShown(PRESETS_NOW()[b.dataset.preset]));
   $("#vp-order-reset").onclick = resetOrder;
   $("#vp-save").onclick = saveView;
   buildPickerList();
@@ -2733,10 +3201,16 @@ function saveView() {
 let rafT;
 function render() {
   S.view = buildView();
+  /* Before anything is painted: the tiles a board shows by default depend on
+     what kind of board it is, and a switch must not leave one board's default
+     set standing over another board's data. A named preset is re-resolved for
+     the new kind; a custom set is left exactly as the reader left it. */
+  reapplyPresetForBoard();
   renderContextBar();
   const items = filtered(), m = derive(items);
   renderHeader(m); renderFilters(); renderExec(m); renderKpis(m);
   renderBurn(m); renderDist(m, items); renderFlowTime(m, items); renderAge(m);
+  renderCycle(m); renderWip(m); renderThr(m); renderCfd(m);
   renderPred(m); renderForecast(); renderDora(m); renderLoad(); renderValue(m); renderRel(m); renderRisk(m, items);
   applyTiles();
   /* The grid used to be faded to 0.45 opacity over an empty context, as the
@@ -2966,7 +3440,12 @@ window.DVD = {
     view: () => S.view,
     tiles: () => [...S.shown],
     tileIds: () => TILE_IDS.slice(),
-    presets: () => PRESETS,
+    presets: () => PRESETS_NOW(),
+    /* So a11y and e2e can put a tile on screen that this board does not show
+       by default. A chart nothing ever renders is a chart nothing ever
+       contrast-checks, and the four flow tiles are off by default on the
+       sprint data every suite runs against. */
+    setShown: ids => setShown(ids),
     setTiles: ids => setShown(ids),
     order: () => S.order.slice(),
     setOrder: ids => { S.order = normaliseOrder(ids); applyOrder(); syncTileUrl(); paintPicker(); },
@@ -3010,11 +3489,16 @@ S.ctx = S.data.defaultContextId;
   const attr = document.documentElement.getAttribute("data-tiles");
   let ids;
   if (t) ids = t.split(",");
-  else if (v && PRESETS[v]) ids = PRESETS[v];
+  else if (v && PRESET_SETS[v]) ids = PRESET_SETS[v].sprint;
   else if (attr !== null) ids = attr.split(",");
-  else ids = PRESETS.all;
+  else ids = PRESET_SETS.all.sprint;
   S.shown = new Set(ids.map(s => s.trim()).filter(id => TILE_IDS.indexOf(id) >= 0));
-  if (!S.shown.size) S.shown = new Set(PRESETS.all);
+  if (!S.shown.size) S.shown = new Set(PRESET_SETS.all.sprint);
+  /* Which board kind the set above was resolved for. Seeded rather than left
+     null so that a `?view=` or `?tiles=` in the URL is recognised as the
+     reader's own choice on the first board switch, instead of being replaced
+     by the default. */
+  S.presetKind = "sprint";
 
   const ord = sp.get("order") || document.documentElement.getAttribute("data-order") || "";
   S.order = normaliseOrder(ord.split(",").filter(Boolean));

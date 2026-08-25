@@ -181,6 +181,20 @@ def main():
         page.wait_for_timeout(600)
         page.evaluate("d => window.DVD.applyDataset(d)", bundle)
         page.wait_for_timeout(800)
+        # Everything, flow tiles included. They are off by default on a sprint
+        # board, which is the data every suite runs against — so without this
+        # the four newest charts would be the four nothing ever contrast-checks,
+        # and their dashed percentile lines and axis labels use the UI ink
+        # tokens rather than the series palette precisely because those are the
+        # ones a contrast floor applies to.
+        page.evaluate("() => window.DVD.debug.setShown(window.DVD.debug.tileIds())")
+        page.wait_for_timeout(600)
+        # Asserted rather than assumed. A setup line that quietly stopped
+        # working would leave every check below passing over a page missing the
+        # tiles it was added to cover.
+        check("the flow charts really are on screen for the sweeps below",
+              page.evaluate("""() => ['c-cycle','c-wip','c-thr','c-cfd']
+                .filter(i => document.getElementById(i).classList.contains('hidden'))""") == [])
 
         # ---------- 4.1.2 name, role, value ----------
         print("4.1.2  name, role, value")

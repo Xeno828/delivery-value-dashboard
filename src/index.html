@@ -108,6 +108,46 @@
       <div class="tv-wrap hidden" id="age-table"></div>
     </div>
 
+    <div class="card span7" id="c-cycle">
+      <div class="card-hd">
+        <div><h2>How long finished work took <span class="info" data-tip="cycle">i</span></h2>
+        <div class="cap">Every closed item, by the day it finished. The lines are what 50%, 85% and 95% of them came in under.</div></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="cycle" aria-pressed="false" title="Show as table">▤</button></div>
+      </div>
+      <div id="cycle-chart"></div>
+      <div class="tv-wrap hidden" id="cycle-table"></div>
+    </div>
+
+    <div class="card span5" id="c-wip">
+      <div class="card-hd">
+        <div><h2>Work in progress, and how old it is <span class="info" data-tip="wip">i</span></h2>
+        <div class="cap">Open work against the same lines. Anything above them is already late, before it is late.</div></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="wip" aria-pressed="false" title="Show as table">▤</button></div>
+      </div>
+      <div id="wip-chart"></div>
+      <div class="tv-wrap hidden" id="wip-table"></div>
+    </div>
+
+    <div class="card span5" id="c-thr">
+      <div class="card-hd">
+        <div><h2>How much finishes each week <span class="info" data-tip="thr">i</span></h2>
+        <div class="cap">The series the forecast samples from. Quiet weeks are part of it, not gaps in it.</div></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="thr" aria-pressed="false" title="Show as table">▤</button></div>
+      </div>
+      <div id="thr-chart"></div>
+      <div class="tv-wrap hidden" id="thr-table"></div>
+    </div>
+
+    <div class="card span7" id="c-cfd">
+      <div class="card-hd">
+        <div><h2>Where the work has been sitting <span class="info" data-tip="cfd">i</span></h2>
+        <div class="cap">Cumulative flow. The height of the middle band is work in progress; the gap between the top two lines is the queue.</div></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="cfd" aria-pressed="false" title="Show as table">▤</button></div>
+      </div>
+      <div id="cfd-chart"></div>
+      <div class="tv-wrap hidden" id="cfd-table"></div>
+    </div>
+
     <div class="card span5" id="c-pred">
       <div class="card-hd">
         <div><h2>Can we trust the forecast? <span class="info" data-tip="pred">i</span></h2>

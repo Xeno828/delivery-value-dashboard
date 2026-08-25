@@ -23,6 +23,7 @@ has to say what changed since the last one and whether that is good.
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 from collections import defaultdict
 from datetime import date, timedelta
@@ -129,6 +130,114 @@ def facts(ds, previous=None, scope="sprint"):
     cyc = [c for c in cyc if c is not None]
     lead = [l for l in lead if l is not None]
 
+    # --- the flow figures a board without a sprint boundary is read on -------
+    #
+    # These are computed here rather than in the page for the reason every
+    # figure is: the agent quotes, it does not calculate, and a chart whose
+    # numbers no tool produced is a chart nobody can check. The page draws the
+    # same series from the same issues and `tests/test_agent.py` holds the two
+    # to the same answers.
+    #
+    # None of them needs a sprint. That is not a coincidence — it is why the
+    # forecaster worked on a flow board from the start, and why these were
+    # available all along rather than something the schema had to grow.
+
+    # Cycle time per closed item, dated, so the scatterplot can be checked
+    # against the pack a line at a time and an outlier can be named.
+    cycle_items = sorted(
+        ({"key": i["key"], "resolved": i["resolved"],
+          "days": elapsed_days(i["started"], i["resolved"])}
+         for i in done if i.get("started") and i.get("resolved")),
+        key=lambda r: (r["resolved"], r["key"]))
+    cycle_items = [r for r in cycle_items if r["days"] is not None]
+
+    # Items finished per calendar week, keyed by the Monday. Weeks, not days:
+    # a per-day series over a flow board is mostly zeroes and reads as a team
+    # that keeps stopping. Zero weeks stay in — the same rule the forecaster's
+    # throughput sampling follows, and for the same reason.
+    per_week = {}
+    finished = sorted(_d(i["resolved"]) for i in done if i.get("resolved"))
+    if finished:
+        first = finished[0] - datetime.timedelta(days=finished[0].weekday())
+        last = finished[-1] - datetime.timedelta(days=finished[-1].weekday())
+        w = first
+        while w <= last:
+            per_week[w.isoformat()] = 0
+            w += datetime.timedelta(days=7)
+        for r in finished:
+            per_week[(r - datetime.timedelta(days=r.weekday())).isoformat()] += 1
+    weeks = [{"week_starting": k, "items": v} for k, v in sorted(per_week.items())]
+
+    # Work in progress at the as-of date: started, not yet finished. Derived
+    # from dates rather than from status, so it means the same thing on a board
+    # whose columns this tool has never seen.
+    wip_now = len([i for i in openi if i.get("started")])
+
+    # How the open work is ageing against what finished work actually took.
+    # An item past the 85th percentile is late *now*, before it is late.
+    cyc_p85 = _pctile(cyc, 85)
+    ageing_wip = sorted(
+        ({"key": i["key"], "status": i.get("status"),
+          "age_days": elapsed_days(i["created"], as_of)}
+         for i in openi if i.get("created")),
+        key=lambda r: -(r["age_days"] or 0))
+    past_p85 = ([r for r in ageing_wip if cyc_p85 is not None and (r["age_days"] or 0) > cyc_p85]
+                if cyc_p85 is not None else [])
+
+    # Cumulative flow, at the only granularity this schema can honestly carry.
+    # A real CFD has one band per column; the bands below are the three status
+    # *categories*, because nothing in a dataset records which column an issue
+    # sat in on a given day. Said out loud in `bands`, so a reader who expects
+    # seven columns learns why they got three rather than assuming the board
+    # has three. The Forge resolver's `statusTransitions` would support the
+    # finer version; the Python fetcher does not emit them yet.
+    cfd = []
+    if all_dates := sorted({d for i in issues for d in
+                            (i.get("created"), i.get("started"), i.get("resolved")) if d}):
+        span_start, span_end = _d(all_dates[0]), _d(as_of)
+        day = span_start
+        while day <= span_end:
+            iso = day.isoformat()
+            todo = ip = dn = 0
+            for i in issues:
+                c, st, r = i.get("created"), i.get("started"), i.get("resolved")
+                if not c or c > iso:
+                    continue
+                if r and r <= iso:
+                    dn += 1
+                elif st and st <= iso:
+                    ip += 1
+                else:
+                    todo += 1
+            cfd.append({"date": iso, "to_do": todo, "in_progress": ip, "done": dn})
+            day += datetime.timedelta(days=1)
+
+    # Little's Law as a reconciliation, not as a prediction and not as a
+    # verdict. Work in progress divided by throughput is how long the average
+    # item must be spending in progress; measured cycle time is how long the
+    # items that *finished* actually took. On a healthy board they land near
+    # each other.
+    #
+    # When they do not, there are two honest readings and this tool does not
+    # choose between them: the open work is genuinely sitting far longer than
+    # anything that has finished — the case the ageing chart shows by name — or
+    # the start dates are not recording when work really began. Both are worth
+    # knowing and they are not the same problem, so the two figures are
+    # returned side by side and `agrees` says only whether they line up.
+    thr_per_day = (sum(w["items"] for w in weeks) / (len(weeks) * 7.0)) if weeks else None
+    implied = (wip_now / thr_per_day) if thr_per_day else None
+    cyc_p50 = _pctile(cyc, 50)
+    littles = {
+        "wip_now": wip_now,
+        "throughput_items_per_day": round(thr_per_day, 2) if thr_per_day else None,
+        "implied_cycle_days": round(implied, 1) if implied else None,
+        "measured_cycle_p50": cyc_p50,
+        # A factor of two either way. Tighter would fire on ordinary variation;
+        # looser would never fire at all.
+        "agrees": (None if implied is None or cyc_p50 in (None, 0)
+                   else 0.5 <= implied / cyc_p50 <= 2.0),
+    }
+
     wdays = meta.get("workingDays") or [d.isoformat() for d in working_days(_d(start), _d(end), cfg)]
     elapsed = pct(wdays.index(as_of) + 1, len(wdays)) if as_of in wdays else (1.0 if wdays else None)
 
@@ -195,9 +304,25 @@ def facts(ds, previous=None, scope="sprint"):
         "flow": {
             "unit": "calendar days",
             "cycle_p50": _pctile(cyc, 50), "cycle_p85": _pctile(cyc, 85),
+            "cycle_p95": _pctile(cyc, 95),
             "lead_p50": _pctile(lead, 50), "lead_p85": _pctile(lead, 85),
             "flow_efficiency": pct(sum(cyc), sum(lead)) if lead and sum(lead) else None,
             "samples": len(cyc),
+            "cycle_items": cycle_items,
+            "throughput_per_week": weeks,
+            "throughput_mean_per_week": (
+                round(sum(w["items"] for w in weeks) / len(weeks), 1) if weeks else None),
+            "wip_now": wip_now,
+            "ageing_wip": ageing_wip,
+            "ageing_past_cycle_p85": [r["key"] for r in past_p85],
+            "cumulative_flow": {
+                "bands": ["to_do", "in_progress", "done"],
+                "granularity": "status category",
+                "why": ("one band per status category, not per column — no dataset records "
+                        "which column an issue sat in on a given day"),
+                "series": cfd,
+            },
+            "littles_law": littles,
         },
         "predictability": {
             # ITEMS is the primary unit. Every forecast and every commitment

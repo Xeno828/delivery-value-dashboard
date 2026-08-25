@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.17.0
+
+**Four flow tiles, and none of them needed a sprint or a window.** Cycle time, ageing work in progress, weekly throughput and cumulative flow are all properties of issues and dates — which is why they were available all along rather than something the schema had to grow, and the same reason the forecaster worked on a flow board from the start.
+
+**How long finished work took** plots every closed item on the day it finished against 50/85/95 percentile lines. It is ranked above the cumulative flow diagram deliberately, against the usual instinct: it yields a sentence a team can take outward — *85% of what we finish, we finish within N days* — it names outliers into the drill-down, which is this product's whole signature, and it is read correctly by people who have never seen one. Cumulative flow diagrams are famously looked at and taken nothing from.
+
+**Work in progress, and how old it is** puts open work against those same lines. It is the only tile on the page describing work a stand-up can still change: an item above the 85th percentile has already outlived 85% of everything the board has ever finished, and it has not finished. **How much finishes each week** is the series the Monte Carlo samples, shown so the forecast can be checked rather than taken on trust — quiet weeks included, because a model that never samples a zero never predicts a stall.
+
+**The cumulative flow diagram has three bands and says so on the tile.** Nothing in a dataset records which column an issue sat in on a given day, so the bands are the three status *categories*, derived from `created`, `started` and `resolved`. A per-column version needs `statusTransitions` from the Python fetcher as well as the Forge resolver. A three-band chart presented as a full one is a different picture of the same board, so the limitation is printed rather than left to be discovered — and removing that sentence fails a test.
+
+**Little's Law is reconciled under it, with no verdict drawn.** Work in progress over throughput is how long the average item must be spending in progress; measured cycle time is how long the items that finished actually took. Where they disagree by more than a factor of two the tile states both figures and says they do not line up. It does not choose between the two honest readings — the open work really is sitting far longer than anything that has finished, or start dates are not recording when work began — because choosing would be a claim about a team resting on whichever reading the reader happened to assume.
+
+**Shown by default only on a flow board; available on every board.** All four measure a sprint board perfectly well, and hiding a measure that works is the same error as showing one that does not. Presets gained a board-kind column rather than a fourth preset: the audience question and the board question are different axes, and crossing them would mean four presets to keep in step with two report templates. A reader who chose *Executive* keeps that choice across a board switch and gets the executive cut of whichever board they landed on; a custom set is left exactly as they left it.
+
+**Every figure is computed in `agent/tools/metrics.py` first.** The page mirrors the percentile function because a browser cannot call Python, which is the same arrangement `orgconfig.py` has, and it is kept honest the same way — by comparing the two rather than trusting they were written to match. `tests/e2e.py` reads the figures off the rendered tiles and holds them to the facts pack.
+
+Three things this turned up that are worth recording. The first mutation test **did not fail**: changing the percentile constant from 85 to 80 passed, because on the sample data those are the same number and the caption said "85%" as a literal beside whatever figure the constant produced. That is a mislabelled number rather than a wrong one, and harder to notice; the sentence is built from the constants now and the test compares two percentiles that differ. The four tiles were also invisible to `tests/a11y.py`, which runs against sprint data where they are off by default — the four newest charts would have been the four nothing ever contrast-checked. It shows them explicitly, and asserts that it did.
+
+### Considered and left out
+
+**Blocked time**, the measure everyone asks for: `flagged` is a boolean with no history, so the schema cannot say when an item was flagged. Not computable rather than not wanted. **Flow distribution by work type**, which is easy from `type` and implies a target mix nobody set — the family [ADR 0004](docs/adr/0004-no-priority-score.md) exists to refuse. **WIP limits**, which need a limit somebody stated. **A flow-efficiency trend line**: the waiting-versus-working chart already is the graph view, and a ratio of two noisy quantities over time moves mostly with how accurately `started` was recorded, so it invites reading a data-quality artefact as a delivery change. And no per-person cut of ageing work in progress ([ADR 0003](docs/adr/0003-the-dashboard-does-not-measure-people.md)), nor any "what to pull next" ordering ([ADR 0004](docs/adr/0004-no-priority-score.md)) — an ageing chart invites both.
+
 ## 1.16.13
 
 **The Monte Carlo tile was forecasting a board with no sprints two and a half times too fast.** Found by asking whether it still worked rather than assuming it did, and it is the exact failure this repository names as its worst: not a crash, a credible number.

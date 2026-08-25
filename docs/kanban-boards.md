@@ -134,7 +134,31 @@ Costs, stated:
 
 The tile picker gains no kanban **preset**, and that is a different question from the one above. The two presets are *audience* cuts — executive and team — taken from the agent's own report templates, and a board-kind preset would be a second axis crossed with the first: four presets to keep in step with two templates. What a flow board does instead is narrower and needs no preset. Which tiles a board can support is a property of the board, applied on top of whichever audience cut the reader chose, so the two axes compose rather than multiply.
 
-The flow tiles a team on a flow board actually wants — a cycle-time distribution with its percentiles, ageing work in progress, a cumulative flow diagram — are a second pass with their own vocabulary, their own tests and their own figures computed in `agent/tools/`, never in a renderer. Two constraints govern that pass before a line of it is written: an ageing-work-in-progress view invites a per-person cut, and [ADR 0003](adr/0003-the-dashboard-does-not-measure-people.md) forbids it; a "what should we pull next" ordering invites a priority score, and [ADR 0004](adr/0004-no-priority-score.md) forbids that.
+## The flow tiles
+
+Four, and none of them needs a sprint or a window — every figure is a property of issues and dates, which is why they were available all along rather than something the schema had to grow. `agent/tools/metrics.py` computes each series under `flow` and the page draws the same one, held together by `tests/e2e.py` comparing the page's stated figures against the facts pack.
+
+| Tile | What it is for |
+|---|---|
+| **How long finished work took** | Every closed item by the day it finished, against 50/85/95 percentile lines. The 85th is the sentence to take outward: *85% of what we finish, we finish within N days*. Outliers are clickable by name, which is what makes it checkable rather than assertable |
+| **Work in progress, and how old it is** | Open work against those same lines. The only tile on the page describing work a stand-up can still change: an item above the 85th percentile has already outlived 85% of everything the board has finished, and it has not finished |
+| **How much finishes each week** | The series the Monte Carlo samples, shown so the forecast can be checked rather than taken on trust. Quiet weeks stay in — a model that never samples a zero never predicts a stall |
+| **Where the work has been sitting** | Cumulative flow. Middle band is work in progress, the gap between the top two lines is the queue |
+
+They are **shown by default only on a flow board**, and offered on any board — a sprint team benefits from all four, and hiding a measure that works is the same error as showing one that does not. Ticking one on a sprint board puts the view into *custom*, which is what it is.
+
+**The cumulative flow diagram has three bands, not one per column, and says so on the tile.** Nothing in a dataset records which column an issue sat in on a given day; the three bands are the status *categories*, derived from `created`, `started` and `resolved`. A per-column version needs the Forge resolver's `statusTransitions` from the Python fetcher too. A three-band chart presented as a full one is a different picture of the same board, so the limitation is printed rather than left to be discovered.
+
+**Little's Law is reconciled under it, and no verdict is drawn.** Work in progress over throughput is how long the average item must be spending in progress; measured cycle time is how long the items that finished actually took. When they disagree by more than a factor of two the tile says so and gives both figures, because there are two honest readings — the open work really is sitting far longer than anything that has finished, or start dates are not recording when work began — and choosing between them would be a claim about a team built on whichever the reader assumed.
+
+### What was considered and left out
+
+- **Blocked time.** The measure everyone asks for, and `flagged` is a boolean with no history: the schema cannot say when an item was flagged. Not computable, rather than not wanted.
+- **Flow distribution by work type.** Easy from `type`, and it implies a target mix nobody set. That is the family [ADR 0004](adr/0004-no-priority-score.md) exists to refuse.
+- **WIP limits and control bands.** They need a limit somebody stated, and there is no config field for one.
+- **A flow-efficiency trend line.** The waiting-versus-working chart already *is* the graph view, and a ratio of two noisy quantities plotted over time moves mostly with how accurately `started` was recorded — a data-quality artefact read as a delivery change.
+- **Any per-person cut of ageing work in progress.** [ADR 0003](adr/0003-the-dashboard-does-not-measure-people.md).
+- **A "what to pull next" ordering.** [ADR 0004](adr/0004-no-priority-score.md).
 
 Forecasting inside Forge stays blocked on the hosted calculator either way ([ADR 0008](adr/0008-forge-calls-a-hosted-calculator.md)). Over loopback it works, and the forecaster itself needed no change — `forecast.build()` samples throughput over a rolling window of days and has never needed a sprint boundary. What did need changing was the *slice* around it, twice, and both were wrong numbers rather than failures:
 

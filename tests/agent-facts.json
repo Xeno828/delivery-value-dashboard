@@ -11,7 +11,8 @@
     "currency": "USD",
     "scope": "sprint",
     "issues_in_scope": 22,
-    "issues_in_file": 22
+    "issues_in_file": 22,
+    "calendar": "5-day working week (mon, tue, wed, thu, fri), 0 holidays, 14-day sprints; done = Done, Closed, Resolved, Complete, Completed, Shipped"
   },
   "delivery": {
     "items_total": 22,
@@ -84,10 +85,419 @@
     "unit": "calendar days",
     "cycle_p50": 2.0,
     "cycle_p85": 3.0,
+    "cycle_p95": 3.45,
     "lead_p50": 11.0,
     "lead_p85": 14.35,
     "flow_efficiency": 0.2185,
-    "samples": 12
+    "samples": 12,
+    "cycle_items": [
+      {
+        "key": "BLC-401",
+        "resolved": "2026-08-05",
+        "days": 2
+      },
+      {
+        "key": "BLC-402",
+        "resolved": "2026-08-06",
+        "days": 3
+      },
+      {
+        "key": "BLC-407",
+        "resolved": "2026-08-06",
+        "days": 3
+      },
+      {
+        "key": "BLC-455",
+        "resolved": "2026-08-06",
+        "days": 2
+      },
+      {
+        "key": "BLC-405",
+        "resolved": "2026-08-07",
+        "days": 4
+      },
+      {
+        "key": "BLC-418",
+        "resolved": "2026-08-07",
+        "days": 3
+      },
+      {
+        "key": "BLC-458",
+        "resolved": "2026-08-07",
+        "days": 2
+      },
+      {
+        "key": "BLC-460",
+        "resolved": "2026-08-08",
+        "days": 3
+      },
+      {
+        "key": "BLC-447",
+        "resolved": "2026-08-09",
+        "days": 1
+      },
+      {
+        "key": "BLC-450",
+        "resolved": "2026-08-09",
+        "days": 1
+      },
+      {
+        "key": "BLC-452",
+        "resolved": "2026-08-10",
+        "days": 1
+      },
+      {
+        "key": "BLC-453",
+        "resolved": "2026-08-10",
+        "days": 1
+      }
+    ],
+    "throughput_per_week": [
+      {
+        "week_starting": "2026-08-03",
+        "items": 10
+      },
+      {
+        "week_starting": "2026-08-10",
+        "items": 2
+      }
+    ],
+    "throughput_mean_per_week": 6.0,
+    "wip_now": 6,
+    "ageing_wip": [
+      {
+        "key": "BLC-438",
+        "status": "To Do",
+        "age_days": 41
+      },
+      {
+        "key": "BLC-436",
+        "status": "To Do",
+        "age_days": 23
+      },
+      {
+        "key": "BLC-429",
+        "status": "In Progress",
+        "age_days": 21
+      },
+      {
+        "key": "BLC-433",
+        "status": "In Progress",
+        "age_days": 14
+      },
+      {
+        "key": "BLC-416",
+        "status": "In Progress",
+        "age_days": 12
+      },
+      {
+        "key": "BLC-421",
+        "status": "In Review",
+        "age_days": 11
+      },
+      {
+        "key": "BLC-424",
+        "status": "To Do",
+        "age_days": 10
+      },
+      {
+        "key": "BLC-441",
+        "status": "In Review",
+        "age_days": 9
+      },
+      {
+        "key": "BLC-443",
+        "status": "To Do",
+        "age_days": 8
+      },
+      {
+        "key": "BLC-451",
+        "status": "In Progress",
+        "age_days": 4
+      }
+    ],
+    "ageing_past_cycle_p85": [
+      "BLC-438",
+      "BLC-436",
+      "BLC-429",
+      "BLC-433",
+      "BLC-416",
+      "BLC-421",
+      "BLC-424",
+      "BLC-441",
+      "BLC-443",
+      "BLC-451"
+    ],
+    "cumulative_flow": {
+      "bands": [
+        "to_do",
+        "in_progress",
+        "done"
+      ],
+      "granularity": "status category",
+      "why": "one band per status category, not per column \u2014 no dataset records which column an issue sat in on a given day",
+      "series": [
+        {
+          "date": "2026-06-30",
+          "to_do": 1,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-01",
+          "to_do": 1,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-02",
+          "to_do": 1,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-03",
+          "to_do": 1,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-04",
+          "to_do": 1,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-05",
+          "to_do": 1,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-06",
+          "to_do": 1,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-07",
+          "to_do": 1,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-08",
+          "to_do": 1,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-09",
+          "to_do": 1,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-10",
+          "to_do": 1,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-11",
+          "to_do": 1,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-12",
+          "to_do": 1,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-13",
+          "to_do": 1,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-14",
+          "to_do": 1,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-15",
+          "to_do": 1,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-16",
+          "to_do": 1,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-17",
+          "to_do": 1,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-18",
+          "to_do": 2,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-19",
+          "to_do": 2,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-20",
+          "to_do": 3,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-21",
+          "to_do": 4,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-22",
+          "to_do": 5,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-23",
+          "to_do": 6,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-24",
+          "to_do": 7,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-25",
+          "to_do": 8,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-26",
+          "to_do": 9,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-27",
+          "to_do": 10,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-28",
+          "to_do": 11,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-29",
+          "to_do": 13,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-30",
+          "to_do": 14,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-07-31",
+          "to_do": 15,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-08-01",
+          "to_do": 16,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-08-02",
+          "to_do": 17,
+          "in_progress": 0,
+          "done": 0
+        },
+        {
+          "date": "2026-08-03",
+          "to_do": 14,
+          "in_progress": 4,
+          "done": 0
+        },
+        {
+          "date": "2026-08-04",
+          "to_do": 11,
+          "in_progress": 7,
+          "done": 0
+        },
+        {
+          "date": "2026-08-05",
+          "to_do": 10,
+          "in_progress": 8,
+          "done": 1
+        },
+        {
+          "date": "2026-08-06",
+          "to_do": 9,
+          "in_progress": 8,
+          "done": 4
+        },
+        {
+          "date": "2026-08-07",
+          "to_do": 8,
+          "in_progress": 7,
+          "done": 7
+        },
+        {
+          "date": "2026-08-08",
+          "to_do": 6,
+          "in_progress": 8,
+          "done": 8
+        },
+        {
+          "date": "2026-08-09",
+          "to_do": 4,
+          "in_progress": 8,
+          "done": 10
+        },
+        {
+          "date": "2026-08-10",
+          "to_do": 4,
+          "in_progress": 6,
+          "done": 12
+        }
+      ]
+    },
+    "littles_law": {
+      "wip_now": 6,
+      "throughput_items_per_day": 0.86,
+      "implied_cycle_days": 7.0,
+      "measured_cycle_p50": 2.0,
+      "agrees": false
+    }
   },
   "predictability": {
     "primary_unit": "items",
