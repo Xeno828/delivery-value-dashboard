@@ -246,25 +246,54 @@ def health_composition(b):
     page.evaluate("d => window.DVD.applyDataset(d)", flow)
     page.wait_for_timeout(500)
 
-    # Sprint health is a sprint-board figure — CONTEXT.md says so — and the
-    # chip is the most prominent thing on the page. "Sprint health: not scored"
-    # there is the noise, not the disclosure, so the chip goes and the context
-    # bar carries the fact instead.
-    check("the sprint-health chip is emptied, not left holding the last board's score",
-          page.evaluate(CHIP) == "" and page.evaluate(TT) in (None, ""),
-          (page.evaluate(CHIP), str(page.evaluate(TT))[:80]))
+    # Sprint health is a sprint-board figure. The chip carries the composite
+    # this board *can* support instead, and says which one it is carrying —
+    # "Flow health" and "Sprint health" are different quantities on different
+    # scales of evidence, and a chip reading the same for both would invite
+    # comparing two boards that were never measured the same way.
+    chip, tt = page.evaluate(CHIP), page.evaluate(TT)
+    check("the chip carries flow health, not sprint health",
+          "Flow health:" in chip and "Sprint health" not in chip, chip)
+    check("and scores it, rather than refusing", "/100)" in chip, chip)
+    check("flow efficiency is the component it is built on",
+          "Flow efficiency (40% weight)" in tt, tt[:200])
+    check("with the same two hygiene measures the sprint score uses",
+          "Blockers (30% weight)" in tt and "Ageing work (30% weight)" in tt, tt[:260])
+    check("and none of the sprint-shaped ones",
+          "Delivery pace" not in tt and "Scope stability" not in tt, tt[:260])
+    weights = [int(w) for w in re.findall(r"\((\d+)% weight\)", tt)]
+    check("the disclosed weights are three and sum to 100",
+          len(weights) == 3 and sum(weights) == 100, weights)
+    check("the threshold behind the score is shown, not applied quietly",
+          "full marks at 40%" in tt, tt[-260:])
+    check("and it says the points toggle cannot move this one",
+          "does not move this score" in tt, tt[-200:])
+
+    # Flow efficiency is load-bearing rather than merely heavy. Without it,
+    # 60% of the weight survives — comfortably above the half-weight floor —
+    # and what is left is hygiene. Calling that *flow* health while the flow
+    # measure is the missing one would put the absent part in the name.
+    nostart = json.loads(json.dumps(flow))
+    for i in nostart["issues"]:
+        i.pop("started", None)
+    page.evaluate("d => window.DVD.applyDataset(d)", nostart)
+    page.wait_for_timeout(500)
+    chip, tt = page.evaluate(CHIP), page.evaluate(TT)
+    check("without flow efficiency the score refuses rather than scoring the hygiene left over",
+          "Flow health: not scored" in chip and "/100)" not in chip, chip)
+    check("and names the start date as the thing that is missing",
+          "both a start and a resolved date" in tt, tt[:260])
+    check("it ends with the clause, untrimmed",
+          "the evidence is absent, not noisy" in tt, tt[:400])
+    check("and says where the missing field comes from",
+          "docs/data-format.md" in tt, tt[:400])
+    page.evaluate("d => window.DVD.applyDataset(d)", flow)
+    page.wait_for_timeout(500)
 
     kpi = page.text_content("#kpis .kpi:nth-child(2)")
     check("the pace KPI names the board, not the calendar",
           "no sprints on this board" in kpi and "no sprint dates" not in kpi, kpi)
     check("and states no figure for it", not re.search(r"-?\d+ pp", kpi), kpi)
-
-    # Scope stability is the quiet one. `addedMidSprint` is false on every
-    # issue here — there is no sprint for anything to be added to — so the
-    # guard returns 0% growth and the component would read 100/100, "no
-    # mid-sprint additions", for a board where the phrase has no referent.
-    check("scope stability is dropped, not given full marks for a phrase that has no referent",
-          "no mid-sprint additions" not in tt, tt[:400])
 
     # ---------- the tiles that would state a sprint-shaped figure ----------
     # Each says what *it* in particular cannot show. A single banner over the
@@ -292,8 +321,11 @@ def health_composition(b):
     check("and every tile that measures something still is", still == [], still)
 
     check("the context bar says the grid is short, where the reader is looking",
-          "rolling window, so no burndown, pace or sprint health"
-          in page.text_content("#ctxbar"), page.text_content("#ctxbar")[:200])
+          "rolling window, so no burndown or pace" in page.text_content("#ctxbar"),
+          page.text_content("#ctxbar")[:200])
+    check("and no longer denies a health figure that now exists",
+          "sprint health" not in page.text_content("#ctxbar"),
+          page.text_content("#ctxbar")[:200])
 
     page.evaluate("() => document.getElementById('btn-view').click()")
     page.wait_for_timeout(300)
@@ -309,9 +341,6 @@ def health_composition(b):
           disabled == [True, True, True], disabled)
     page.evaluate("() => document.getElementById('btn-view').click()")
     page.wait_for_timeout(200)
-
-    check("the sprint-health chip is not the headline on a board with no sprints",
-          page.evaluate("() => document.getElementById('t-health').classList.contains('hidden')"))
 
     delivered = tile("#kpis .kpi:nth-child(1)")
     check("Delivered refuses: a window has no committed scope to be a share of",
@@ -399,6 +428,8 @@ def health_composition(b):
     page.wait_for_timeout(500)
     check("a sprint board is unaffected by any of it", page.evaluate(CHIP) == full,
           (page.evaluate(CHIP), full))
+    check("and still calls its own composite by its own name",
+          "Sprint health:" in page.evaluate(CHIP), page.evaluate(CHIP))
 
     check("no console errors while composing the score", not errs, errs[:2])
     page.close()

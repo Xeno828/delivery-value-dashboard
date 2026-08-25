@@ -39,7 +39,23 @@ A tile is **not shown** when it has no subject on this board and never will. Thr
 
 What stops that being a silent cap is that nothing is dropped without being named, in two places: the context bar says *"rolling window, so no burndown, pace or sprint health"* in the row that answers *which data am I looking at*, and the picker lists all three with the reason and disables them rather than leaving them merely unticked — a checkbox that can be ticked and does nothing is worse than one that says why it cannot be. The reader's own tile selection is never touched, so switching back to a sprint board restores the view intact.
 
-The same reasoning takes the sprint-health chip off a flow board. It is a sprint-board figure by definition, and *"Sprint health: not scored"* in the most prominent chip on the page is the noise rather than the disclosure.
+The same reasoning took the sprint-health chip off a flow board — it is a sprint-board figure by definition, and *"Sprint health: not scored"* in the most prominent chip on the page is the noise rather than the disclosure. The chip is not empty now, though: it carries **Flow health** instead, which is the one place on this page where a tile is genuinely *replaced* rather than refused or hidden.
+
+## Flow health
+
+The same machine as sprint health — the drop-and-name rule, the re-weighting, the half-weight floor, the bands — over the measures a board without a commitment actually controls.
+
+| Component | Weight | |
+|---|---|---|
+| Flow efficiency | 40% | The share of an item's life that was work rather than queue. Full marks at 40% of elapsed time; typical delivery data is around half that |
+| Blockers | 30% | Unchanged from the sprint score — it describes the same thing on any board |
+| Ageing work | 30% | Unchanged, and the fourteen-day threshold is stated in days rather than sprints |
+
+Three components, not four dressed up as four. There is no honest fourth: work in progress has no target to be scored against without a limit somebody set, and cycle-time spread already has an implementation in `size_stability()` that a page-side copy would have to be kept in step with.
+
+**Flow efficiency is load-bearing, not merely heavy, and the half-weight floor would not catch it.** Drop it and 60% of the weight survives — comfortably above the floor — but what is left is blockers and ageing work, which is hygiene. That is the same remainder the sprint score refuses to call health, and calling it *flow* health while the flow measure is the missing one would put the absent part in the name. So it refuses outright, names `started` as the thing that is missing rather than asking for more data, and points at `docs/data-format.md`.
+
+The chip says which composite it is carrying. *Flow health* and *Sprint health* are different quantities on different evidence, and a chip that read the same for both would invite comparing two boards that were never measured the same way.
 
 | Tile | On a flow board | The cause it names |
 |---|---|---|
@@ -56,7 +72,7 @@ The same reasoning takes the sprint-health chip off a flow board. It is a sprint
 | `c-value` Business value delivered | **Keeps** | — |
 | `c-rel` Releases & milestones | **Keeps** | — |
 | `c-risk` Risks and what to do about them | **Keeps, minus two rules** | the register names the rules it could not run |
-| Sprint health (header chip) | **Not shown** | a sprint-board figure; the context bar says so |
+| Sprint health (header chip) | **Replaced** by **Flow health** | built on flow efficiency; see below |
 
 ### The KPI strip
 

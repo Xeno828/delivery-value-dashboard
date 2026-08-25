@@ -496,6 +496,22 @@ function filtered() {
  *  The closing clause is the point and is never trimmed. "No issues" and "no
  *  risks" are different statements, and only one of them is true here.
  *  See docs/adr/0010-an-empty-selection-is-a-refusal.md */
+/**
+ * The share of an item's life that was active work rather than queue, above
+ * which flow efficiency stops being a finding and scores full marks.
+ *
+ * One number, in one place. It was two: the executive card called anything
+ * under 40% worth saying and the risk register drew its line at 45%, so the
+ * same board could be reported as fine in one paragraph and a risk in the
+ * next. Forty is the generous end of what real delivery data shows — typical
+ * is half that — which is what makes it a reasonable ceiling for the score
+ * rather than an aspiration nobody reaches.
+ *
+ * It is shown in the disclosure rather than applied quietly, because a
+ * threshold a reader cannot see is one they cannot argue with.
+ */
+const FLOW_EFF_TARGET = 0.4;
+
 const noItems = what =>
   "No issues in this selection, so " + what + " — the evidence is absent, not noisy.";
 
@@ -549,6 +565,13 @@ function derive(items) {
   m.value = sum(m.valueItems, i => i.businessValue);
   const totLead = sum(lead), totCyc = sum(cycle);
   m.flowEff = totLead > 0 ? totCyc / totLead : null;
+  /* Why it could not be taken, when it could not — the same treatment pace and
+     scope stability get, and for the same reason: over the Forge bridge this
+     was silent for a whole install, and on a flow board it is the measure. */
+  m.flowEffUnknown = m.flowEff != null ? null
+    : (m.done.length
+        ? "no closed item here carries both a start and a resolved date"
+        : "nothing in this selection has been closed, so there is no elapsed time to divide");
   m.ages = open.map(i => ({ i, age: days(i.created, now) }));
   m.oldest = m.ages.slice().sort((a, b) => b.age - a.age)[0] || null;
 
@@ -655,42 +678,93 @@ function derive(items) {
   const part = (n, w, why, v, d) => parts.push({ n: n, w: w, why: why || null,
                                                  v: why ? null : v, d: why ? null : d });
 
-  part("Delivery pace", 0.34, m.paceUnknown,
-    m.paceGap == null ? 0 : clamp(1 + m.paceGap * 2.2, 0, 1),
-    m.paceGap >= 0 ? "ahead of the time-elapsed line"
-                   : Math.round(-m.paceGap * 100) + " percentage points behind the time-elapsed line");
-  part("Scope stability", 0.22, m.scopeUnknown,
-    clamp(1 - m.scopeAddedPct * 4, 0, 1),
-    m.addedU ? U().fmt(m.addedU) + " " + U().n(m.addedU) + " added mid-sprint (" + pct(m.scopeAddedPct) + " growth)"
-             : "no mid-sprint additions");
-  /* These two need only the issues, which by here there are some of. An open
-     list with nothing older than 14 days in it is a measurement, not a gap. */
-  part("Blockers", 0.22, null,
-    clamp(1 - (m.flagged.length / items.length) * 6, 0, 1),
-    m.flagged.length + " flagged of " + items.length);
-  part("Ageing work", 0.22, null,
-    clamp(1 - (m.ages.filter(a => a.age > 14).length / Math.max(open.length, 1)), 0, 1),
-    m.ages.filter(a => a.age > 14).length + " open items older than 14 days");
+  /* Two composites, one machine. A sprint board is scored on whether it is
+     going to land what it committed to; a board that committed to nothing
+     cannot be, so it is scored on how work moves — which is what a team
+     without a sprint boundary actually controls.
+
+     Everything below the parts list is shared: the drop-and-name rule, the
+     re-weighting, the half-weight floor and the bands. Two scores computed two
+     ways would be two things to keep honest, and the day they disagreed about
+     what "Amber" means every colour on the page would become something to
+     check rather than read. */
+  if (m.isFlowBoard) {
+    m.healthKind = "Flow health";
+    /* Flow efficiency carries the composite, because on a board with no
+       commitment it is the closest thing to "is this working" the data holds:
+       the share of an item's life that was work rather than queue. The other
+       two are the same hygiene measures the sprint score uses, unchanged and
+       at equal weight, because they describe the same thing on any board.
+
+       Three components, not four dressed up as four. There is no honest fourth
+       here — work in progress has no target to be scored against without a
+       limit somebody set, and cycle-time spread already has an implementation
+       in `size_stability()` that this would have to mirror and keep in step. */
+    part("Flow efficiency", 0.40, m.flowEffUnknown,
+      clamp(m.flowEff / FLOW_EFF_TARGET, 0, 1),
+      pct(m.flowEff) + " of elapsed time was active work" +
+      (m.flowEff >= FLOW_EFF_TARGET ? "" : ", against " + pct(FLOW_EFF_TARGET) + " for full marks"));
+    part("Blockers", 0.30, null,
+      clamp(1 - (m.flagged.length / items.length) * 6, 0, 1),
+      m.flagged.length + " flagged of " + items.length);
+    part("Ageing work", 0.30, null,
+      clamp(1 - (m.ages.filter(a => a.age > 14).length / Math.max(open.length, 1)), 0, 1),
+      m.ages.filter(a => a.age > 14).length + " open items older than 14 days");
+  } else {
+    m.healthKind = "Sprint health";
+    part("Delivery pace", 0.34, m.paceUnknown,
+      m.paceGap == null ? 0 : clamp(1 + m.paceGap * 2.2, 0, 1),
+      m.paceGap >= 0 ? "ahead of the time-elapsed line"
+                     : Math.round(-m.paceGap * 100) + " percentage points behind the time-elapsed line");
+    part("Scope stability", 0.22, m.scopeUnknown,
+      clamp(1 - m.scopeAddedPct * 4, 0, 1),
+      m.addedU ? U().fmt(m.addedU) + " " + U().n(m.addedU) + " added mid-sprint (" + pct(m.scopeAddedPct) + " growth)"
+               : "no mid-sprint additions");
+    /* These two need only the issues, which by here there are some of. An open
+       list with nothing older than 14 days in it is a measurement, not a gap. */
+    part("Blockers", 0.22, null,
+      clamp(1 - (m.flagged.length / items.length) * 6, 0, 1),
+      m.flagged.length + " flagged of " + items.length);
+    part("Ageing work", 0.22, null,
+      clamp(1 - (m.ages.filter(a => a.age > 14).length / Math.max(open.length, 1)), 0, 1),
+      m.ages.filter(a => a.age > 14).length + " open items older than 14 days");
+  }
 
   m.healthParts = parts;
+
+  /* One component is load-bearing rather than merely heavy, and the half-weight
+     floor would not catch it. Drop flow efficiency and 0.60 of the weight
+     survives — comfortably above the floor — but what is left is blockers and
+     ageing work, which is hygiene. That is the same remainder the sprint score
+     refuses to call health, and calling it *flow* health while the flow measure
+     is the missing one would be worse: the name would be the part that was not
+     taken. Named separately because the cure is specific: `started` is what is
+     missing, not more data. */
+  const flowPart = parts.find(p => p.n === "Flow efficiency");
+  if (flowPart && flowPart.why) {
+    m.health = null;
+    m.healthBand = null;
+    m.healthTaken = parts.filter(p => !p.why).length;
+    m.healthWeight = sum(parts.filter(p => !p.why), p => p.w);
+    m.healthRefusal = "Flow health is built on flow efficiency, and " + flowPart.why +
+      ". Blockers and ageing work were measured and are shown below, but they describe " +
+      "hygiene rather than how work moves — the evidence is absent, not noisy.";
+    m.healthAdvice = "Flow efficiency needs a start date as well as a resolved date on the " +
+      "same item. Where those come from is in docs/data-format.md.";
+    return m;
+  }
   const taken = parts.filter(p => !p.why);
   m.healthTaken = taken.length;
   m.healthWeight = sum(taken, p => p.w);
   if (m.healthWeight < 0.5) {
-    /* Not a low score built from the remainder. Two of the four gone is most
-       of the method, and what is left — blockers and ageing work — describes
-       hygiene rather than whether the sprint is going to land. */
+    /* Not a low score built from the remainder. Most of the method is gone and
+       what is left — blockers and ageing work — describes hygiene rather than
+       whether anything is going to land. */
     const why = uniq(parts.filter(p => p.why).map(p => p.why));
     m.health = null;
     m.healthBand = null;
-    /* No flow-board wording here, deliberately. The chip is not shown at all on
-       a board that runs no sprints — a sprint-board figure refusing in the most
-       prominent position on the page is the noise, not the disclosure — so a
-       sentence written for that case would be prose nobody can reach, sitting
-       one edit away from disagreeing with the one in FLOW_UNAVAILABLE that
-       readers do see. */
-    m.healthRefusal = "Sprint health is built from four measures and only " + taken.length +
-      " of them could be taken here: " + why.join("; ") +
+    m.healthRefusal = m.healthKind + " is built from " + parts.length + " measures and only " +
+      taken.length + " of them could be taken here: " + why.join("; ") +
       ". That is too little of the score to report a number for — the evidence is absent, not noisy.";
     m.healthAdvice = m.totalU ? null
       : "Switch the measure to items in the filter row, where these issues do carry a figure.";
@@ -759,30 +833,25 @@ function renderHeader(m) {
       Math.round(p.v * 100) + "/100 — " + esc(p.d)).join("<br>");
 
   const hc = $("#t-health");
-  /* Hidden outright on a board that runs no sprints, rather than refusing in
-     the most prominent chip on the page. "Sprint health: not scored" is a true
-     sentence about a measure that does not apply here, sitting where the
-     headline verdict goes — and the context bar has already said this board
-     reports no sprint measures. `CONTEXT.md` calls it a sprint-board figure;
-     this is the header agreeing. */
-  hc.classList.toggle("hidden", !!m.isFlowBoard);
-  if (m.isFlowBoard) {
-    // Emptied, not merely hidden. Leaving the previous board's score in the
-    // markup and its working in the tooltip attribute is a stale figure one
-    // class away from being read — the same reason the ageing table is cleared
-    // along with its chart rather than left behind the toggle.
-    hc.innerHTML = "";
-    hc.dataset.tt = "";
-    return;
-  }
+  hc.classList.remove("hidden");
+  /* The chip carries whichever composite this board can support, and says
+     which one it is carrying. It briefly carried nothing at all on a flow
+     board, which was right while there was nothing to put in it — a
+     sprint-board figure refusing in the position the headline verdict occupies
+     is noise rather than disclosure. There is something to put in it now. The
+     name is the guard: "Flow health" and "Sprint health" are different
+     quantities on different scales of evidence, and a chip that read the same
+     for both would invite comparing two boards that were never measured the
+     same way. */
+  const kind = m.healthKind || "Sprint health";
   if (m.health == null) {
     /* Withheld, not floored. A 0/100 here would read as "this sprint is in
        trouble" and the 66/100 it used to print read as "this sprint is fine" —
        both are verdicts on evidence nobody has. The chip keeps its shape so
        the header does not jump when data arrives. */
     hc.style.background = CSSV("--info-wash"); hc.style.color = CSSV("--info-ink");
-    hc.innerHTML = '<span aria-hidden="true">—</span> Sprint health: not scored';
-    hc.dataset.tt = "<b>No sprint health score</b><br>" + esc(m.healthRefusal) +
+    hc.innerHTML = '<span aria-hidden="true">—</span> ' + esc(kind) + ": not scored";
+    hc.dataset.tt = "<b>No " + esc(kind.toLowerCase()) + " score</b><br>" + esc(m.healthRefusal) +
       (m.healthAdvice ? "<br><br>" + esc(m.healthAdvice) : "") +
       (m.healthParts ? "<br><br>" + partLines : "") +
       "<br><br>It is withheld rather than shown as a number, because a number here reads as " +
@@ -797,7 +866,7 @@ function renderHeader(m) {
   const [bg, ink, icon, word] = map[band];
   const partial = m.healthTaken < m.healthParts.length;
   hc.style.background = CSSV(bg); hc.style.color = CSSV(ink);
-  hc.innerHTML = '<span aria-hidden="true">' + icon + "</span> Sprint health: " + word +
+  hc.innerHTML = '<span aria-hidden="true">' + icon + "</span> " + esc(kind) + ": " + word +
     " (" + Math.round(m.health * 100) + "/100" +
     // No silent caps. A score built from three of four measures is a different
     // quantity from one built from all four, and the chip is where it is read.
@@ -807,9 +876,18 @@ function renderHeader(m) {
       " measures.</b> The ones that could be taken are re-weighted to sum to 100, so this is the " +
       "honest score of what was measured — and not comparable with a figure built from all four."
      : "") +
-    "<br><br>Green ≥ 72, Amber ≥ 45, otherwise Red. Scored on <b>" + U().label + "</b> — the delivery-pace and " +
-    "scope components move with the measure, so the score does too. Shown so you can argue with the method " +
-    "rather than the colour.";
+    "<br><br>Green ≥ 72, Amber ≥ 45, otherwise Red. " +
+    (m.isFlowBoard
+      /* Worth saying, because on the other composite it is not true and a
+         reader who has seen both will assume it carries over. None of these
+         three components reads work volume, so the Points toggle cannot move
+         this figure — which is a property of the measures, not a promise. */
+      ? "Flow efficiency scores full marks at " + pct(FLOW_EFF_TARGET) +
+        " of elapsed time spent working; typical delivery data is around half that. None of " +
+        "these measures reads work volume, so the items/points toggle does not move this score."
+      : "Scored on <b>" + U().label + "</b> — the delivery-pace and scope components move with " +
+        "the measure, so the score does too.") +
+    " Shown so you can argue with the method rather than the colour.";
 }
 
 function renderFilters() {
@@ -913,7 +991,7 @@ function renderContextBar() {
          "which data am I looking at" — the same place and the same shape as
          the rollup's note. Three tiles are missing from the grid below and
          this is the sentence that stops that being a surprise. */
-      (isWindow(cur) ? " · rolling window, so no burndown, pace or sprint health" : "") + "</span>" +
+      (isWindow(cur) ? " · rolling window, so no burndown or pace" : "") + "</span>" +
     (S.live ? '<button class="btn" id="c-live" style="margin-left:auto">Refresh from ' +
         esc(S.live.source || "server") + "</button>" : "");
 
@@ -1020,7 +1098,7 @@ function renderExec(m) {
       { title: "Work added after the sprint started", items: m.added });
   }
   if (m.flowEff != null) {
-    add(m.flowEff < 0.4 ? "warning" : "good",
+    add(m.flowEff < FLOW_EFF_TARGET ? "warning" : "good",
       "Only " + pct(m.flowEff) + " of elapsed time on closed items was spent actively working.",
       "The other " + pct(1 - m.flowEff) + " was queuing — waiting for review, for a decision, or for someone to be free. Queue time is the cheapest thing to fix and the least often measured.",
       { title: "Closed items, ranked by time spent waiting", items: m.closedTimed.slice().sort((a, b) => (days(a.created, a.resolved) - days(a.started, a.resolved)) < (days(b.created, b.resolved) - days(b.started, b.resolved)) ? 1 : -1) });
@@ -2055,7 +2133,7 @@ function renderRisk(m, items) {
       (m.paceGap != null && m.paceGap < 0 ? " while delivery was already behind the clock." : "."),
       "Adopt a one-in-one-out rule: anything added mid-sprint displaces work of equal size, and the swap is recorded so the burndown stays honest.", m.added);
 
-  if (m.flowEff != null && m.flowEff < 0.45)
+  if (m.flowEff != null && m.flowEff < FLOW_EFF_TARGET)
     push("warning", "Only " + pct(m.flowEff) + " of elapsed time is active work",
       "The rest is queue time — waiting for review, for a decision, or for a person to free up.",
       "Set a review service level (for example, any item in review is picked up within four working hours) and cap work in progress per person. This is usually the fastest available improvement to delivery speed.", m.closedTimed);
@@ -2111,8 +2189,7 @@ function renderRisk(m, items) {
     cannot("the commitment against recent delivery",
       "this needs four sprints of history and there " + (h.length === 1 ? "is " : "are ") +
       h.length);
-  if (m.flowEff == null)
-    cannot("flow efficiency", "no closed item here carries both a start and a resolved date");
+  if (m.flowEffUnknown) cannot("flow efficiency", m.flowEffUnknown);
 
   risks.sort((a, b) => rank[a.sev] - rank[b.sev]);
   const chip = { critical: ["c-crit", "■", "Critical"], serious: ["c-serious", "▲", "Serious"],

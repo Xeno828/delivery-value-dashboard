@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.16.12
+
+**A board with no sprints gets a health score of its own.** The chip carried nothing on a flow board as of 1.16.11, which was right while there was nothing to put in it — a sprint-board figure refusing in the position the headline verdict occupies is noise rather than disclosure. There is something to put in it now. **Flow health** is built on flow efficiency at 40% of the weight, with blockers and ageing work at 30% each, and it is the one place in this work where a figure is genuinely *replaced* rather than refused or hidden.
+
+Flow efficiency carries it because on a board that committed to nothing it is the closest thing to *is this working* the data holds: the share of an item's life that was work rather than queue. The other two are the sprint score's own hygiene measures, unchanged, because they describe the same thing on any board.
+
+**Three components, not four dressed up as four.** There is no honest fourth. Work in progress has no target to be scored against without a limit somebody set, and cycle-time spread already has an implementation in `size_stability()` that a page-side copy would have to be kept in step with — which is the failure this repository keeps paying for, not a shape to fill in for symmetry's sake.
+
+**Both scores go through one machine.** The drop-and-name rule, the re-weighting, the half-weight floor and the bands are shared; only the parts list differs. Two composites computed two ways would be two things to keep honest, and the day they disagreed about what *Amber* means every colour on the page becomes something to check rather than read.
+
+**Flow efficiency is load-bearing, not merely heavy, and the floor would not have caught it.** Drop it and 60% of the weight survives — comfortably above the half-weight floor — so the score would have been reported. What survives is blockers and ageing work, which is hygiene: the same remainder the sprint score already refuses to call health, and here it would have been worse, because the name would have been the part that was not taken. Removing that guard prints **Flow health: Off track (44/100, 2 of 3 measures)** with the flow measure listed as not measured directly above it, which is what the test asserts against. It refuses instead, names `started` as the thing that is missing rather than asking for more data, and says where that field comes from.
+
+**The chip says which composite it is carrying.** *Flow health* and *Sprint health* are different quantities built on different evidence. A chip that read the same for both would invite comparing two boards that were never measured the same way, which is the mistake this whole area exists to prevent.
+
+**One threshold, where there were two.** The executive card called flow efficiency under 40% worth saying and the risk register drew its line at 45%, so the same board could be reported as fine in one paragraph and a risk in the next. There is one number now, it is 40%, it is what scores full marks in the new composite, and it is printed in the disclosure rather than applied quietly — a threshold a reader cannot see is one they cannot argue with. The tooltip also says that none of these three measures reads work volume, so unlike sprint health the points toggle cannot move this figure.
+
 ## 1.16.11
 
 **A board with no sprints shows the tiles that measure it, and not the three that never can.** They refused in place until now, which was the wrong call and is corrected rather than quietly reversed — [ADR 0011](docs/adr/0011-a-kanban-context-is-a-window-not-a-clock.md) records both halves.

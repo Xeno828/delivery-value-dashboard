@@ -81,7 +81,7 @@ Lead time minus cycle time. On typical data this is most of the total, and it is
 _Avoid_: Idle time, dead time, blocked (which is a specific flag)
 
 **Flow efficiency**:
-Total cycle time over total lead time, across a set of completed issues. The share of the wait that was work.
+Total cycle time over total lead time, across a set of completed issues. The share of the wait that was work. **40%** is the one threshold: below it the figure is worth saying, at or above it scores full marks in **Flow health**. Typical delivery data is around half that.
 _Avoid_: Efficiency (unqualified), utilisation
 
 **Ageing**:
@@ -123,8 +123,16 @@ The change between two snapshots, with the direction that counts as good stated 
 _Avoid_: Delta, trend (which implies more than two points)
 
 **Health score**:
-A single weighted band over delivery pace, scope stability, blockers and ageing work, which always shows its full working. A sprint-board figure: two of its four components need a clock, so on a flow board too little of the composition survives and the score refuses rather than reporting the remainder.
+A single weighted band that always shows its full working. There are two, one per board kind, and they are never the same quantity — see **Sprint health** and **Flow health**. Say which one is meant; a figure that says only "health" invites comparing two boards measured on different evidence.
 _Avoid_: Rating, grade, RAG status (as the primary term)
+
+**Sprint health**:
+The health score of a sprint board: delivery pace, scope stability, blockers and ageing work. Two of the four need a clock, so it is not available on a flow board at all — not refused there, replaced.
+_Avoid_: Health (unqualified), sprint score
+
+**Flow health**:
+The health score of a flow board: flow efficiency at 40% of the weight, with blockers and ageing work at 30% each. Flow efficiency is load-bearing rather than merely heavy — without it the score refuses outright, because what remains is hygiene and calling that *flow* health would put the missing measure in the name. None of the three reads work volume, so the points toggle cannot move it.
+_Avoid_: Health (unqualified), kanban health, flow score
 
 **Risk register**:
 Risks computed from the data currently on screen, including the active filter — never typed by hand.
