@@ -917,6 +917,21 @@ function renderExec(m) {
   }
   const behind = m.paceGap != null && m.paceGap < -0.05;
   const v = [];
+  /* The two sentences below are conditional, and until now their absence was
+     the only sign they had not been written. On a sprint with no dates the
+     pace sentence simply did not appear; on a flow board neither does, for
+     good. A summary that silently drops a claim reads as a summary that had
+     nothing to claim, which is the same failure as a truncated list reading as
+     a complete one. Said once at the end, and once for both when they share a
+     cause — repeating it reads as two problems to go and fix, and it is one
+     permanent fact about the board. */
+  const withheld = m.isFlowBoard
+    ? "Pace against the clock and scope growth are not reported for this board: it runs " +
+      "no sprints, so nothing was committed by a date and there is no point after which " +
+      "arriving work counts as an addition."
+    : [m.paceUnknown ? "pace against the clock (" + m.paceUnknown + ")" : null,
+       m.scopeUnknown ? "scope growth (" + m.scopeUnknown + ")" : null]
+      .filter(Boolean).join(" and ");
   /* The share goes on a flow board and the counts stay. "12 of 22 items are
      done (55%)" needs the 22 to be a scope somebody committed to; in a window
      it is *open now, plus finished inside the window*, so the denominator is
@@ -938,6 +953,9 @@ function renderExec(m) {
       (behind ? "<strong>behind the clock</strong> by roughly " + Math.round(-m.paceGap * 100) + " percentage points"
               : "<strong>tracking with the clock</strong>") + ".");
   if (m.addedU) v.push(" Scope grew by " + U().fmt(m.addedU) + " " + U().n(m.addedU) + " (" + pct(m.scopeAddedPct) + ") after the sprint started.");
+  if (withheld)
+    v.push(' <span class="note">' + esc(m.isFlowBoard ? withheld
+      : "Not reported here: " + withheld + ".") + "</span>");
   $("#exec-verdict").innerHTML = v.join("");
 
   $("#exec-basis").innerHTML = "Based on " + m.total + " issues" +
@@ -2031,14 +2049,16 @@ function renderRisk(m, items) {
 
   const oldOpen = m.ages.filter(a => a.age > 14).map(a => a.i);
   if (oldOpen.length >= 2)
-    push("warning", oldOpen.length + " open items have outlived a full sprint",
+    push("warning", oldOpen.length + " open items have " +
+      (m.isFlowBoard ? "been open longer than a fortnight" : "outlived a full sprint"),
       "Ageing work is the strongest available predictor of work that never finishes.",
       "Start every stand-up with the oldest item rather than the newest. Anything past 30 days gets an explicit keep-or-kill decision.", oldOpen);
 
   if (m.flagged.length)
     push("serious", m.flagged.length + " items are flagged as blocked",
       m.flagged.map(i => i.key).join(", ") + ". Blocked work still consumes capacity in status meetings while producing nothing.",
-      "Each blocker needs a named person outside the team and a date. If neither exists, the item should be moved out of the sprint.", m.flagged);
+      "Each blocker needs a named person outside the team and a date. If neither exists, the item " +
+      (m.isFlowBoard ? "should be pulled off the board." : "should be moved out of the sprint."), m.flagged);
 
   const h = S.view.history || [];
   if (h.length >= 4 && m.avg3 && m.cur && commitU(m) > m.avg3 * 1.25)
@@ -2051,6 +2071,35 @@ function renderRisk(m, items) {
     push("good", "Closed items moved quickly once started — average " + n1(m.avgCycle) + " days of active work",
       "Hand-offs and work-in-progress control are working on the items that get picked up.",
       "Keep this. The constraint is upstream of the team, not inside it.", m.closedTimed);
+
+  /* Which rules could not be run at all, as opposed to ran and found nothing.
+     Both produce an empty register and they are opposite statements: "no risks
+     triggered" over thirty issues is a finding, and over a rule that never
+     executed it is a clean bill of health nobody checked. Three of the eight
+     rules above depend on something beyond the issues on screen, and each of
+     them fails silently — the condition is simply false and the rule vanishes.
+
+     This is the same rule as the capped lists in 1.16.3 and the dropped health
+     components in 1.16.2, one level further out: a register that bounds what
+     it examined has to say what it left out. It is deliberately not
+     flow-board-specific — a sprint board with no start date, or a dataset with
+     no `started` field, has been quietly not running these for as long as the
+     register has existed. */
+  const notRun = [];
+  const cannot = (rule, why) => notRun.push(rule + " — " + why);
+  if (m.isFlowBoard)
+    cannot("scope growth", "this board runs no sprints, so there is no point after which " +
+      "arriving work counts as an addition");
+  else if (!m.totalU)
+    cannot("scope growth", "nothing in this selection carries a figure in " + U().label);
+  if (m.isFlowBoard)
+    cannot("the commitment against recent delivery", "this board runs no sprints to commit in");
+  else if (h.length < 4)
+    cannot("the commitment against recent delivery",
+      "this needs four sprints of history and there " + (h.length === 1 ? "is " : "are ") +
+      h.length);
+  if (m.flowEff == null)
+    cannot("flow efficiency", "no closed item here carries both a start and a resolved date");
 
   risks.sort((a, b) => rank[a.sev] - rank[b.sev]);
   const chip = { critical: ["c-crit", "■", "Critical"], serious: ["c-serious", "▲", "Serious"],
@@ -2068,7 +2117,18 @@ function renderRisk(m, items) {
        examined, so there is no finding either way — every rule above reads the
        issues on this page, and there are none to read. */
     ? noItems("no risk could be triggered or ruled out")
+    /* And with rules that could not run, "no risks triggered" is a clean bill
+       over a shorter examination than the reader thinks they are getting. */
+    : notRun.length
+    ? "No risks triggered by the rules that could be run here."
     : "No risks triggered against the current filters.") + "</div>";
+
+  if (notRun.length && !m.empty)
+    host.innerHTML += '<div class="note" style="margin-top:8px">' +
+      esc((notRun.length === 1 ? "One rule was not run" : notRun.length + " rules were not run") +
+        " against this selection: " + notRun.join("; ") +
+        ". Nothing is claimed either way about " + (notRun.length === 1 ? "it" : "them") + ".") +
+      "</div>";
   host.onclick = e => {
     const b = e.target.closest("[data-risk]"); if (!b) return;
     const r = risks[+b.dataset.risk];

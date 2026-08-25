@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.16.9
+
+**The risk register was reporting a clean bill of health over rules it never ran.** Three of its eight rules depend on something beyond the issues on screen — scope growth needs a sprint to have added work to, the over-commitment rule needs four sprints of history, flow efficiency needs closed items carrying both a start and a resolved date — and each of them fails the same silent way: the condition is false, the rule vanishes, and *"No risks triggered against the current filters"* stands over a shorter examination than the reader thinks they are getting.
+
+On a flow board two of the three can never run at all. But this is deliberately **not** a flow-board fix: a sprint board with no start dates, or any dataset that carries no `started` field, has been quietly not running these for as long as the register has existed. It now names them — *"2 rules were not run against this selection: scope growth — this board runs no sprints…; the commitment against recent delivery — this board runs no sprints to commit in. Nothing is claimed either way about them."* — and when nothing triggered, the sentence becomes *"No risks triggered by the rules that could be run here."*
+
+It is the same rule as the capped lists in 1.16.3 and the dropped health components in 1.16.2, one level further out. Something that bounds what it examined has to say what it left out, and a register is a list of findings whose length is its whole message.
+
+**The executive summary was dropping sentences without saying so.** Its pace line appears only when there is a clock and its scope line only when something was added, so on a sprint with no dates the first silently vanished and on a flow board both do, permanently. A summary that drops a claim reads as a summary that had nothing to claim — the same failure as a truncated list reading as a complete one. It now names what it withheld and why, once for both when they share a cause.
+
+**Two sentences in the register were still measuring against a sprint.** *"N open items have outlived a full sprint"* and *"the item should be moved out of the sprint"* — the first is the fourteen-day threshold called after something that does not exist on this board, the second an instruction that cannot be followed on one.
+
+A board where every rule ran says nothing about rules not run, which is what makes the note a disclosure rather than decoration, and `tests/e2e.py` asserts both directions.
+
 ## 1.16.8
 
 **Every tile that would have stated a sprint-shaped figure on a flow board now says what it in particular cannot show.** Step 4. Not a banner over the grid — [ADR 0010](docs/adr/0010-an-empty-selection-is-a-refusal.md) ruled that out for the reason it throws away everything the page still knows, and that reasoning does not change because the cause is a board rather than an empty selection.

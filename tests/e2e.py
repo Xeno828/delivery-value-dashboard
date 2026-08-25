@@ -318,6 +318,52 @@ def health_composition(b):
     check("ageing measures the same days and stops calling them a sprint",
           "fortnight" in age and "sprint" not in age, age[-160:])
 
+    # ---------- what was not examined, as opposed to examined and clear -----
+    # "No risks triggered" over a rule that never executed is a clean bill of
+    # health nobody checked. Three of the register's eight rules depend on
+    # something beyond the issues on screen, and each of them failed silently:
+    # the condition was false and the rule vanished.
+    risk = tile("#risk-body")
+    check("the register says which rules it could not run",
+          "were not run against this selection" in risk, risk[-320:])
+    check("and names scope growth as one of them",
+          "scope growth — this board runs no sprints" in risk, risk[-320:])
+    check("and the commitment rule as another",
+          "commitment against recent delivery" in risk, risk[-320:])
+    check("and claims nothing either way about them",
+          "Nothing is claimed either way" in risk, risk[-120:])
+
+    ex = tile("#exec-verdict")
+    check("the summary says which sentences it did not write",
+          "not reported for this board" in ex, ex[-200:])
+
+    # The third silent rule, and the one a Forge tenant meets: without
+    # `started` there is no cycle time, so the flow-efficiency rule cannot run.
+    # It vanished without a word, on the measure a board with no sprints most
+    # needs. This is what `statusTransitions` over the bridge is for.
+    nostart = json.loads(json.dumps(flow))
+    for i in nostart["issues"]:
+        i.pop("started", None)
+    page.evaluate("d => window.DVD.applyDataset(d)", nostart)
+    page.wait_for_timeout(500)
+    check("a dataset with no start dates says the flow-efficiency rule did not run",
+          "flow efficiency — no closed item here carries both a start and a resolved date"
+          in tile("#risk-body"), tile("#risk-body")[-260:])
+    page.evaluate("d => window.DVD.applyDataset(d)", flow)
+    page.wait_for_timeout(500)
+
+    # The same rule on a sprint board: a register that ran everything says
+    # nothing, so the note is a disclosure and not decoration.
+    page.evaluate("d => window.DVD.applyDataset(d)", sample)
+    page.wait_for_timeout(500)
+    check("a board where every rule ran says nothing about rules not run",
+          "were not run against this selection" not in tile("#risk-body"),
+          tile("#risk-body")[-200:])
+    check("and its summary withholds no sentence either",
+          "Not reported here" not in tile("#exec-verdict"), tile("#exec-verdict")[-160:])
+    page.evaluate("d => window.DVD.applyDataset(d)", flow)
+    page.wait_for_timeout(500)
+
     # Three overlapping windows of one board must never be rolled up: the same
     # issue is in all three, so the rollup would hold it three times and every
     # count on the page would be a count of the issues in the selection.
