@@ -144,10 +144,32 @@ def epic_sizes(issues, as_of=None, min_items=3, stale_days=30, done_ratio=0.9):
     common way a reference class comes out optimistic.
     """
     today = _d(as_of) if as_of else None
+
+    # Which field identifies an epic here, chosen once for the whole set.
+    #
+    # A bundle carries `epic`, the epic's own summary. A payload assembled for
+    # the hosted calculator carries `epicKey` and cannot carry `epic` at all —
+    # free text is stripped on the way out (`FREE_TEXT_FIELDS` in
+    # service/app.py), which is the point of that boundary rather than an
+    # oversight. Until this line, sizing over that route grouped nothing,
+    # found no completed epics and refused: t-shirt scales and reference
+    # classes were unavailable to it in principle.
+    #
+    # Chosen once rather than per issue, and that is the part worth being
+    # careful about. `i.get("epicKey") or i.get("epic")` reads as the obvious
+    # fallback and would split a single epic in two the moment one dataset
+    # carried the key on some issues and the name on others — a twenty-item
+    # epic arriving as two tens, which shrinks the t-shirt bands and reads
+    # exactly like a team that works in smaller pieces.
+    #
+    # A key beats a name on its own merits, incidentally: two epics can share a
+    # summary, and renaming one splits its own history in half.
+    field = "epicKey" if any(i.get("epicKey") for i in issues) else "epic"
+
     by_epic = defaultdict(list)
     for i in issues:
-        if i.get("epic"):
-            by_epic[i["epic"]].append(i)
+        if i.get(field):
+            by_epic[i[field]].append(i)
     if today is None:
         allc = [_d(i["created"]) for i in issues if i.get("created")]
         today = max(allc) if allc else date.today()
@@ -162,7 +184,7 @@ def epic_sizes(issues, as_of=None, min_items=3, stale_days=30, done_ratio=0.9):
         newest = max((_d(x["created"]) for x in items if x.get("created")), default=None)
         if newest and (today - newest).days < stale_days:
             continue                      # still receiving work; not finished
-        out.append({"epic": name, "items": len(items), "done": done,
+        out.append({"epic": name, "grouped_by": field, "items": len(items), "done": done,
                     "last_raised": newest.isoformat() if newest else None})
     return sorted(out, key=lambda r: r["items"])
 
@@ -205,6 +227,11 @@ def size_ask(ask, issues, rng=None):
     sizing = ask.get("sizing") or {}
     method = sizing.get("method", "reference-class")
     sizes = epic_sizes(issues, as_of=ask.get('_asOf'))
+    # Named in the basis when it is not the obvious one. A reference class
+    # assembled by issue key and one assembled by epic name are the same
+    # method over the same board, but a reader checking the working needs to
+    # know which column to look down.
+    by_key = ", grouped by epic key" if sizes and sizes[0]["grouped_by"] == "epicKey" else ""
 
     if method == "explicit":
         lo, mode, hi = sizing.get("minItems"), sizing.get("likelyItems"), sizing.get("maxItems")
@@ -231,8 +258,8 @@ def size_ask(ask, issues, rng=None):
         rng_s = [rng.choice(s) for _ in range(4000)]
         return Sizing(method="tshirt", samples=rng_s, n=len(s),
                       p50=_pct(s, 50), p85=_pct(s, 85), low=min(s), high=max(s),
-                      basis="size %s = %d completed epics on this board, %d-%d items"
-                            % (band, len(s), min(s), max(s)),
+                      basis="size %s = %d completed epics on this board, %d-%d items%s"
+                            % (band, len(s), min(s), max(s), by_key),
                       caveat=("T-shirt sizing is an intake-stage estimate. It is expected to move "
                               "once the team refines the ask, and the forecast should be re-run "
                               "then rather than treated as a commitment. Its width here reflects "
@@ -247,8 +274,8 @@ def size_ask(ask, issues, rng=None):
     rng_s = [rng.choice(counts) for _ in range(4000)]
     return Sizing(method="reference-class", samples=rng_s, n=len(counts),
                   p50=_pct(counts, 50), p85=_pct(counts, 85), low=min(counts), high=max(counts),
-                  basis="%d completed epics on this board, %d-%d items (median %.0f)"
-                        % (len(counts), min(counts), max(counts), _pct(counts, 50)),
+                  basis="%d completed epics on this board, %d-%d items (median %.0f)%s"
+                        % (len(counts), min(counts), max(counts), _pct(counts, 50), by_key),
                   caveat=("Assumes this ask is like the work this board has already done. If it is "
                           "a genuinely new kind of problem, the reference class does not apply and "
                           "you are guessing with extra steps."))

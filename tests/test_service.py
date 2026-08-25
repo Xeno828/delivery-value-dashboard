@@ -38,6 +38,7 @@ import app as SVC        # noqa: E402
 import forecast as FC    # noqa: E402
 import orgconfig as OC   # noqa: E402
 import serve_live as LIVE  # noqa: E402
+import intake as IN        # noqa: E402
 
 failures = []
 #: Generated per run rather than written down. A literal token in a test file is
@@ -630,23 +631,20 @@ def test_the_two_transports_answer_the_same_shape():
         check("the page really reads %s, so allowing it here is not a loophole" % f,
               re.search(r"\b%s\b" % f, app_js) is not None, f)
 
-    # `epicKey` is not one of them, and writing the check above is how that
-    # surfaced. Nothing in `src/app.js` reads it and nothing in `agent/tools/`
-    # does either — `intake.py` groups by `epic`, the free-text name, which is
-    # in NEVER_SEND and so never reaches the calculator at all. It travels from
-    # the resolver, through the calculator's allow-list, to nobody.
-    #
-    # Allowed here rather than quietly dropped: whether epic sizing should key
-    # on it is a change to `intake.py`, not to this test. Named, so the next
-    # reader does not assume it is load bearing, and asserted so that the day
-    # something does read it this stops being true and says so.
-    check("epicKey still reaches no consumer, which is a known loose end",
-          re.search(r"\bepicKey\b", app_js) is None
-          and not any(re.search(r"\bepicKey\b", f.read_text())
-                      for f in (ROOT / "agent" / "tools").glob("*.py")),
-          "something reads epicKey now — move it into read_by_page")
+    # `epicKey` is read by the tools rather than by the page, which is why it
+    # is checked against a different file. Writing this check is how it was
+    # found reaching nobody at all: `intake.py` grouped completed epics by
+    # `epic`, the free-text name, and `epic` never reaches the calculator
+    # because free text is stripped on the way in. Sizing over that route
+    # therefore grouped nothing and refused, for every board, always. It groups
+    # on the key now — see `test_epic_sizing_survives_the_projection`.
+    read_by_tools = {"epicKey"}
+    tools = "".join(f.read_text() for f in sorted((ROOT / "agent" / "tools").glob("*.py")))
+    for f in sorted(read_by_tools):
+        check("%s is read by agent/tools, so sending it is not a loophole either" % f,
+              re.search(r"\b%s\b" % f, tools) is not None, f)
 
-    schema = set(re.findall(r'"(\w+)"', cols.group(1))) | read_by_page | {"epicKey"}
+    schema = set(re.findall(r'"(\w+)"', cols.group(1))) | read_by_page | read_by_tools
     forge_issue = forge["context"]["issues"][0]
     invented = sorted(set(forge_issue) - schema)
     check("the Forge issue invents no field the page does not read",
@@ -1116,6 +1114,104 @@ def test_a_window_is_not_a_deadline_to_the_forecaster():
           (sprint["asked"]["default_date"], sprint["sprint_completion"]["target_date"]))
 
 
+
+def test_epic_sizing_survives_the_projection():
+    """Intake's reference class, over the payload the calculator really receives.
+
+    Sizing an ask means grouping this board's finished epics and reading how
+    big they turned out. `intake.py` grouped them by `epic` — the epic's own
+    summary — and `epic` is free text, so `clean_dataset()` strips it on the
+    way in. That boundary is deliberate and is not the thing to change: the
+    calculator has no business holding issue titles.
+
+    The consequence was that sizing over this route grouped nothing, found no
+    completed epics and refused, every time, for every board. Not a wrong
+    number — the refusal was accurate — but the t-shirt scale and the reference
+    class that `docs/product-intake.md` describes were unavailable in principle
+    to the one route Forge would use.
+
+    `epicKey` is the field that was already travelling for this and reaching
+    nobody. Grouping keys on it when a dataset carries one, which is exactly
+    when the names have been stripped.
+    """
+    full = json.loads((ROOT / "data" / "demo-intake-bundle.json").read_text())
+    as_of = (full.get("meta") or {}).get("asOfDate")
+
+    # The bundle's own answer, by epic name — the baseline this must reproduce.
+    named = IN.epic_sizes(full["issues"], as_of=as_of)
+    check("the fixture has a reference class worth grouping", len(named) >= 5, len(named))
+
+    # The same board as the calculator sees it: free text gone, key present.
+    keyed_issues = []
+    for i in full["issues"]:
+        row = {k: v for k, v in i.items() if k not in SVC.FREE_TEXT_FIELDS}
+        row["epicKey"] = ("EPIC-%d" % (sorted({x.get("epic") for x in full["issues"]
+                                               if x.get("epic")}).index(i["epic"]) + 1)
+                          ) if i.get("epic") else None
+        keyed_issues.append(row)
+
+    keyed = IN.epic_sizes(keyed_issues, as_of=as_of)
+    check("the same board groups to the same epics by key as by name",
+          sorted(r["items"] for r in keyed) == sorted(r["items"] for r in named),
+          (sorted(r["items"] for r in keyed), sorted(r["items"] for r in named)))
+    check("and says which field it grouped on",
+          {r["grouped_by"] for r in keyed} == {"epicKey"}
+          and {r["grouped_by"] for r in named} == {"epic"},
+          ({r["grouped_by"] for r in keyed}, {r["grouped_by"] for r in named}))
+
+    # Chosen once for the set, not per issue. `epicKey or epic` reads as the
+    # obvious fallback and splits one epic in two the moment a dataset carries
+    # the key on some issues and the name on others — a twenty-item epic
+    # arriving as two tens, which shrinks the t-shirt bands and reads exactly
+    # like a team that has started working in smaller pieces.
+    # Take one epic and give half its issues the key and half the name. Under
+    # a per-issue fallback that epic becomes two groups; under one field
+    # chosen for the set it stays one, and the half carrying the other field
+    # drops out the same way an issue with no epic at all always has.
+    target = keyed[-1]["epic"]
+    members = [r for r in keyed_issues if r.get("epicKey") == target]
+    check("the epic being split really is one group to begin with",
+          len(members) >= 4, len(members))
+    mixed = [dict(r) for r in keyed_issues]
+    for r in mixed:
+        if r.get("epicKey") == target and members.index(
+                next(m for m in members if m["key"] == r["key"])) % 2 == 0:
+            r.pop("epicKey", None)
+            r["epic"] = "the same epic, by name"
+
+    rows = IN.epic_sizes(mixed, as_of=as_of)
+    check("one field is chosen for the whole set, not per issue",
+          len({r["grouped_by"] for r in rows}) == 1, {r["grouped_by"] for r in rows})
+    check("so the split epic is never counted as two",
+          len([r for r in rows if r["epic"] in (target, "the same epic, by name")]) <= 1,
+          [r["epic"] for r in rows if r["epic"] in (target, "the same epic, by name")])
+
+    # The hazard demonstrated rather than asserted in the abstract: the naive
+    # `epicKey or epic` really would have produced one more group here.
+    naive = {}
+    for r in mixed:
+        k = r.get("epicKey") or r.get("epic")
+        if k:
+            naive.setdefault(k, []).append(r)
+    check("and the per-issue fallback really would have split it",
+          target in naive and "the same epic, by name" in naive,
+          sorted(k for k in naive if "same epic" in str(k) or k == target))
+
+    # And the whole way through the service, which is the route that was dead.
+    ok, body = call("POST", "/v1/ask", {
+        "dataset": {"issues": keyed_issues, "meta": {"asOfDate": as_of}},
+        "ask": {"title": "A new thing", "board": "any",
+                "sizing": {"method": "reference-class"}},
+        "asOf": as_of,
+    })
+    sizing = ((body.get("result") or {}).get("sizing") or {})
+    check("/v1/ask sizes an ask from a payload carrying no epic names at all",
+          body.get("ok") and sizing.get("method") == "reference-class",
+          {"ok": body.get("ok"), "sizing": str(sizing)[:150]})
+    check("and the basis says it grouped by key, so the working can be followed",
+          "grouped by epic key" in (sizing.get("basis") or ""), sizing.get("basis"))
+
+
 def test_forge_app_dependencies():
     """This code runs inside a customer's Jira tenant, so what it depends on is
     a security question rather than a packaging one.
@@ -1262,6 +1358,8 @@ if __name__ == "__main__":
     test_every_context_says_which_kind_it_is()
     test_the_footer_accounts_for_every_board()
     test_the_resolver_sends_the_raw_material_for_started()
+    print("epic sizing over the calculator's payload")
+    test_epic_sizing_survives_the_projection()
     print("the forecast over a board with no sprints")
     test_the_forecaster_counts_one_issue_once()
     test_a_window_is_not_a_deadline_to_the_forecaster()

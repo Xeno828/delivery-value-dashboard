@@ -48,6 +48,14 @@ If the ask is genuinely an XL and intake called it an L, nothing in the range wi
 
 Not "every child item is Done" — real epics accumulate a stray ticket for years and would never qualify. An epic joins the reference class when it has **stopped growing** (no item created in 30 days), is at least **90% complete**, and has at least **three** items. The definition is in `epic_sizes()` and its thresholds are arguments, so a team whose Jira hygiene differs can move them and see what changes.
 
+### Which field says two issues belong to the same epic
+
+`epicKey` where a dataset carries one, `epic` — the epic's own summary — otherwise. The field is chosen **once for the whole issue set** rather than per issue, and that is the part worth knowing about: `epicKey or epic` reads as the obvious fallback and splits a single epic in two the moment one dataset carries the key on some of its issues and the name on others. A twenty-item epic arriving as two tens shrinks every t-shirt band, and reads exactly like a team that has started working in smaller pieces.
+
+It matters because of where the two fields can go. A payload assembled for the hosted calculator carries `epicKey` and **cannot** carry `epic`: free text is stripped on the way in, which is the point of that boundary rather than an oversight. Until sizing learned to group on the key, it grouped nothing over that route, found no completed epics, and refused — for every board, always. The refusal was accurate and the capability was unavailable in principle.
+
+Where the grouping was by key, the basis line says so, so the working can be followed down the right column.
+
 ## 2. Two capacity scenarios, always both
 
 A single date invites the reader to treat it as the answer. Two dates make the gap between them the subject, which is where the actionable information is.

@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.17.1
+
+**Sizing an ask could never work over the route Forge would use, and the reason was one field reaching nobody.**
+
+`intake.py` builds its reference class by grouping this board's finished epics and reading how big each turned out. It grouped them by `epic` — the epic's own summary. `epic` is free text, so `clean_dataset()` in `service/app.py` strips it on arrival, along with summaries, assignees and labels. That boundary is deliberate and is not the thing to change: a calculator has no business holding issue titles.
+
+So over that route the grouping saw nothing, `epic_sizes()` returned an empty list, and both the t-shirt scale and the reference class refused — for every board, every time. The refusals were accurate, which is why nothing looked broken. What was missing was the capability, not the number: everything `docs/product-intake.md` describes was unavailable in principle to the only route a Forge install could take.
+
+**`epicKey` was already travelling for exactly this and being read by nobody.** The resolver emits it, `CALC_FIELDS` sends it, the calculator's allow-list accepts it, and nothing at either end looked at it. Sizing keys on it now when a dataset carries one — which is precisely when the names have been stripped — and falls back to the summary otherwise, so bundles are unaffected. A key is the better handle regardless: two epics can share a summary, and renaming one splits its own history in half.
+
+**The field is chosen once for the whole issue set, not per issue, and that is the part that needed care.** `i.get("epicKey") or i.get("epic")` reads as the obvious fallback and would split a single epic in two the moment a dataset carried the key on some of its issues and the name on others. A twenty-item epic arriving as two tens shrinks every t-shirt band and reads exactly like a team that has started working in smaller pieces — a plausible wrong number in a forecasting input, arrived at by arithmetic. The test builds that dataset, shows the naive fallback really would have split it, and shows this one does not.
+
+Where the grouping was by key rather than by name, the basis line says so. A reference class assembled by issue key and one assembled by epic name are the same method over the same board, but a reader checking the working needs to know which column to look down.
+
+**What was verified and what was not.** `/v1/ask` is exercised end to end in `tests/test_service.py` against a payload with every free-text field stripped, and it now returns a reference-class sizing where it previously returned a refusal. The **hosted calculator is still not provisioned** — `remotes[0].baseUrl` in the Forge manifest points at `.invalid` — so this has not been run against a real deployment, and the Forge resolvers still answer the forecast and sequencing routes with the offline notice. What is proven is the code path, not the deployment.
+
+The assertion added in 1.16.10 recording `epicKey` as a known loose end is retired, and the allow-list guard it sat in now checks fields read by `agent/tools/` against that directory rather than against `src/app.js`, since that is where this one is read.
+
 ## 1.17.0
 
 **Four flow tiles, and none of them needed a sprint or a window.** Cycle time, ageing work in progress, weekly throughput and cumulative flow are all properties of issues and dates — which is why they were available all along rather than something the schema had to grow, and the same reason the forecaster worked on a flow board from the start.
