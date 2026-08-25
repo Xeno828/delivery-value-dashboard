@@ -422,6 +422,25 @@ The sixth is the one worth having. A token whose `kid` genuinely appears in Atla
 **The response times prove the cache and the algorithm pin as well**, which no status code could. Six refusals took **0 ms**: the algorithm is pinned before a key is ever looked up, so `alg: none` and the HMAC forgery are thrown out without Atlassian being contacted at all — which is what stops an attacker using this service to hammer Atlassian's endpoint. One took **164 ms**, the live JWKS fetch. One took **7 ms**, the cached key. That is exactly the behaviour `docs/forge-deployment.md` §2 specifies, observed in production rather than asserted in a test.
 
 No traceback appeared for any of them: the verifier refused rather than raised, which is the 1.18.1 contract holding under real traffic.
+> **Step 6 is blocked, and not on hosting.** The runbook's comment in `forge/src/index.js` says the two refusals become `compute('/v1/forecast', …)` and `compute('/v1/sequence', …)` and "nothing else here changes". That is not true of either, and the two are blocked on different things. Written up below rather than worked around, because the obvious workaround reintroduces the exact fault this repository has shipped twice.
+
+### Why the forecast cannot simply be wired up
+
+`/v1/forecast` takes a **flat list of issues** and forecasts from it. Deciding *which* issues — the slice — happens in the caller, and in `scripts/serve_live.py` that is `forecast_for()`: `team_slice()` to gather every context belonging to the team, de-duplication by key, `remaining` taken from the **selected** context rather than the team, and `endDate`/`workingDays` suppressed for a window because a window is not a clock.
+
+Every one of those rules exists because it was got wrong once, and each time the symptom was a **credible number rather than an error**: reading the wrong context turned a 19-day forecast into 77 (1.8.0), and counting a flow board's overlapping windows three times forecast a team 2.5× too fast (1.16.13). `serve_live.py` says it in its own docstring — *"The slice is the thing to get right, and getting it wrong produces a credible wrong number rather than an error."*
+
+**`team_slice` lives only in `scripts/serve_live.py`**, and `service/Dockerfile` copies `agent/tools/` and `service/app.py` and nothing else. So the hosted calculator cannot reach it. That leaves two routes and one of them is barred:
+
+- **Reimplement the slice in JavaScript in the resolver.** This is the second implementation [ADR 0005](adr/0005-tools-compute-the-agent-narrates.md) and [ADR 0008](adr/0008-forge-calls-a-hosted-calculator.md) exist to refuse, of the one piece of logic whose failures are silent and plausible. No.
+- **Move the slice into `agent/tools/`**, have `serve_live.py` import it from there rather than define it, and let `/v1/forecast` accept a context set plus a context id so the tool does the slicing. One implementation, still; both wrappers still delegate and still compute nothing. This is the recommendation.
+
+**The naive wiring fails in a specific and quiet way, which is why this is written down.** `fetchBoardIssues()` returns the whole board. Passing that straight to `/v1/forecast` makes `remaining` every open item on the board rather than the selected sprint's — so the forecast answers "when does the entire backlog land" while the tile is captioned with a sprint. Later date, plausible shape, no error, and nothing on screen to suggest it.
+
+### Why sequencing is blocked on something else entirely
+
+`sequence_for()` reads asks from `data/asks/*.json` — files a person edits, on a disk. **A Jira tenant has no such directory and no concept of an ask.** So `/v1/sequence` on Forge has no input, and no amount of plumbing supplies one: where a customer's asks come from inside Jira is a product question that has not been asked, let alone answered. This one is not a refactor and should not be bundled with the forecast.
+
 6. **The atomic commit**: region-pinned `baseUrl`, the offline refusals removed from the forecast and ask-sequencing resolvers, the corrected manifest comment. Deploy with `--approve MAJOR_VERSION_RULE`, then **uninstall and install** — not upgrade — because the `baseUrl` format change is a major version change and Jira does not widen an existing installation on its own.
 7. **Watch the first real token through.** This is the moment §2 of the runbook has been waiting for: `SERVICE_AUTH=forge-token` accepting a token Atlassian minted, with the installation ARI in the log line. Capture the token's real `exp - iat` here.
 8. **Then, and only then, tighten the leeway** (§1.3) using the lifetime measured in step 7.
