@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.20.1
+
+**The calculator is deployed and serving in us-central1, and the first deploy reported it as dead.** It was not. Google's front end swallows the exact literal path `/healthz` on Cloud Run: it answers with its own 404 page and the request never reaches the container. `/healthzz`, `/healthz/`, `/HEALTHZ` and `/health` all pass straight through and get the service's own JSON 404, and `/v1/meta` returns its own `401`. One path, intercepted, and it happened to be the one the post-deploy probe used.
+
+**Every signal was green except the one that mattered.** The deploy succeeded, the revision was Ready, `allUsers` held `run.invoker`, ingress was `all`, DNS resolved to Google's front end, the startup probe passed on `:8080`, and billing was live — and a `curl` said 404. What settled it was the container's own stderr: `GET / -> 404  0 issues  0ms`, in `service/app.py`'s own access-log format. The request had arrived, so routing had never been the problem, and the search moved from "why is nothing serving" to "why is one path different".
+
+**The probe is `/v1/meta` expecting a 401 now, and that is an upgrade rather than a workaround.** A health endpoint returning 200 proves the URL routes and the container is up. A 401 from `/v1/meta` proves both of those *and* that authentication is switched on — which is the failure this service is built to avoid, since a calculator that came up unauthenticated would look perfectly healthy to any check that only asked whether it answered.
+
+**The product was never affected.** Forge calls `/v1/facts`, `/v1/forecast`, `/v1/ask` and `/v1/sequence`; none is intercepted. The container's `HEALTHCHECK` is unaffected too — it calls `127.0.0.1` from inside the container, where no front end is in the path, and Cloud Run ignores a Docker healthcheck anyway in favour of its own TCP probe.
+
+**europe-west3 was left undeployed**, because the loop aborts on a failed region rather than carrying on to the next one. That is the right behaviour and it is why the second region is still missing: the failure was in the probe, and the probe ran before the loop moved on.
+
 ## 1.20.0
 
 **The calculator has somewhere to be deployed from, and nothing on the way there holds a key.** `service/provision-gcp.sh` is an eight-stage wizard for the half of hosting only a person can do — billing, APIs, a registry in each region, two service accounts, the GitHub federation — and `.github/workflows/deploy.yml` is the half that should never be done by hand.

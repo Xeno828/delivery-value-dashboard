@@ -176,10 +176,30 @@ jobs:
             echo "deployed: $url"
             echo "URL_$(echo "$region" | tr 'a-z-' 'A-Z_')=$url" >> "$GITHUB_ENV"
 
-            # The one thing worth checking from outside: it is actually serving.
-            # /healthz needs no auth and touches no data, which is what makes it
-            # usable as a post-deploy probe at all.
-            curl -fsS --retry 5 --retry-delay 3 "${url}/healthz"
+            # NOT /healthz. On Cloud Run that exact literal path is swallowed
+            # by Google's front end and never reaches the container: it answers
+            # with Google's own 404 page while /healthzz, /healthz/, /HEALTHZ
+            # and /health all pass straight through to the service. That cost an
+            # afternoon on the first deploy, where a completely healthy service
+            # looked like a dead one — so it is written down here and in
+            # docs/hosting-the-calculator.md §7 rather than left to be found
+            # twice. The product is unaffected: Forge calls /v1/* only.
+            #
+            # /v1/meta is the better probe anyway. A 401 proves three things at
+            # once — the URL routes, the container is up and answering, and the
+            # authentication is switched on. A 200 from an open health endpoint
+            # proves only the first two, and would have said nothing at all
+            # about the failure mode that actually matters here: a calculator
+            # that came up unauthenticated would look perfectly healthy.
+            code=$(curl -s -o /dev/null -w '%{http_code}' --retry 5 --retry-delay 3 \
+                     "${url}/v1/meta")
+            if [ "$code" != "401" ]; then
+              echo "::error::${region}: /v1/meta returned $code, expected 401."
+              echo "::error::200 would mean the service is answering unauthenticated;"
+              echo "::error::404 or 5xx would mean it is not serving at all."
+              exit 1
+            fi
+            echo "  serving, and refusing unauthenticated callers"
             echo
           done
 

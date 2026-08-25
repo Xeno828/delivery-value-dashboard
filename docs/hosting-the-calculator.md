@@ -259,6 +259,27 @@ Two consequences for the runbook:
 - **The first request after a scale-to-zero also pays for the JWKS fetch**, uncached, before it can verify anything. Two serial cold costs on one request. The cache TTL is 600 s (`FORGE_JWKS_TTL_SECONDS`), so this recurs whenever an instance is new, not once per deployment.
 - **`intake.sequence` must not be wired to a scheduled trigger.** 3.07 s against a 5 s timeout with four retries is a route that will fail intermittently and re-run an expensive calculation four times when it does. `service/README.md` already flags this; it belongs here as a hosting constraint because the 5 s figure is a platform limit, not a service one.
 
+### `/healthz` is unreachable on Cloud Run, and the service is fine
+
+Found on the first deploy, where it presented as a completely dead service. It is not.
+
+**Google's front end swallows the exact literal path `/healthz`.** A request to `https://…run.app/healthz` returns Google's own branded 404 page and never reaches the container — no access-log line, nothing. Every neighbouring path goes straight through to the service and gets *its* answer:
+
+| Path | Answer |
+|---|---|
+| `/healthz` | Google's HTML 404 — never reaches the container |
+| `/healthzz` | `{"ok": false, "error": "no such route: /healthzz"}` |
+| `/healthz/` | `{"ok": false, "error": "no such route: /healthz/"}` |
+| `/HEALTHZ` | `{"ok": false, "error": "no such route: /HEALTHZ"}` |
+| `/health` | `{"ok": false, "error": "no such route: /health"}` |
+| `/v1/meta` | `{"ok": false, "error": "unauthorised"}` — 401, the service working correctly |
+
+**The product is unaffected.** Forge calls `/v1/facts`, `/v1/forecast`, `/v1/ask` and `/v1/sequence`, and none of them is intercepted. The container's own `HEALTHCHECK` is unaffected too, because it calls `127.0.0.1` from inside the container, where there is no front end in the path — and Cloud Run ignores a Docker `HEALTHCHECK` regardless, using its own TCP startup probe on `:8080`, which has succeeded on every revision.
+
+What it does change is what a post-deploy probe can use, and this is the part worth keeping: **the deploy workflow probes `/v1/meta` and requires a `401`.** That is a better check than a health endpoint returning `200`, and not merely an available one — it proves the URL routes, the container is up and answering, *and* the authentication is switched on. An open health endpoint proves the first two and says nothing about the failure this whole service is built to avoid, which is a calculator that came up unauthenticated and looked perfectly healthy.
+
+The wider lesson is the one this repository keeps relearning: the failure was silent and it pointed at the wrong thing. The deploy succeeded, the revision was `Ready`, `allUsers` had `run.invoker`, ingress was `all`, DNS resolved, and the startup probe passed — every signal green, and one `curl` saying the service was dead. What settled it was reading the container's own stderr and finding `GET / -> 404` in the service's own log format: the request had arrived, so routing was never the problem.
+
 If p99 latency ever becomes a complaint, the fix is `min-instances=1` at $9.86/month/region (§4.2) — and it is worth knowing that the price of that fix is five times the entire bill before reaching for it.
 
 ---
