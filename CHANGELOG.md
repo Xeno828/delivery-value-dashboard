@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.25.1
+
+**App version 5.0.0 is deployed to the dev site, and the platform confirmed the claim ADR 0013 rests on.** `forge lint` passed the `llm` module as *0 errors, 0 warnings, 1 approval* — `MAJOR_VERSION_RULE`, *"Change due to usage of core:llm module"* — and it deployed with `--approve`.
+
+`forge eligibility` at 5.0.0 reports **exactly two findings, both the calculator**: *app is using remote services*, *app is egressing data*. Adding an Atlassian-hosted model added neither. That is Atlassian's own checker agreeing that the brief is written inside the tenant and the issue titles it reads do not leave — the cheapest evidence available for the decision, and better than an argument from documentation. The *Runs on Atlassian* badge is still forfeit for the reason ADR 0008 accepted deliberately, and nothing about that trade moved.
+
+**A module upgrade takes, where a scope change does not, and the runbook now separates them.** `docs/forge-deployment.md` §"After changing a module or a scope, reinstall" was written after a scope change silently failed to widen an existing consent. A module added on its own behaves differently: `forge install --upgrade` moved the same installation id from `4 / Outdated app` to `5 / Up-to-date` with no uninstall.
+
+Worth knowing because the upgrade prints *"The scopes or egress URLs in the manifest are different from the scopes in your most recent deployment"* immediately before succeeding — on a run where no scope had changed and the deploy was two minutes old. Read as the failure that section describes, it would send you into a reinstall for nothing. `forge install list` is the only thing that answers the question.
+
+**The trigger has not been observed firing, and that is stated rather than assumed.** There is no CLI command that invokes a scheduled trigger, so the first fire cannot be forced; Atlassian documents it as roughly five minutes after a deploy and weekly after that. Nothing has appeared in `forge logs -f weekly-brief-fn` yet. What is proved is that the app deploys, lints, installs and reports the module — not that the handler has run. Those are different claims and this is the weaker one, exactly as 1.23.1 recorded for the forecast.
+
+When it does fire it will refuse, with the three sentences it is written to refuse with, before making a single Jira call.
+
 ## 1.25.0
 
 **The `llm` module is declared and the weekly brief has a handler — and wiring it found that the trigger could never have fired.** `weekly-brief` had pointed at the `resolver` function since the day it was declared. Forge invokes a scheduled trigger's function directly with an event; `resolver.getDefinitions()` returns a dispatcher expecting `{ call: { functionKey } }` and would not have recognised one, so the first fire would have failed inside a tenant, on a timer, a week after a deploy nobody was still watching. Nothing caught it because a trigger that is declared and never runs looks exactly like one that works. It has its own function now — `weekly-brief-fn`, `index.weeklyBrief` — and a test holds the two apart: the trigger's function must not be the resolver's, and the export it names must exist.

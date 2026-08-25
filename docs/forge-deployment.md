@@ -73,7 +73,15 @@ Note the allow-list rather than parity with `SCOPES` in `jira_auth.py`. Forge us
 
 `forge deploy` updates the code. **The installation stays bound to the manifest it was installed with**, so a module added after the first install does not appear, and a scope added after it is never silently granted. The failure has no error message: the old modules keep working and the new one is simply absent, which reads as a broken module rather than a stale install.
 
-`forge install --upgrade` is the documented path and is worth trying first. When it does not take — and in development it may not — reset instead of investigating:
+`forge install --upgrade` is the documented path and is worth trying first, and the two cases are not the same. **A scope change is the one that does not take**; that is what this section was written for. **A module added on its own does take** — the `llm` module went in at 5.0.0 on 2026-08-25 with
+
+```bash
+forge install --upgrade -e development -s <site> -p Jira --confirm-scopes --non-interactive
+```
+
+and `forge install list` moved from `4 / Outdated app` to `5 / Up-to-date` against the same installation id, with no uninstall. Note the upgrade prints *"The scopes or egress URLs in the manifest are different from the scopes in your most recent deployment"* immediately before succeeding, on a run where nothing about the scopes had changed and the deploy was two minutes old. **Do not read that line as the failure this section describes** — check `forge install list` instead, which is the only thing that answers the question.
+
+When it does not take — and after a scope change in development it may not — reset instead of investigating:
 
 ```bash
 cd forge && forge uninstall     # then
@@ -318,6 +326,67 @@ The base is `python:3.12-slim` and the service installs nothing, so the attack s
 ### Done when
 
 The `container` job is green, a local scan is clean at HIGH and CRITICAL, and the image is pushed to a registry your platform can pull from.
+
+---
+
+## 4. The weekly brief — deployed, and it refuses
+
+Roadmap item 3. **App version 5.0.0, installed on the dev site on 2026-08-25.**
+
+`forge lint` reports the `llm` module as `0 errors, 0 warnings, 1 approval` —
+*"Change due to usage of core:llm module"* — so it deploys with
+`--approve MAJOR_VERSION_RULE`. `make forge-lint` exits non-zero on that
+approval; a line with no errors and no warnings is success.
+
+**What the deploy proves that the tests cannot.** `forge eligibility` at 5.0.0
+still reports exactly two findings — *app is using remote services*, *app is
+egressing data* — and both are the calculator. **Adding an Atlassian-hosted
+model added neither.** That is the platform's own checker confirming the claim
+ADR 0013 rests on: the brief is written inside the tenant and the issue titles
+it reads do not leave. It is also the cheapest evidence available for it, and it
+is worth re-running after any change to that module.
+
+The badge is still forfeit, for the reason ADR 0008 accepted deliberately.
+
+### What it does when it fires
+
+Refuses, and does no work first. Three sentences: no board configured to report
+on, no recipients, no mail transport. All three are checked before a single Jira
+call, so a weekly run that cannot deliver costs one invocation.
+
+Watch it with:
+
+```bash
+cd forge && forge logs -e development -f weekly-brief-fn -s 40m -g
+```
+
+The trigger's first fire is roughly five minutes after a deploy, then weekly.
+
+### The trap this module walked into once
+
+`weekly-brief` pointed at the `resolver` function from the day it was declared.
+A scheduled trigger invokes its function **directly with an event**;
+`resolver.getDefinitions()` returns a dispatcher that expects
+`{ call: { functionKey } }`, so the first fire would have failed — a week after a
+deploy, inside a tenant, with nobody watching. A declared trigger that never runs
+looks exactly like one that works, which is why nothing caught it for three
+versions. `tests/test_service.py` now asserts the trigger's function is not the
+resolver's.
+
+### And the one that is not fixed, because it is item 5
+
+**Scheduled triggers run with no user principal.** Every Jira call in
+`forge/src/index.js` is `api.asUser()` and all of them throw in a trigger.
+`asApp()` is the obvious repair and the wrong one: reading as the user is why a
+panel viewer can only see issues they could already see in Jira, which is
+permission mirroring holding for free. See ADR 0013 and `docs/roadmap.md` — item
+3 depends on item 5, which the roadmap did not record.
+
+### Done when
+
+A brief is composed from a real board and delivered to a real recipient. None of
+those three things exists yet, and the handler names all three every time it
+fires.
 
 ---
 
