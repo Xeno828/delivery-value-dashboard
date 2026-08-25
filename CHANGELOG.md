@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.18.1
+
+**The token verifier raised where it should have refused, and CI found it on the first push.** `_verify_forge_token()` imported PyJWT at the top of the function. On a runner that had never installed it — which is every runner, since the CI step was not updated — the import threw instead of returning None, and the assertion that requests must not pass *even with the startup guard removed* was answered by an exception rather than by a rejection.
+
+The contract is "a principal, or None". Raising is neither. A verifier that cannot verify has exactly one honest answer and it is no, so the import is caught and the function refuses. The startup guard still stops the process, and it now names the missing dependency rather than the configuration — those are different problems with different fixes, and the message has to name the one the operator actually has.
+
+The regression is pinned by making `import jwt` fail on purpose, which is how CI produced it. CI installs `service/requirements.txt` before the calculator tests, which it should have done when the dependency was added.
+
+The `container` job passed, so the image builds with the new `pip install` in it.
+
 ## 1.18.0
 
 **The calculator can authenticate a tenant.** `SERVICE_AUTH=forge-token` was a mode that refused to start; it is written now, and with it the hosted calculator stops being blocked on code and starts being blocked only on somewhere to run.

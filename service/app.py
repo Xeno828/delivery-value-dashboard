@@ -260,11 +260,21 @@ def _verify_forge_token(headers):
     which check failed is useful to an operator reading a log and useful to
     somebody probing the endpoint, and only one of those is a customer.
     """
-    import jwt                                  # noqa: PLC0415 — see below
     # Imported here rather than at module scope so the service still runs, and
     # still passes its suite, in shared-secret mode on a host that has not
     # installed the crypto dependency. The startup guard is what makes that
     # safe: this mode cannot serve unless the import works.
+    #
+    # Caught rather than allowed to propagate, and that is not tidiness. This
+    # function's contract is "a principal, or None" — a *refusal*. Raising on a
+    # host without the library made it neither, and the assertion that requests
+    # must not pass even with the startup guard removed was answered by an
+    # exception rather than by a rejection. A verifier that cannot verify has
+    # exactly one honest answer and it is no.
+    try:
+        import jwt                              # noqa: PLC0415
+    except Exception:                           # noqa: BLE001
+        return None
 
     raw = str(headers.get("Authorization") or "")
     if not raw.startswith("Bearer "):

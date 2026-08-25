@@ -39,7 +39,9 @@ jobs:
         run: python3 tests/security.py
 
       - name: Hosted calculator tests (projection, refusals, no arithmetic)
-        run: python3 tests/test_service.py
+        run: |
+          pip install -r service/requirements.txt
+          python3 tests/test_service.py
 
       - name: Python dependency audit
         run: |

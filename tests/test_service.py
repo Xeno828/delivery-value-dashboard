@@ -283,6 +283,34 @@ def test_auth_seam_fails_closed():
         check("and its verifier refuses every request while unconfigured",
               SVC.authorised({"Authorization": "Bearer anything"}) is None)
 
+        # And on a host where the crypto library is not installed at all. This
+        # is how CI found it: the import sat at the top of the verifier, so a
+        # runner without PyJWT got an exception where the line above expects a
+        # refusal. "A principal, or None" is the contract; raising is neither,
+        # and a verifier that cannot verify has one honest answer.
+        import sys as _sys
+        had = _sys.modules.get("jwt", "absent")
+        _sys.modules["jwt"] = None              # makes `import jwt` raise
+        try:
+            check("a host with no crypto library refuses rather than raising",
+                  SVC.authorised({"Authorization": "Bearer anything"}) is None)
+            # With the four values present, so it is the missing library the
+            # guard is refusing over rather than the configuration — the two
+            # are different problems with different fixes and the message has
+            # to name the one the operator actually has.
+            for k in SVC.FORGE_ENV:
+                os.environ[k] = "set-for-this-check"
+            problem = SVC.startup_problem()
+            check("and the startup guard names the missing dependency",
+                  problem and "PyJWT" in problem, problem)
+        finally:
+            for k in SVC.FORGE_ENV:
+                os.environ.pop(k, None)
+            if had == "absent":
+                _sys.modules.pop("jwt", None)
+            else:
+                _sys.modules["jwt"] = had
+
         os.environ["SERVICE_AUTH"] = "typo-mode"
         problem = SVC.startup_problem()
         check("an unknown auth mode refuses to start", bool(problem), problem)
