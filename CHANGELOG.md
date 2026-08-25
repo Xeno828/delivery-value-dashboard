@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.25.0
+
+**The `llm` module is declared and the weekly brief has a handler — and wiring it found that the trigger could never have fired.** `weekly-brief` had pointed at the `resolver` function since the day it was declared. Forge invokes a scheduled trigger's function directly with an event; `resolver.getDefinitions()` returns a dispatcher expecting `{ call: { functionKey } }` and would not have recognised one, so the first fire would have failed inside a tenant, on a timer, a week after a deploy nobody was still watching. Nothing caught it because a trigger that is declared and never runs looks exactly like one that works. It has its own function now — `weekly-brief-fn`, `index.weeklyBrief` — and a test holds the two apart: the trigger's function must not be the resolver's, and the export it names must exist.
+
+`forge lint` reports 0 errors, 0 warnings and one `MAJOR_VERSION_RULE` approval reading *"Change due to usage of core:llm module"*, which is the reinstall cost [ADR 0013](docs/adr/0013-the-brief-is-written-inside-the-tenant.md) predicted, stated by the platform rather than by us.
+
+**The larger finding is that a scheduled send has no user, and that changes what item 3 depends on.** Every Jira call in the resolver is `api.asUser()`, and all of them throw in a trigger. The obvious repair is `asApp()` and it is the wrong one: reading as the user is *why* a viewer of the panel can only ever see issues they could already see in Jira. That is roadmap item 5, permission mirroring, holding for free because Jira enforces it on every request made on someone's behalf — and nothing else in this product establishes it.
+
+A brief composed by the app and mailed to a list asserts that every recipient may see every issue the app can, with nothing behind the assertion. The failure is the quiet kind: a brief naming an issue from a project the reader cannot open looks exactly like one that does not. **So item 3 depends on item 5, and `docs/roadmap.md` said item 1 was its only dependency.** The ordering was already right — item 5 is described there as the most expensive thing to defer — but the dependency was not written down, and now it is.
+
+The trigger does not reach for `asApp()` to get past the missing user. Two assertions hold that shape: the trigger's own body contains no `asUser()` call, and the file still makes them everywhere else. Converting the resolver wholesale to `asApp()` to make the trigger work would look like a fix and fails both.
+
+**It refuses with three sentences and does no work first.** No board configured to report on, no recipients, no mail transport. The board is first because without it there is nothing to compute at all — a scheduled run has no user and no project context, so unlike the panel it cannot infer a board from where it was opened. All three are checked before a single Jira call, so a weekly run that cannot deliver costs one invocation rather than a board's worth of reads and a model completion nobody receives.
+
+**What was deliberately not written is the pipeline itself.** Reading a board, calling the calculator, composing per audience and handing off to a transport — every piece of that exists and is tested except the two that do not exist at all. Writing it against an imagined recipient shape and an imagined transport produces code that compiles, ships, and is wrong in ways no test can catch, because there is nothing real to check it against.
+
+**The prompt and the guard now have to want the same thing, and a test says so.** Figures reach the model as named values — `- throughput: 9` — never written into a sentence, because prose the model is shown is prose it copies, and a copied figure is refused by the guard the brief depends on. A prompt that cannot produce a passing answer would have failed every week for a reason invisible from the prompt. A refused figure is *named* to the model so it does not write around a gap it cannot see, but its sentence is withheld: handing over the wording is what invites the paraphrase ADR 0013 forbids.
+
+A truncated completion is discarded rather than used — `finish_reason` anything but `stop` — because half a paragraph reads as a whole one and the reader has no way to tell. Every new assertion was mutation-tested, including that the manifest checks are read without PyYAML: it is not a dependency here, CI installs only `service/requirements.txt` for this suite, and adding a parser to the *service's* requirements to read a *Forge* file would put a package in the production image that nothing in it imports.
+
 ## 1.24.1
 
 **Editing a README redeployed both Cloud Run regions, and now it does not.** `deploy.yml` filtered on `service/**`, so pointing `service/README.md` at the new roadmap doc in 1.24.0 rebuilt and shipped the calculator twice over. It came out green — the image was unchanged and every gate ran — which is the pipeline behaving exactly as `docs/hosting-the-calculator.md` §7 claims, but it is still a deploy nobody asked for and it would have recurred on every future edit.

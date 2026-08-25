@@ -41,16 +41,51 @@ modules:
         function: resolver
       title: Shipping Forecast — connection check
 
+  # The brief is written by an Atlassian-hosted model, in Atlassian's runtime,
+  # with no egress. That is the whole reason roadmap item 3 does not send the
+  # tenant's issue titles to a third party to get a paragraph back: the obvious
+  # implementation is an API key and a declared egress, and this is the one that
+  # does not cross the boundary. `claude` is the only family offered.
+  #
+  # Declaring this module is a MAJOR VERSION upgrade and therefore a forced
+  # reinstall for every tenant. Free today because there are no external
+  # installs, and expensive after the first — which is why it lands now rather
+  # than when the mail side is ready. docs/adr/0013.
+  llm:
+    - key: brief-writer
+      model:
+        - claude
+
   function:
     - key: resolver
       handler: index.handler
+    # The scheduled trigger's own function, and it must be its own.
+    #
+    # This trigger pointed at `resolver` from the day it was declared. A
+    # scheduled trigger invokes a function directly with an event; the resolver
+    # handler is a dispatcher expecting `{ call: { functionKey } }` and would
+    # not have recognised one, so the first fire would have failed. Nothing
+    # caught it because a trigger that is declared and never runs looks exactly
+    # like one that works. tests/test_service.py now holds the two apart.
+    - key: weekly-brief-fn
+      handler: index.weeklyBrief
+      # Longer than the default because this one reads a board, calls the
+      # calculator and waits on a model. It currently returns in milliseconds —
+      # it refuses before doing any of that — but the budget is set for the work
+      # it will do rather than the work it does while unfinished.
+      timeoutSeconds: 120
 
-  # A scheduled trigger is what roadmap item 3 (scheduled delivery) would hang
-  # off. Declared here because the permission it needs is easier to argue for
-  # once, at listing time, than to add later.
+  # Roadmap item 3 (scheduled delivery). Declared before it does anything,
+  # because the permission is easier to argue for once, at listing time, than to
+  # add later.
+  #
+  # It fires weekly and currently refuses: there is no board configured to
+  # report on, no recipients, and no mail transport. It checks all three before
+  # making a single Jira call, so a run that cannot deliver costs one invocation
+  # rather than a board's worth of reads and a model completion nobody receives.
   scheduledTrigger:
     - key: weekly-brief
-      function: resolver
+      function: weekly-brief-fn
       interval: week
 
 # Produced by `make forge-static`. Both paths are git-ignored: they are built

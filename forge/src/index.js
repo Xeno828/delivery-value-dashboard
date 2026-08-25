@@ -21,6 +21,7 @@
 
 import Resolver from '@forge/resolver';
 import api, { route, invokeRemote } from '@forge/api';
+import { chat } from '@forge/llm';
 
 import {
   CONFIG_PROPERTY_KEY, contextEntry, contextsBody, contextBody, contextId,
@@ -28,6 +29,9 @@ import {
   recentSprints, statusesFromJira, validateOrgConfig,
   WINDOW_DAYS, windowEntry, windowMembershipJql, contextsLabel,
 } from './jira.js';
+import {
+  MODEL, briefMessages, deliveryBlockers, proseFrom,
+} from './brief.js';
 
 const resolver = new Resolver();
 
@@ -941,5 +945,112 @@ resolver.define('probeBoardIssues', async ({ payload }) => {
    compute('/v1/forecast', …) and compute('/v1/sequence', …) with that
    mapping, and nothing else here changes. */
 resolver.define('facts', ({ payload }) => compute('/v1/facts', payload ?? {}));
+
+/* ------------------------------------------------------------------------
+   The weekly brief — roadmap item 3.
+
+   A separate export rather than another `resolver.define`, because a scheduled
+   trigger is not a resolver call. Forge invokes the function directly with an
+   event; `resolver.getDefinitions()` returns a dispatcher expecting
+   `{ call: { functionKey } }` and would not recognise one. The manifest pointed
+   its trigger at `resolver` from the day it was declared, which would have
+   failed on the first fire — declared-but-never-run is exactly the state that
+   hides this.
+
+   Two things about the runtime shape it in ways that are not obvious:
+
+   **There is no user.** Scheduled triggers run without a user principal, so
+   every `api.asUser()` call in this file — which is all of them — throws here.
+   That is not an inconvenience to route around with `asApp()`. Reading as the
+   user is *why* a viewer of the panel can only ever see issues they could see
+   in Jira, which is roadmap item 5 holding for free. Reading as the app on a
+   timer and mailing the result asserts that every recipient may see every issue
+   the app can, and nothing in this product establishes that. See below.
+
+   **It fires with nobody watching**, so it must not be expensive when it cannot
+   do anything. The blockers are checked first, before a single Jira call.
+   --------------------------------------------------------------------- */
+
+/**
+ * Where the recipients come from, which is nowhere yet.
+ *
+ * Returning `[]` rather than throwing: this is a configuration that has not
+ * been designed, not a failure. It is the same unanswered question that leaves
+ * `sequence` refusing — where a customer records something the product needs
+ * and Jira has no field for — and whatever answers one should answer both.
+ */
+const recipientsFor = async () => [];
+
+/**
+ * Which boards a scheduled run reports on, which is also nowhere yet — and of
+ * the three, this is the one that makes the rest unwritable rather than merely
+ * pointless. The panel knows its board because a person opened it in a project;
+ * `moduleProjectKey` reads that off the module context. A trigger has neither.
+ */
+const scopeFor = async () => [];
+
+/**
+ * The transport that would carry the file. Also nowhere yet: Forge has no SMTP
+ * and no second remote is declared. Named as a function so the shape of "how
+ * would this be sent" is visible rather than implied by its absence.
+ */
+const mailTransport = () => null;
+
+/**
+ * One audience's section, written by the model and assembled in code.
+ *
+ * Exported for the tests, which run it with a stub `chat` — the composition and
+ * the guard are what can be wrong here, and neither needs Atlassian to be
+ * reachable to be checked.
+ */
+export const composeSection = async ({ audience, heading, template, figures,
+                                       refusal, ask = chat }) => {
+  if (refusal) return { heading, template, values: figures, prose: '', refusal };
+
+  const response = await ask({
+    model: MODEL,
+    messages: briefMessages({ audience, figures, refused: [] }),
+  });
+  const got = proseFrom(response);
+  // A model that returned nothing usable is not softened into a section with
+  // an empty paragraph; it is handed to composeBrief as prose that will fail
+  // its guard, and the brief does not go.
+  return { heading, template, values: figures, prose: got.prose ?? '' };
+};
+
+/**
+ * The scheduled trigger's function.
+ *
+ * Returns rather than throws when it cannot send. A thrown error in a scheduled
+ * trigger is not retried and shows up only as a failed invocation; a returned
+ * reason is the same information in a form the next reader of this code can
+ * see without opening a log.
+ *
+ * It logs the reasons and nothing else. No issue key, no title, no recipient —
+ * the same rule the calculator's access log follows, and for the same reason.
+ */
+export const weeklyBrief = async () => {
+  const blockers = deliveryBlockers({
+    scope: await scopeFor(),
+    recipients: await recipientsFor(),
+    transport: mailTransport(),
+  });
+
+  if (blockers.length) {
+    console.log(`weekly brief not sent: ${blockers.join(' ')}`);
+    return { sent: false, reasons: blockers };
+  }
+
+  /* Unreachable until both blockers above are answered, and deliberately left
+     unwritten rather than written blind. What goes here is a read of the
+     tenant's boards, a call to the calculator for figures, `composeSection`
+     per audience, `composeBrief`, and a handoff to the transport — every piece
+     of which exists and is tested except the two that do not exist at all.
+     Writing it against an imagined recipient shape and an imagined transport
+     would produce code that compiles, ships, and is wrong in ways no test
+     could catch, because there would be nothing real to check it against. */
+  console.log('weekly brief not sent: delivery is not implemented');
+  return { sent: false, reasons: ['delivery is not implemented'] };
+};
 
 export const handler = resolver.getDefinitions();

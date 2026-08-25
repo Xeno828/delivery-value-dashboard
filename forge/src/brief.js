@@ -234,3 +234,126 @@ export const composeBrief = ({ audience, sections }) => {
 
 const unique = (xs) => xs.filter((x, i) => xs.indexOf(x) === i);
 const q = (s) => `"${s}"`;
+
+/* ------------------------------------------------------------------------
+   Talking to the model, and the two shapes around that call.
+
+   `chat()` itself lives in index.js because it is I/O. What is here is what
+   goes in and what comes out — both pure, both wrong in ways a deploy would
+   not show, and both therefore tested.
+   --------------------------------------------------------------------- */
+
+/**
+ * The model the brief is written by.
+ *
+ * Named here rather than at the call site so `tests/test_service.py` can hold
+ * it against the manifest's `llm` module: a model the app has not declared
+ * fails inside a tenant, on a timer, with nobody watching.
+ *
+ * Neither `temperature` nor `top_p` is sent with it. That is not a tuning
+ * choice — Atlassian rejects both parameters for this model family, and a
+ * request carrying one fails validation rather than being ignored.
+ */
+export const MODEL = 'claude-opus-5';
+
+/**
+ * What the model is asked, as the `messages` array `chat()` takes.
+ *
+ * The figures go in so the model knows which way things moved. They go in
+ * **named**, never as a sentence it could copy — `throughput: 9` rather than
+ * "throughput was 9 items" — because a figure it is shown in prose is a figure
+ * it will repeat in prose, and `proseProblems` would then refuse every brief
+ * this function produced. The instruction and the guard have to want the same
+ * thing.
+ *
+ * A refused figure is named as refused and its sentence is **not** included.
+ * The model needs to know the forecast is absent, or it writes around a gap it
+ * cannot see; it does not need the wording, and giving it the wording invites
+ * the paraphrase ADR 0013 exists to prevent.
+ */
+export const briefMessages = ({ audience, figures, refused }) => {
+  const named = Object.entries(figures || {})
+    .map(([k, v]) => `- ${k}: ${JSON.stringify(v)}`)
+    .join('\n');
+  const absent = (refused || []).length
+    ? `\n\nRefused, so say nothing about them and do not write around them as `
+      + `though they were bad news — they are unmeasured, not poor:\n`
+      + (refused || []).map((r) => `- ${r}`).join('\n')
+    : '';
+
+  return [
+    {
+      role: 'system',
+      content:
+        `You are writing the ${audience === 'exec' ? 'executive' : 'team'} `
+        + 'section of a weekly delivery brief for a software team. '
+        + PROSE_RULE
+        + ' Be plain and short. Do not open with a greeting, do not close with '
+        + 'a recommendation, and do not speculate about causes the figures do '
+        + 'not show.',
+    },
+    {
+      role: 'user',
+      content: `Figures for this period:\n${named}${absent}`,
+    },
+  ];
+};
+
+/**
+ * The prose out of an `LlmResponse`, or nothing.
+ *
+ * Written defensively on purpose. Every other caller in this app is talking to
+ * a service whose shape `tests/test_service.py` pins; this one is talking to a
+ * model, on a schedule, with no page to render an error into. A response that
+ * arrives truncated — `finish_reason` anything but `stop` — is discarded rather
+ * than used, because half a paragraph reads as a whole one and the reader has
+ * no way to tell.
+ */
+export const proseFrom = (response) => {
+  const choice = response?.choices?.[0];
+  if (!choice) return { problems: ['the model returned no choices'] };
+  if (choice.finish_reason && choice.finish_reason !== 'stop') {
+    return {
+      problems: [
+        `the model stopped early (${choice.finish_reason}). A truncated brief `
+        + 'reads as a complete one, so it was not used.'],
+    };
+  }
+  const content = choice.message?.content;
+  if (typeof content !== 'string' || !content.trim()) {
+    return { problems: ['the model returned no text'] };
+  }
+  return { prose: content.trim() };
+};
+
+/**
+ * Why a brief is not being sent, as sentences, or an empty array if it can be.
+ *
+ * Both blockers below are real and neither is a to-do. They are checked before
+ * anything is fetched or generated, so a scheduled run that cannot deliver
+ * costs one function invocation rather than a board's worth of Jira calls and
+ * a model completion nobody receives.
+ */
+export const deliveryBlockers = ({ recipients, transport, scope }) => {
+  const out = [];
+  /* Ordered by how early each one stops the run, not by how hard it is to fix.
+     Scope comes first because without it there is nothing to compute at all —
+     the other two are about where the answer goes. */
+  if (!Array.isArray(scope) || !scope.length) {
+    out.push(
+      'no board is configured for this installation to report on. A scheduled '
+      + 'run has no user and no project context, so unlike the panel it cannot '
+      + 'infer one from where it was opened.');
+  }
+  if (!Array.isArray(recipients) || !recipients.length) {
+    out.push(
+      'no recipients are configured for this installation. Which audience goes '
+      + 'to which addresses is not recorded anywhere Jira can be asked for it.');
+  }
+  if (!transport) {
+    out.push(
+      'no mail transport is declared, so there is nowhere to send it. Forge has '
+      + 'no SMTP and the remote that would carry it does not exist yet.');
+  }
+  return out;
+};

@@ -22,7 +22,7 @@ references are wrong.
 |---|---|---|---|---|
 | 1 | OAuth app on the Marketplace | 1 — make it connectable | 4–6 wk | **Done** |
 | 2 | Organisation configuration | 1 — make it connectable | 2–3 wk | **Done** |
-| 3 | Scheduled delivery of the two views | 2 — make it arrive | 3–4 wk | **In progress** |
+| 3 | Scheduled delivery of the two views | 2 — make it arrive | 3–4 wk | **In progress**, and it depends on 5 |
 | 4 | Durable sprint history | 3 — make it defensible | 3–4 wk | Open |
 | 5 | Permission mirroring | 3 — make it defensible | 5–8 wk | Open |
 | 6 | SSO, audit log, data residency | 3 — make it defensible | 6–10 wk | **Residency done**, SSO and audit open |
@@ -71,10 +71,19 @@ dependency is item 1, and the whole of phase 3 sits behind it.
 the team's. Both carry the narrative and the agent's written brief."*
 
 Four-fifths of the **content** exists — both presets in `src/app.js`, both report
-templates in `agent/templates/`. None of the **delivery** does. A
-`scheduledTrigger` named `weekly-brief` is already declared in
-`forge/manifest.yml`, deliberately, so that the permission is argued once at
-listing time rather than added after review; nothing handles it yet.
+templates in `agent/templates/`. The delivery is wired but does not deliver: the
+`weekly-brief` trigger now has its own function and handler, the `llm` module is
+declared, and the handler refuses with three sentences naming what is missing —
+no board configured to report on, no recipients, no mail transport.
+
+**One correction to the plan, found by wiring it.** The roadmap gives item 3 a
+single dependency, item 1. It also depends on **item 5**. A scheduled trigger
+runs with no user principal, so it cannot read Jira as the viewer the way the
+panel does — and reading as the viewer is exactly what makes permission
+mirroring hold for free today. A brief composed by the app and mailed to a list
+asserts that every recipient may see every issue the app can, which nothing here
+establishes. ADR 0013 has the detail. The ordering was already right; the
+dependency was not written down.
 
 It is also the first item that sends customer issue text out of the tenant — to
 a mail provider, once. It nearly sent it twice: the brief is written by a model,

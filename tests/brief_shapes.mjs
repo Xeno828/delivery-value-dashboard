@@ -12,8 +12,9 @@
  */
 
 import {
-  NUMBER_WORDS, PROSE_RULE, UNCHECKED,
-  composeBrief, fillSlots, proseProblems, section, slotsIn,
+  MODEL, NUMBER_WORDS, PROSE_RULE, UNCHECKED,
+  briefMessages, composeBrief, deliveryBlockers, fillSlots, proseFrom,
+  proseProblems, section, slotsIn,
 } from '../forge/src/brief.js';
 
 const stdin = await new Promise((resolve) => {
@@ -71,6 +72,40 @@ console.log(JSON.stringify({
   numberWords: NUMBER_WORDS,
   proseRule: PROSE_RULE,
   unchecked: UNCHECKED,
+  model: MODEL,
+
+  /* What the model is asked. The figures must arrive named rather than in a
+     sentence: prose the model is shown is prose it will copy, and copied prose
+     carries the figure, which its own guard would then refuse. A prompt that
+     cannot produce a passing answer fails weekly for a reason invisible from
+     the prompt. */
+  messages: briefMessages({
+    audience: 'exec',
+    figures: { throughput: 9, committed: 12 },
+    refused: ['forecast'],
+  }),
+
+  /* The model's answer, in the four states it comes back in. Truncation is the
+     one worth having: half a paragraph reads as a whole one. */
+  responses: {
+    ok: proseFrom({ choices: [{ finish_reason: 'stop',
+      message: { content: '  Throughput fell against the previous sprint.  ' } }] }),
+    truncated: proseFrom({ choices: [{ finish_reason: 'length',
+      message: { content: 'Throughput fell against the previ' } }] }),
+    empty: proseFrom({ choices: [{ finish_reason: 'stop', message: { content: '   ' } }] }),
+    noChoices: proseFrom({ choices: [] }),
+    rubbish: proseFrom(null),
+  },
+
+  /* Why a scheduled run is not sending. All three are real today. */
+  blockers: {
+    nothingConfigured: deliveryBlockers({}),
+    scopeOnly: deliveryBlockers({ scope: [{ boardId: 2 }] }),
+    scopeAndRecipients: deliveryBlockers({
+      scope: [{ boardId: 2 }], recipients: ['a@example.com'] }),
+    allThree: deliveryBlockers({
+      scope: [{ boardId: 2 }], recipients: ['a@example.com'], transport: 'mail' }),
+  },
 
   usable: Object.fromEntries(
     Object.entries(USABLE).map(([k, v]) => [k, proseProblems(v)])),

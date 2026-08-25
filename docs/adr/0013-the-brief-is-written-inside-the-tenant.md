@@ -112,3 +112,44 @@ does not exist and is not decided here. It is the same question item 3 raises
 about where a customer records anything the product needs and Jira has no field
 for, and it is the same question that leaves `intake.sequence` with no input on
 Forge. Whatever answers one should answer both.
+
+## Added when the trigger was wired: a scheduled send has no user
+
+Wiring the handler turned up something this record did not anticipate, and it
+changes what item 3 depends on.
+
+**Scheduled triggers run with no user principal.** Every Jira call in
+`forge/src/index.js` is `api.asUser()`, and all of them throw in a trigger. The
+obvious repair is `asApp()`, and it is the wrong one.
+
+Reading as the user is not an implementation detail here — it is the reason a
+viewer of the panel can only ever see issues they could already see in Jira.
+That is **roadmap item 5, permission mirroring**, holding for free because Jira
+enforces it on every request the app makes on someone's behalf. Nothing in this
+product establishes it any other way.
+
+A scheduled brief has to read as the app. The moment that brief is mailed to a
+list of addresses, the app is asserting that every recipient may see every issue
+it can — an assertion with nothing behind it. The failure is quiet and it is the
+bad kind: a brief that names an issue from a project the reader has no access to
+looks exactly like a brief that does not.
+
+So **item 3 depends on item 5**, and the roadmap does not say so — it lists item
+1 as item 3's only dependency. That is an error in the plan rather than a
+discovery about the platform, and the ordering was already right for a different
+reason: item 5 is described there as the item most expensive to defer.
+
+What follows from it, and is implemented:
+
+- The trigger does **not** reach for `asApp()` to get past the missing user. It
+  refuses, and one of the three sentences it refuses with is that no board is
+  configured for it to read — which is true, and is the blocker that makes the
+  rest unwritable rather than merely unsent.
+- The panel's `asUser()` calls are untouched, and a test asserts both halves:
+  the trigger's own body contains no `asUser()`, and the file still does
+  everywhere else. Converting the file wholesale to `asApp()` to make the
+  trigger work would pass a naive reading and fail that test.
+
+The three blockers are checked before any Jira call, so a weekly run that cannot
+deliver costs one invocation rather than a board of reads and a completion
+nobody receives.

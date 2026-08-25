@@ -1985,6 +1985,227 @@ def test_the_deploy_trigger_covers_everything_the_image_ships():
           negative)
 
 
+def _manifest_item(text, key):
+    """The scalar fields of the manifest list item introduced by `- key: <key>`.
+
+    Regex rather than PyYAML, deliberately and for the same reason
+    `test_forge_manifest_matches_the_code` does it: yaml is not a dependency of
+    this repository, CI installs only `service/requirements.txt` for this suite,
+    and adding a parser to the *service's* requirements to read a *Forge* file
+    would put a package in the production image that nothing in it imports.
+    """
+    m = re.search(r"^(\s+)-\s*key:\s*%s\s*$" % re.escape(key), text, re.M)
+    if not m:
+        return {}
+    field_indent = len(m.group(1)) + 2
+    out = {}
+    for line in text[m.end():].split("\n"):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if len(line) - len(line.lstrip()) < field_indent:
+            break
+        f = re.match(r"\s+([A-Za-z]\w*):\s*(\S*)\s*$", line)
+        if f:
+            out[f.group(1)] = f.group(2)
+    return out
+
+
+def test_the_weekly_brief_is_wired_to_its_own_function():
+    """A scheduled trigger is not a resolver call, and the manifest said it was.
+
+    `weekly-brief` pointed at the `resolver` function from the day it was
+    declared. Forge invokes a scheduled trigger's function directly with an
+    event; `resolver.getDefinitions()` returns a dispatcher that expects
+    `{ call: { functionKey } }` and would not have recognised one, so the first
+    fire would have failed — in a tenant, on a timer, with nobody watching.
+
+    Nothing caught it because a trigger that is declared and never runs looks
+    exactly like one that works. That is the failure mode this asserts against:
+    the trigger's function must not be the resolver's.
+    """
+    man = (ROOT / "forge" / "manifest.yml").read_text()
+
+    check("the weekly brief trigger is declared",
+          re.search(r"^\s+scheduledTrigger:\s*$", man, re.M)
+          and re.search(r"-\s*key:\s*weekly-brief\s*$", man, re.M))
+    trig = _manifest_item(man, "weekly-brief")
+
+    # Forge accepts only these four, and `week` is the cadence item 3 describes.
+    check("the trigger's interval is one Forge accepts",
+          trig.get("interval") in ("fiveMinute", "hour", "day", "week"),
+          trig.get("interval"))
+
+    # Only `function:` entries carry a handler, so an adjacent key/handler pair
+    # is one of them wherever it appears.
+    functions = dict(re.findall(r"-\s*key:\s*(\S+)\s*\n\s+handler:\s*(\S+)", man))
+    resolver_fn = [k for k, h in functions.items() if h == "index.handler"]
+    check("the resolver's own function is still index.handler", resolver_fn,
+          functions)
+    check("the trigger does NOT point at the resolver's function",
+          trig.get("function") not in resolver_fn,
+          {"trigger": trig.get("function"), "resolver": resolver_fn})
+    check("the trigger's function exists in the manifest",
+          trig.get("function") in functions, functions)
+
+    handler = functions.get(trig.get("function"), "")
+    check("the trigger's handler is a plain export, not the dispatcher",
+          handler.startswith("index.") and handler != "index.handler", handler)
+
+    # ...and the export it names is really there. A handler naming a function
+    # that does not exist fails at the first fire, which is a week after a
+    # deploy nobody is still watching.
+    src = (ROOT / "forge" / "src" / "index.js").read_text()
+    exported = handler.split(".", 1)[1] if "." in handler else ""
+    check("index.js exports the function the trigger names",
+          re.search(r"export\s+const\s+%s\s*=" % re.escape(exported), src),
+          exported)
+
+    # Scheduled triggers run with no user principal, so `asUser()` throws in
+    # one. The trigger's own path must not depend on it — and the panel's must
+    # keep it, because reading as the user is what makes a viewer unable to see
+    # an issue they could not see in Jira.
+    after = src.split("export const %s" % exported, 1)[-1]
+    check("the trigger's own body makes no asUser() call",
+          "asUser()" not in after, after[:120])
+    check("the panel's reads are still asUser()", "asUser()" in src)
+
+
+def test_the_llm_module_matches_the_model_the_code_asks_for():
+    """A model the app has not declared fails inside a tenant, on a timer.
+
+    `forge lint` refuses a `chat()` call with no `llm` module, but it cannot
+    know which model string the code passes — so a declared family and a
+    requested model that is not in it is a runtime failure a deploy would not
+    show. ADR 0013.
+    """
+    man = (ROOT / "forge" / "manifest.yml").read_text()
+    block = re.search(
+        r"^\s+llm:\s*$\n\s+-\s*key:\s*(\S+)\s*$\n\s+model:\s*$\n((?:\s+-\s*\S+\s*$\n?)+)",
+        man, re.M)
+    check("the llm module is declared", bool(block))
+    if not block:
+        return
+    families = re.findall(r"-\s*(\S+)", block.group(2))
+    check("it declares a model family", bool(families), families)
+    check("only one llm module, which is all Forge permits",
+          len(re.findall(r"^\s+llm:\s*$", man, re.M)) == 1)
+
+    node = subprocess.run(["node", str(ROOT / "tests" / "brief_shapes.mjs")],
+                          input=json.dumps({"refusal": "R"}),
+                          capture_output=True, text=True, cwd=str(ROOT))
+    if node.returncode != 0:
+        check("the brief shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    b = json.loads(node.stdout)
+    check("the model the code asks for is in a declared family",
+          any(b["model"].startswith(f) for f in families),
+          {"model": b["model"], "declared": families})
+
+    # @forge/llm has to be a declared dependency or the bundle will not build.
+    pkg = json.loads((ROOT / "forge" / "package.json").read_text())
+    check("@forge/llm is a declared dependency",
+          "@forge/llm" in pkg.get("dependencies", {}),
+          list(pkg.get("dependencies", {})))
+
+
+def test_the_brief_prompt_can_produce_an_answer_its_own_guard_accepts():
+    """The instruction and the check must want the same thing.
+
+    The guard refuses prose carrying a figure. So the prompt must not hand the
+    model a figure already written into a sentence — prose it is shown is prose
+    it copies, and a copied figure is refused by the very guard this brief
+    depends on. A prompt that cannot produce a passing answer fails every week
+    for a reason nothing in the prompt reveals.
+    """
+    node = subprocess.run(["node", str(ROOT / "tests" / "brief_shapes.mjs")],
+                          input=json.dumps({"refusal": "R"}),
+                          capture_output=True, text=True, cwd=str(ROOT))
+    if node.returncode != 0:
+        check("the brief shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    b = json.loads(node.stdout)
+
+    msgs = b["messages"]
+    check("the prompt is a system message and a user message",
+          [m["role"] for m in msgs] == ["system", "user"],
+          [m["role"] for m in msgs])
+    check("the model is given the rule the guard enforces",
+          b["proseRule"] in msgs[0]["content"])
+
+    # Figures arrive as named values, one per line — never as a sentence.
+    user = msgs[1]["content"]
+    check("figures are named, not written into prose",
+          "- throughput: 9" in user and "- committed: 12" in user, user[:90])
+
+    # A refused figure is named so the model does not write around a gap it
+    # cannot see, but its sentence is withheld: handing over the wording is
+    # what invites the paraphrase ADR 0013 forbids.
+    check("a refused figure is named to the model", "forecast" in user)
+    check("but its refusal sentence is not handed over",
+          "absent, not noisy" not in user and "No forecast:" not in user, user[-140:])
+
+    # The four states a completion comes back in.
+    r = b["responses"]
+    check("a finished completion yields trimmed prose",
+          r["ok"].get("prose") == "Throughput fell against the previous sprint.",
+          r["ok"])
+    check("a truncated completion is discarded, not used",
+          "problems" in r["truncated"] and "prose" not in r["truncated"],
+          r["truncated"])
+    for state in ("empty", "noChoices", "rubbish"):
+        check("a %s completion yields no prose" % state,
+              "prose" not in r[state], r[state])
+
+    # And nothing the model returns may bypass the guard on its way in.
+    check("the prompt's own text would pass the guard it asks for",
+          not [w for w in b["numberWords"] if (" %s " % w) in msgs[0]["content"].lower()],
+          msgs[0]["content"][:100])
+
+
+def test_a_scheduled_run_that_cannot_deliver_says_so_before_doing_work():
+    """Three blockers, checked before a single Jira call.
+
+    A trigger fires with nobody watching, so it must be cheap when it can do
+    nothing. All three of these are real today, and the order matters: without a
+    board there is nothing to compute at all, which is why it is first — the
+    other two are about where the answer goes.
+    """
+    node = subprocess.run(["node", str(ROOT / "tests" / "brief_shapes.mjs")],
+                          input=json.dumps({"refusal": "R"}),
+                          capture_output=True, text=True, cwd=str(ROOT))
+    if node.returncode != 0:
+        check("the brief shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    b = json.loads(node.stdout)["blockers"]
+
+    check("nothing configured names all three blockers",
+          len(b["nothingConfigured"]) == 3, b["nothingConfigured"])
+    check("the missing board is named first",
+          "board" in b["nothingConfigured"][0], b["nothingConfigured"][0])
+    check("each thing supplied removes exactly one blocker",
+          [len(b["scopeOnly"]), len(b["scopeAndRecipients"]), len(b["allThree"])] == [2, 1, 0],
+          {k: len(v) for k, v in b.items()})
+
+    # Every sentence has to say what is absent rather than what to do about it —
+    # this text is what a future reader finds in a log line, and "TODO" in a log
+    # is not a fact about the run.
+    for sentence in b["nothingConfigured"]:
+        check("the blocker reads as a fact, not a to-do",
+              "TODO" not in sentence and len(sentence) > 40, sentence)
+
+    # The handler returns its reasons rather than throwing: a scheduled trigger
+    # is not retried, and a thrown error is a failed invocation with the reason
+    # only in a stack trace.
+    src = (ROOT / "forge" / "src" / "index.js").read_text()
+    body = src.split("export const weeklyBrief", 1)[-1]
+    check("the handler returns its reasons rather than throwing",
+          "return { sent: false" in body and "throw" not in body.split("};")[0],
+          body[:160])
+
+
 if __name__ == "__main__":
     import os
     os.environ["SERVICE_SHARED_SECRET"] = SECRET
@@ -2025,6 +2246,11 @@ if __name__ == "__main__":
     test_the_brief_never_states_a_figure()
     print("the Forge app's dependencies")
     test_forge_app_dependencies()
+    print("the weekly brief")
+    test_the_weekly_brief_is_wired_to_its_own_function()
+    test_the_llm_module_matches_the_model_the_code_asks_for()
+    test_the_brief_prompt_can_produce_an_answer_its_own_guard_accepts()
+    test_a_scheduled_run_that_cannot_deliver_says_so_before_doing_work()
     print("the deploy trigger")
     test_the_deploy_trigger_covers_everything_the_image_ships()
     print("the container image")
