@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.24.1
+
+**Editing a README redeployed both Cloud Run regions, and now it does not.** `deploy.yml` filtered on `service/**`, so pointing `service/README.md` at the new roadmap doc in 1.24.0 rebuilt and shipped the calculator twice over. It came out green — the image was unchanged and every gate ran — which is the pipeline behaving exactly as `docs/hosting-the-calculator.md` §7 claims, but it is still a deploy nobody asked for and it would have recurred on every future edit.
+
+Excluding `service/**.md` is provable rather than a guess: the Dockerfile copies `service/requirements.txt` and `service/app.py` **by name**, so nothing else under `service/` can reach the image.
+
+**The narrowing is deliberately asymmetric, and that is the part worth reading.** `agent/tools/**.md` is *not* excluded, because that tree is copied wholesale — `COPY agent/tools/ /app/agent/tools/` — so a markdown file added there does ship, and skipping its deploy would leave the running service older than the source describing it. A path filter fails silently in both directions: too broad is noise, too narrow is a stale service, and only the second is dangerous. Neither shows up as a red run, which is why this is now a test rather than a comment.
+
+`test_the_deploy_trigger_covers_everything_the_image_ships` reads the Dockerfile's `COPY` sources and asserts each one still triggers a deploy, that no exclusion reaches inside a directory copied wholesale, and that the README exclusion holds. Adding the tempting `!agent/tools/**.md` fails it, which is the whole point — it looks like the same tidy-up and is not.
+
 ## 1.24.0
 
 **The commercial roadmap is in the repository now, and that is the smallest change here with the largest effect.** Four files have said *"roadmap item 1"* or *"roadmap item 6"* since 1.14.0 and none of them pointed at anything — the plan lived in an artifact outside the repo, so every session that set out to progress it began by asking where it was, and two in a row stalled on exactly that. `docs/roadmap.md` records the numbering those four references depend on and what is true of each item today. It deliberately does **not** restate the argument: that stays in the artifact, because two copies of an argument disagree eventually. The numbering had one trap worth writing down — seven numbered items, nine features, because item 6 is three of them, so a reader who counts headings gets seven and concludes the references are wrong.

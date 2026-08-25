@@ -1907,6 +1907,84 @@ def test_the_brief_never_states_a_figure():
           "number" in rule and "words" in rule and "digits" in rule, rule[:80])
 
 
+def test_the_deploy_trigger_covers_everything_the_image_ships():
+    """A file that reaches the image must reach the deploy.
+
+    `deploy.yml` filters on paths, and a path filter fails silently in one
+    direction: too broad and you get a rebuild nobody asked for, which is
+    noise; too narrow and the image content changes while the running service
+    does not, which is a service quietly older than the source that describes
+    it. Only the second one is dangerous, and neither shows up as a red run.
+
+    The filter was narrowed once, to stop `service/README.md` redeploying both
+    regions. That is safe because the Dockerfile copies `service/` by *file
+    name* and a README is not one of them. It would not be safe for
+    `agent/tools/`, which is copied as a whole directory — a markdown file
+    added there does ship. This asserts that asymmetry rather than leaving it
+    to the comment that explains it.
+    """
+    wf = ROOT / ".github" / "workflows" / "deploy.yml"
+    if not wf.exists():
+        check("deploy.yml is present", False, str(wf))
+        return
+
+    text = wf.read_text()
+    # Deliberately parsed by hand rather than with PyYAML: `on:` is the YAML 1.1
+    # boolean and safe_load turns the key into True, which is the sort of thing
+    # that makes a test fail for a reason unrelated to what it checks.
+    block = re.search(r"^\s*paths:\n((?:\s*-\s*'[^']*'\s*(?:#.*)?\n|\s*#.*\n|\s*\n)+)",
+                      text, re.M)
+    if not block:
+        check("the deploy workflow filters on paths", False, "no paths: block")
+        return
+    patterns = re.findall(r"-\s*'([^']*)'", block.group(1))
+    positive = [p for p in patterns if not p.startswith("!")]
+    negative = [p[1:] for p in patterns if p.startswith("!")]
+
+    check("the deploy trigger has path patterns", bool(positive), patterns)
+
+    def matches(pattern, path):
+        """GitHub's glob, narrowly: ** spans separators, * does not."""
+        rx, i = "", 0
+        while i < len(pattern):
+            if pattern.startswith("**", i):
+                rx, i = rx + ".*", i + 2
+            elif pattern[i] == "*":
+                rx, i = rx + "[^/]*", i + 1
+            else:
+                rx, i = rx + re.escape(pattern[i]), i + 1
+        return re.fullmatch(rx, path) is not None
+
+    dockerfile = (ROOT / "service" / "Dockerfile").read_text()
+    copies = re.findall(r"^COPY\s+(\S+)\s+\S+", dockerfile, re.M)
+    check("the Dockerfile has COPY sources to check", bool(copies), copies)
+
+    # Every file the image ships triggers a deploy when it changes.
+    for src in copies:
+        if src.endswith("/"):
+            continue
+        covered = any(matches(p, src) for p in positive)
+        excluded = any(matches(n, src) for n in negative)
+        check("a change to %s deploys" % src, covered and not excluded,
+              {"covered": covered, "excluded": excluded})
+
+    # A directory copied wholesale ships whatever is put in it later, so no
+    # exclusion may reach inside one. This is the assertion that would have
+    # stopped `!agent/tools/**.md` — which looks like the same tidy-up as the
+    # one above and is not.
+    for src in copies:
+        if not src.endswith("/"):
+            continue
+        reaching = [n for n in negative if n.startswith(src)]
+        check("no exclusion reaches inside %s, which ships wholesale" % src,
+              not reaching, reaching)
+
+    # And the narrowing that prompted all this still holds.
+    check("editing the service README does not redeploy",
+          any(matches(n, "service/README.md") for n in negative),
+          negative)
+
+
 if __name__ == "__main__":
     import os
     os.environ["SERVICE_SHARED_SECRET"] = SECRET
@@ -1947,6 +2025,8 @@ if __name__ == "__main__":
     test_the_brief_never_states_a_figure()
     print("the Forge app's dependencies")
     test_forge_app_dependencies()
+    print("the deploy trigger")
+    test_the_deploy_trigger_covers_everything_the_image_ships()
     print("the container image")
     test_dockerfile_copies_everything_the_service_imports()
     print("startup")

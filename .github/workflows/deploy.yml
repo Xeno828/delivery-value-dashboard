@@ -30,6 +30,20 @@ on:
       - 'service/**'
       - 'agent/tools/**'
       - '.github/workflows/deploy.yml'
+      # Editing this service's README redeployed both regions once, which is a
+      # rebuild nobody asked for on a file that cannot reach the image: the
+      # Dockerfile copies `service/requirements.txt` and `service/app.py` by
+      # name, so nothing else under `service/` is in the build context's output
+      # at all. Excluding it is provable rather than a guess.
+      #
+      # Deliberately NOT `agent/tools/**.md`, and the asymmetry is the point.
+      # That tree is copied wholesale — `COPY agent/tools/ /app/agent/tools/` —
+      # so a markdown file added there does ship, and skipping the deploy would
+      # mean the image content changed and the running service did not. A path
+      # filter fails silently in that direction, which is the direction worth
+      # being timid about; this one is narrowed only where the Dockerfile makes
+      # it safe.
+      - '!service/**.md'
   schedule:
     # Mondays, 03:00 UTC. Weekly rather than daily because this service has no
     # dependencies of its own to churn, and a daily rebuild of an unchanged
