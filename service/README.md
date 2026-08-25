@@ -159,6 +159,16 @@ read-only root filesystem works.
 
 Stateless and sub-second suits scale-to-zero. Where it runs, what it costs and
 in what order: [hosting the calculator](../docs/hosting-the-calculator.md).
+
+```bash
+bash service/provision-gcp.sh    # one-time: project, registries, federation
+git push                         # .github/workflows/deploy.yml does the rest
+```
+
+`provision-gcp.sh` is the half only a person can do — it needs a billing
+account and a browser. Everything after it is `deploy.yml`, which builds, runs
+`service/smoke.sh`, runs `service/scan.sh`, and deploys to both regions only if
+all of that passed.
 The recommendation is Cloud Run in two regions on `SERVICE_AUTH=forge-token`,
 which needs no secret store at all — the four `FORGE_*` values are
 configuration, not credentials. Fargate is retired as a candidate there: it has

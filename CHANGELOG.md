@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.20.0
+
+**The calculator has somewhere to be deployed from, and nothing on the way there holds a key.** `service/provision-gcp.sh` is an eight-stage wizard for the half of hosting only a person can do — billing, APIs, a registry in each region, two service accounts, the GitHub federation — and `.github/workflows/deploy.yml` is the half that should never be done by hand.
+
+**Workload Identity Federation rather than a service account key.** GitHub mints a short-lived OIDC token saying which repository is running and Google exchanges it for a short-lived access token, so there is no long-lived credential in this repository to leak and none to rotate. The attribute condition pinning the trust to one repository is the entire security control — without it any GitHub repository's token would be accepted — so the wizard states that in the stage that creates it rather than leaving it as a flag somebody might drop.
+
+**Two service accounts, because one would have to be able to do both jobs.** The deployer may push images and update services and may not read the secret; the runtime may read the one secret it needs and may not deploy anything. The `serviceAccountUser` grant is scoped to the runtime account rather than the project, so the deployer can run the service as that identity and as nothing else.
+
+**The container checks moved out of the workflow and into `service/smoke.sh`.** They were inline in the `container` job, which was right while CI was the only thing that built the image. The weekly rebuild builds it too — from a base that has moved even when this repository has not — and it has to clear the same bar before it ships. Two copies of those assertions would be two things to keep in step, and the first time they disagreed the question would be which workflow to believe. `service/scan.sh` exists for the same reason and holds the §11 policy in one place.
+
+**The weekly rebuild deploys, and that is the decision rather than the schedule.** A build that produces a fresh image and never ships it leaves the running service ageing exactly as fast as it would have without it. It is safe to run unattended because the gates in front of it are the ones that would catch a real breakage, and all of them run before a single byte reaches a registry.
+
+**`--concurrency=1`, which looks wasteful and is not.** The calculation is CPU-bound single-threaded CPython and the container runs the stdlib threading server, so concurrent requests contend on the GIL rather than sharing a vCPU for free. Eight concurrent `intake.sequence` calls at 3.07s each would run past the roughly 25 seconds a Forge invocation token lives — a slow answer here is not a slow tile, it is an expired token and a refusal nobody can explain. Cloud Run answers a burst by starting more instances, which is faster per request and is exactly the model the costing assumed. `--timeout=30s` sits just past Forge's own 25s for the same reason: long enough never to cut short a call Forge would still accept, short enough not to keep billing for one it has abandoned.
+
+**Found while writing it: both Google auth actions are on v3, not v2.** Pinning to the major that came to mind would have been a stale pin on the day it was written. Checked against the current releases instead.
+
+**The deploy skips rather than fails when Google Cloud has not been provisioned.** A workflow that goes red on every push because a repository variable is unset teaches people to ignore a red tick, which costs more than it catches. It writes a summary saying which script to run instead.
+
+**Still shared-secret, and still `.invalid`.** The first deployment runs `SERVICE_AUTH=shared-secret` deliberately, so hosting can be proved on its own before Forge is anywhere near it — otherwise the first test of the deployment is also the first test of the Forge wiring and a failure could be either. `remotes[0].baseUrl` is untouched and the resolvers still refuse; the suite still ties those two together.
+
 ## 1.19.0
 
 **The hosted calculator has a plan, and writing it found that `forge-token` was never blocked only on four values — two of the three things in the way were code, and they are fixed.** [`docs/hosting-the-calculator.md`](docs/hosting-the-calculator.md) recommends Cloud Run, two regions, request-based billing, no minimum instances, and `SERVICE_AUTH=forge-token`. It costs three volume tiers against dated rates and takes the two decisions `docs/forge-deployment.md` §3 deliberately left open. [ADR 0012](docs/adr/0012-the-calculator-is-reached-by-invokeremote.md) records the part that will outlive the plan.

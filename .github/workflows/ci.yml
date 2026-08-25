@@ -79,87 +79,15 @@ jobs:
       - name: Build the calculator image
         run: docker build -f service/Dockerfile -t delivery-value-calculator:ci .
 
-      - name: It must refuse to start with no secret
-        run: |
-          if docker run --rm delivery-value-calculator:ci; then
-            echo "::error::the container started without SERVICE_SHARED_SECRET"
-            exit 1
-          fi
-          echo "refused, as it should"
+      # The assertions live in service/smoke.sh rather than here, because the
+      # weekly rebuild in deploy.yml has to clear the same bar before it ships
+      # an image built from a base that moved on its own. Two copies would be
+      # two things to keep in step.
+      - name: It must clear the container checks
+        run: bash service/smoke.sh delivery-value-calculator:ci
 
-      # Minted per run rather than written down. A literal here is
-      # indistinguishable from a real credential to a secret scanner — the
-      # security suite flags it — and a workflow that needs a hard-coded one is
-      # a workflow teaching a bad habit.
-      - name: Mint a throwaway secret for this run
-        run: echo "CALC_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
-
-      - name: Run it
-        run: |
-          docker run -d --name calc -p 8080:8080 \
-            -e SERVICE_SHARED_SECRET="$CALC_SECRET" \
-            --read-only --tmpfs /tmp \
-            delivery-value-calculator:ci
-          for i in $(seq 1 30); do
-            curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1 && break
-            sleep 1
-          done
-          curl -fsS http://127.0.0.1:8080/healthz
-
-      - name: It must run as a non-root user
-        run: |
-          uid=$(docker exec calc id -u)
-          test "$uid" != "0" || { echo "::error::running as root"; exit 1; }
-          echo "uid $uid"
-
-      - name: An unauthenticated request must be refused
-        run: |
-          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
-            http://127.0.0.1:8080/v1/forecast -d '{"dataset":{"issues":[]}}')
-          test "$code" = "401" || { echo "::error::expected 401, got $code"; exit 1; }
-
-      - name: An authenticated request must return a figure
-        run: |
-          python3 - > /tmp/payload.json <<'EOF'
-          import json, sys
-          sys.path.insert(0, "agent/tools")
-          KEEP = ("key","created","started","resolved","statusCategory",
-                  "storyPoints","priority","dueDate","flagged","addedMidSprint")
-          d = json.load(open("data/sample-multi-sprint.json"))
-          print(json.dumps({"dataset": {
-              "issues": [{k: i[k] for k in KEEP if i.get(k) is not None} for i in d["issues"]],
-              "meta": d.get("meta", {}), "orgConfig": {}}}))
-          EOF
-          curl -fsS -X POST http://127.0.0.1:8080/v1/forecast \
-            -H "Authorization: Bearer $CALC_SECRET" \
-            -H 'Content-Type: application/json' \
-            --data @/tmp/payload.json | python3 -c "
-          import json, sys
-          d = json.load(sys.stdin)
-          assert d['ok'], d
-          assert d['result']['sprint_completion']['percentiles'], d
-          assert 'working week' in d['calendar'], d
-          print('p85', d['result']['sprint_completion']['percentiles']['85'])
-          print('calendar', d['calendar'][:48])"
-
-      - name: Issue text must be refused by the running container
-        run: |
-          code=$(curl -s -o /tmp/out -w '%{http_code}' -X POST \
-            http://127.0.0.1:8080/v1/forecast \
-            -H "Authorization: Bearer $CALC_SECRET" \
-            -H 'Content-Type: application/json' \
-            -d '{"dataset":{"issues":[{"key":"A-1","summary":"secret title"}]}}')
-          test "$code" = "400" || { echo "::error::expected 400, got $code"; exit 1; }
-          grep -q "was not stored" /tmp/out || { echo "::error::wrong refusal"; cat /tmp/out; exit 1; }
-
-      - name: Logs must not contain issue data
-        run: |
-          if docker logs calc 2>&1 | grep -q "secret title"; then
-            echo "::error::the container logged issue text"
-            docker logs calc; exit 1
-          fi
-          docker logs calc
-
-      - name: Stop
-        if: always()
-        run: docker rm -f calc || true
+      # The policy is in service/scan.sh: fixable HIGH and CRITICAL block,
+      # unfixable ones are printed and do not. Both passes run, so what the
+      # gate declined to block on is on the log rather than dropped quietly.
+      - name: It must clear the vulnerability gate
+        run: bash service/scan.sh delivery-value-calculator:ci

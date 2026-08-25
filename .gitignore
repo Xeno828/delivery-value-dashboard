@@ -50,3 +50,9 @@ tests/wiz-*.png
 # dist/ because that is where the live-mode endpoints are routed from; named
 # here so a crashed run cannot leave it looking like a committed artefact.
 dist/.transport-test.html
+
+# Written by service/provision-gcp.sh so a re-run remembers what it created.
+# None of it is secret — a project id, two service account emails and a
+# federation path — but it is local machine state rather than repository
+# content, and the project it names is one person's.
+.gcp-deploy.env
