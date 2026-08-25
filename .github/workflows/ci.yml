@@ -5,13 +5,22 @@ on:
     branches: [main]
   pull_request:
 
+# Actions are pinned to a major and moved deliberately. These were bumped
+# because GitHub deprecated the Node 20 runtime and was force-running the old
+# majors on Node 24 — a warning on every run, and a forcing that eventually
+# stops. Nothing here uses an input that changed across those majors; the
+# usages are checkout, a Python version, and a name-and-path upload.
+#
+# `pages.yml` moved with them and is `workflow_dispatch` only, so no push
+# exercises it. Those three bumps are unverified until somebody publishes.
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -51,7 +60,7 @@ jobs:
 
       - name: Upload the rendered page
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rendered-dashboard
           path: |
@@ -65,7 +74,7 @@ jobs:
   container:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build the calculator image
         run: docker build -f service/Dockerfile -t delivery-value-calculator:ci .
