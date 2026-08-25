@@ -37,7 +37,8 @@ sys.path.insert(0, str(ROOT / "service"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import app as SVC        # noqa: E402
-import forecast as FC    # noqa: E402
+import forecast as FC
+import selection as SEL    # noqa: E402
 import orgconfig as OC   # noqa: E402
 import serve_live as LIVE  # noqa: E402
 import intake as IN        # noqa: E402
@@ -157,6 +158,57 @@ def test_service_computes_nothing():
           json.dumps(out.get("result"), sort_keys=True) == json.dumps(direct, sort_keys=True))
     check("every answer names the calendar behind it",
           "working week" in (out.get("calendar") or ""), out.get("calendar"))
+
+    # ---------- the slice, which is the part with the history of being wrong ----
+    #
+    # /v1/forecast takes a flat issue list and leaves the slice to the caller.
+    # That is fine over loopback, where the caller is Python and uses the same
+    # rules the tools do. It is not fine over Forge, where the caller is a Node
+    # resolver: the only ways to give it a forecast are to write the slice a
+    # second time in JavaScript, or to move the slice where both callers can
+    # reach it. The first is what ADR 0005 and ADR 0008 exist to refuse, of the
+    # one piece of logic whose failures are all plausible dates rather than
+    # errors — 19 days became 77 in 1.8.0, and a flow board forecast 2.5x too
+    # fast in 1.16.13.
+    #
+    # So it lives in agent/tools/selection.py, and this is the assertion that
+    # keeps the route honest about it: the endpoint's answer is the function's
+    # answer, to the byte, exactly as the flat route above must equal FC.build.
+    ctx_ds = {"issues": project(team), "contexts": full["contexts"],
+              "orgConfig": full.get("orgConfig", {})}
+    cid = full["contexts"][0]["id"]
+    status, out = call("POST", "/v1/forecast-context",
+                       {"dataset": json.loads(json.dumps(ctx_ds)), "contextId": cid})
+    direct = SEL.forecast_for(json.loads(json.dumps(full["contexts"])),
+                              json.loads(json.dumps(project(team))), {}, cid,
+                              org_cfg=full.get("orgConfig", {}))
+    check("the context forecast endpoint answers", status == 200, out.get("error"))
+    check("and agrees with selection.forecast_for called directly",
+          json.dumps(out.get("result"), sort_keys=True) == json.dumps(direct, sort_keys=True))
+    check("it reports which slice it sampled",
+          bool(((out.get("result") or {}).get("sampled_from") or {}).get("slice")),
+          (out.get("result") or {}).get("sampled_from"))
+
+    # An unknown context is a 404 and not a zero. The request was well formed
+    # and named something this dataset does not describe, and a forecast for a
+    # context nobody selected is the 1.8.0 fault with a different cause.
+    status, out = call("POST", "/v1/forecast-context",
+                       {"dataset": json.loads(json.dumps(ctx_ds)),
+                        "contextId": "no-such-context"})
+    check("an unknown context id is refused, not forecast", status == 404, (status, out))
+
+    # The slice is not optional. Without contexts this route cannot know which
+    # issues are the team's, and guessing is what produces a credible wrong
+    # number — so it refuses rather than forecasting everything it was sent.
+    status, out = call("POST", "/v1/forecast-context",
+                       {"dataset": {"issues": project(team)}, "contextId": cid})
+    check("a context forecast with no contexts refuses", status == 400, (status, out))
+
+    for bad in (0, -1, 5001, "30", True):
+        status, _ = call("POST", "/v1/forecast-context",
+                         {"dataset": json.loads(json.dumps(ctx_ds)),
+                          "contextId": cid, "items": bad})
+        check("items=%r is refused rather than clamped" % (bad,), status == 400)
 
     status, facts = call("POST", "/v1/facts", {"dataset": json.loads(json.dumps(ds))})
     check("the facts endpoint answers", status == 200, facts.get("error"))

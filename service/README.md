@@ -111,7 +111,8 @@ gunicorn -w 4 -b 0.0.0.0:8080 'service.app:wsgi_app'
 | `GET /healthz` | liveness. No auth, no data |
 | `GET /v1/meta` | version, limits, which issue fields are accepted and refused |
 | `POST /v1/facts` | `metrics.facts` |
-| `POST /v1/forecast` | `forecast.build` |
+| `POST /v1/forecast` | `forecast.build` over a slice the caller chose |
+| `POST /v1/forecast-context` | `selection.forecast_for` — this service chooses the slice |
 | `POST /v1/ask` | `intake.forecast_ask` |
 | `POST /v1/sequence` | `intake.sequence` |
 
@@ -145,9 +146,38 @@ why the payload does not grow with the customer. `intake.sequence` is the only
 call within an order of magnitude of a typical request timeout — check it
 against the platform's limit before enabling that route on Forge.
 
+## Two forecast routes, and why the second exists
+
+`/v1/forecast` takes a flat list of issues and simulates them. Deciding *which*
+issues — the slice — is left to the caller, which is right when the caller is
+`scripts/serve_live.py`: it is Python, and it uses the same rules the tools do.
+
+It is wrong when the caller is a Forge resolver running Node. The slice is
+`team_slice` plus de-duplication by key plus taking outstanding work from the
+selected context rather than the team plus suppressing a window's end date —
+and every one of those rules exists because it was got wrong once, each time
+returning a **credible date rather than an error**. It is the last logic in this
+repository that should exist twice.
+
+So it moved to `agent/tools/selection.py`, where `serve_live.py` and this
+service both reach it, and `/v1/forecast-context` takes the contexts, the
+issues and a context id and lets the tool do the choosing. This service still
+computes nothing — `tests/test_service.py` holds the route's answer against
+`selection.forecast_for` called directly, to the byte, exactly as it does for
+the flat route against `forecast.build`.
+
+**What that means for what this service sees.** A context carries the names a
+board, sprint and team were given. Those are not issue text and are not refused
+— the projection strips summaries, assignees, labels and epic names from
+*issues*, which is the thing the boundary exists for — but they are customer
+strings and they are worth naming rather than discovering. They have travelled
+this route since `/v1/facts` shipped, since `meta.sprintName` is echoed back as
+`generated_for`. Nothing here computes with them; `team_slice` compares team
+labels for equality and the rest is display text passed through.
+
 ## Limits, and why they are loud
 
-`maxIssues` 50,000, `maxAsks` 50, `maxBodyBytes` 4 MB. Exceeding one is a `413`
+`maxIssues` 50,000, `maxAsks` 50, `maxItems` 5,000, `maxBodyBytes` 4 MB. Exceeding one is a `413`
 with a sentence, never a truncated calculation: a forecast over half a team's
 history looks exactly like a forecast over all of it.
 

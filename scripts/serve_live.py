@@ -47,6 +47,12 @@ sys.path.insert(0, str(ROOT / "agent" / "tools"))
 import forecast as FC  # noqa: E402
 import intake as IN    # noqa: E402
 import orgconfig as OC  # noqa: E402
+# The slice — which issues a forecast reads and what it is told about them.
+# It lived here until the hosted calculator needed the same rules; a slice
+# defined in scripts/ is one the Forge route cannot reach, and the alternative
+# was writing it a second time in JavaScript. agent/tools/selection.py has the
+# reasoning. Imported rather than reimplemented, which is the whole point.
+from selection import team_slice, forecast_for  # noqa: E402,F401
 
 ASKS_DIR = ROOT / "data" / "asks"
 
@@ -58,130 +64,6 @@ MAX_ASK_ITEMS = 5000
 
 
 # ------------------------------------------------------------- forecasting
-def team_slice(contexts, ctx):
-    """Every context belonging to the same team as `ctx`.
-
-    A forecast built from one sprint refuses — on the demo board a single sprint
-    offers 2 throughput observations against a threshold of 8. The team's whole
-    history offers 55. So the sample is the team, and only the *remaining work*
-    comes from the selected sprint.
-
-    `team` is a free-text label, so fall back to project+board when it is absent.
-    Slicing by team rather than board matters when a team runs two boards: the
-    request is for everything known about that team, not a convenient subset.
-    """
-    team = (ctx.get("team") or "").strip()
-    if team:
-        return [c for c in contexts if (c.get("team") or "").strip() == team], "team %r" % team
-    return ([c for c in contexts
-             if c.get("projectKey") == ctx.get("projectKey")
-             and c.get("boardId") == ctx.get("boardId")],
-            "board %s/%s" % (ctx.get("projectKey"), ctx.get("boardId")))
-
-
-def forecast_for(contexts, issues, byContext, cid, items=None, target=None, org_cfg=None):
-    """Run the real forecaster for one context. Returns None for an unknown id.
-
-    The slice is the thing to get right, and getting it wrong produces a
-    credible wrong number rather than an error — see CHANGELOG 1.8.0, where
-    reading the wrong context turned a 19-day forecast into 77.
-    """
-    ctx = next((c for c in contexts if c["id"] == cid), None)
-    roll_members = None
-    if ctx is None and cid.startswith("roll:"):
-        # The dashboard synthesises one rollup per board client-side, so the
-        # server has never seen this id. It is still a real question — "when
-        # does everything open on this board land" — so answer it rather than
-        # bouncing the caller. Key format: roll:<projectKey>|<boardId>.
-        key = cid[len("roll:"):]
-        proj, _, board = key.partition("|")
-        roll_members = [c for c in contexts
-                        if str(c.get("projectKey") or c.get("projectName") or "") == proj
-                        and str(c.get("boardId") or c.get("boardName") or "") == board]
-        if not roll_members:
-            return None
-        latest = max(roll_members, key=lambda c: str(c.get("endDate") or ""))
-        ctx = dict(latest)
-        ctx["sprintName"] = "All %d sprints" % len(roll_members)
-    if ctx is None:
-        return None
-    members, slice_label = team_slice(contexts, ctx)
-    member_ids = {c["id"] for c in members}
-    # One issue is one item, however many contexts hold it. On a sprint board
-    # that is free — a team's sprints do not overlap, and no key appears twice
-    # in one slice. A flow board's windows overlap completely: 14, 30 and 90
-    # days of the *same* board, so every issue in the short window is also in
-    # the long ones, and the slice held each of them three times.
-    #
-    # Nothing failed. `throughput_samples` counted three completions on the day
-    # one item finished, the forecaster read a team going three times as fast,
-    # and the 85th-percentile date came back correspondingly early. `item_risk`
-    # listed the same issue three times over. This is the class of fault this
-    # repository keeps finding: a smaller number, arrived at by arithmetic,
-    # with nothing on screen to suggest it.
-    seen, team_issues = set(), []
-    for i in issues:
-        if i.get("contextId") not in member_ids:
-            continue
-        key = i.get("key")
-        if key is not None:
-            if key in seen:
-                continue
-            seen.add(key)
-        team_issues.append(i)
-    # Remaining work is the selected context's, never the team's — the sample is
-    # wide, the outstanding count is narrow. A rollup's "selected context" is
-    # every sprint it spans.
-    remaining_ids = ({c["id"] for c in roll_members} if roll_members else {cid})
-    actual_remaining = len([i for i in issues
-                            if i.get("contextId") in remaining_ids
-                            and (i.get("statusCategory") or "") != "Done"])
-    # An asked-for item count or date replaces the sprint's own, so the same
-    # history can answer "what if it were 30 items" or "what about by then".
-    # The defaults are still reported, so the tile can show what was swapped.
-    remaining = actual_remaining if items is None else items
-    as_of = ctx.get("asOfDate") or ctx.get("endDate")
-    # A window's end date is today, not a deadline. Passed through as one it
-    # became the forecast's default target, so "will this land by the end of
-    # the period" was asked against an end that is always now — and answered
-    # **0%**, in a tile whose whole job is to say when work will land. A
-    # probability of nought is a number a reader can quote, and it was quoting
-    # a deadline nobody set. ADR 0011: a window bounds a selection and is not a
-    # clock, and that has to hold in the forecaster as much as on the page.
-    is_window = ctx.get("kind") == "window"
-    meta = {"sprintName": ctx.get("sprintName"), "startDate": ctx.get("startDate"),
-            "endDate": None if is_window else ctx.get("endDate"), "asOfDate": as_of,
-            "workingDays": [] if is_window else ctx.get("workingDays")}
-    # The bundle's own config, carried onto the slice. Building this dict
-    # without it would forecast the customer's board against a calendar they do
-    # not keep — a different answer, arrived at silently, from the same data.
-    ds = {"issues": team_issues, "meta": meta,
-          "orgConfig": org_cfg or {},
-          "releases": (byContext.get(cid) or {}).get("releases", [])}
-    # A window has no end to fall back to, so a caller who names no date gets
-    # no date — not today dressed up as a deadline. The `meta` above says the
-    # same thing, and this line has to agree with it: it is the one the tool
-    # actually reads, and setting only the other left the tile answering
-    # "0% by 2026-08-10" for a board that set no deadline at all.
-    eff_target = target if is_window else (target or ctx.get("endDate"))
-    out = FC.build(ds, as_of=as_of, remaining=remaining, target=eff_target)
-    out["asked"] = {
-        "items": items, "date": target,
-        "default_items": actual_remaining,
-        "default_date": None if is_window else ctx.get("endDate"),
-        "as_of": as_of,
-    }
-    resolved = sorted(x for x in (FC._d(i["resolved"]) for i in team_issues
-                                  if i.get("resolved")) if x)
-    out["sampled_from"] = {
-        "slice": slice_label,
-        "contexts": len(members),
-        "first_resolved": resolved[0].isoformat() if resolved else None,
-        "last_resolved": resolved[-1].isoformat() if resolved else None,
-    }
-    return out
-
-
 def load_asks(board):
     """Every recorded ask for one board. Read per request rather than cached:
     an ask is a file somebody edits, and a stale sequence is worse than a slow

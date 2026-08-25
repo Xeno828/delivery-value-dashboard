@@ -74,6 +74,7 @@ import forecast as FC      # noqa: E402
 import intake as IN        # noqa: E402
 import metrics as MT       # noqa: E402
 import orgconfig as OC     # noqa: E402
+import selection as SEL    # noqa: E402
 
 VERSION = "1.0"
 
@@ -83,6 +84,11 @@ VERSION = "1.0"
 MAX_BODY_BYTES = 4 * 1024 * 1024
 MAX_ISSUES = 50_000
 MAX_ASKS = 50
+# An asked-for item count is bounded so a typo cannot start a simulation that
+# runs for minutes. Stated in the refusal rather than clamped quietly, which is
+# the same rule every other limit here follows. Matches scripts/serve_live.py,
+# because the two answer the same question over different transports.
+MAX_ITEMS = 5000
 
 #: Fields a calculation reads. Anything else in an incoming issue is dropped
 #: before the tools see it — not for size, but because free text has no
@@ -524,6 +530,51 @@ def route_forecast(body):
                     window_days=window)
 
 
+def route_forecast_context(body):
+    """A forecast for one context, with this service choosing the slice.
+
+    `/v1/forecast` takes a flat list of issues and simulates them. That leaves
+    the *slice* — which issues make up this team's history, how much work is
+    outstanding, and whether the date on offer is a deadline or an artefact — to
+    whoever calls it. Over loopback that caller is `scripts/serve_live.py`,
+    which is Python and can use the same rules the tools use. Over Forge the
+    caller is a Node resolver, which cannot; and the slice is the last thing in
+    this repository that should be written twice, because every one of its
+    failures is a plausible date rather than an error.
+
+    So the caller sends what it has — the contexts, the issues, and which
+    context the reader is looking at — and `selection.forecast_for` does the
+    rest. This service still computes nothing: it validates, delegates, and
+    passes the figures back. `tests/test_service.py` holds this route's answer
+    against the same function called directly.
+    """
+    ds = clean_dataset(body)
+    contexts = ds.get("contexts")
+    if not isinstance(contexts, list) or not contexts:
+        raise Refused('send "dataset.contexts" — the slice is chosen from them. '
+                      'A forecast built from a single sprint refuses for want of '
+                      'observations, so the sample is the team and only the '
+                      'outstanding work is the selected context\'s.')
+    cid = body.get("contextId")
+    if not isinstance(cid, str) or not cid.strip():
+        raise Refused('send "contextId" — which context this forecast is for')
+    items = body.get("items")
+    if items is not None:
+        if (not isinstance(items, int) or isinstance(items, bool)
+                or items <= 0 or items > MAX_ITEMS):
+            raise Refused("items must be a whole number between 1 and %d — "
+                          "nothing was simulated" % MAX_ITEMS)
+    out = SEL.forecast_for(contexts, ds["issues"], ds.get("byContext") or {},
+                           cid.strip(), items=items,
+                           target=_iso_or_none(body, "target"),
+                           org_cfg=ds.get("orgConfig") or {})
+    if out is None:
+        # A context this dataset does not describe is a 404 and not a 400: the
+        # request was well formed and named something that is not here.
+        raise Refused("unknown context %r — nothing was simulated" % cid.strip(), 404)
+    return out
+
+
 def route_ask(body):
     ds = clean_dataset(body)
     ask = body.get("ask")
@@ -550,6 +601,7 @@ def route_sequence(body):
 ROUTES = {
     "/v1/facts": route_facts,
     "/v1/forecast": route_forecast,
+    "/v1/forecast-context": route_forecast_context,
     "/v1/ask": route_ask,
     "/v1/sequence": route_sequence,
 }
@@ -562,7 +614,7 @@ def meta():
         "computes": "nothing — every figure comes from agent/tools",
         "routes": sorted(ROUTES),
         "limits": {"maxBodyBytes": MAX_BODY_BYTES, "maxIssues": MAX_ISSUES,
-                   "maxAsks": MAX_ASKS},
+                   "maxAsks": MAX_ASKS, "maxItems": MAX_ITEMS},
         "acceptedIssueFields": sorted(CALC_FIELDS),
         "rejectedIssueFields": sorted(FREE_TEXT_FIELDS),
         "defaultCalendar": OC.summary(OC.DEFAULTS),

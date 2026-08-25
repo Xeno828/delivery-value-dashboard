@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.22.0
+
+**The slice moved to where both callers can reach it, and that is the whole change.** `team_slice` and `forecast_for` lived in `scripts/serve_live.py`. `service/Dockerfile` copies `agent/tools/` and `service/app.py` and nothing else, so the hosted calculator could not reach them — and the only other way to give a Forge tenant a forecast was to write the slice a second time in JavaScript. Of everything here, that is the last code that should have had two implementations: `serve_live.py` says so in its own docstring, and the reason is that its failures are all plausible dates rather than errors. Reading the wrong context turned a 19-day forecast into 77 (1.8.0). Counting a flow board's three overlapping windows as three contexts forecast a team 2.5 times too fast (1.16.13). Passing a window's end through as a target answered "0% by today" for a board that set no deadline (1.16.13 again). None of them failed.
+
+They are `agent/tools/selection.py` now — a fifth tool module, and the first one that is not a calculation. `scripts/serve_live.py` imports them rather than defining them, so there is still exactly one implementation and the live-mode tests still guard it.
+
+**`POST /v1/forecast-context` takes the contexts, the issues and a context id, and lets the tool choose.** The existing `/v1/forecast` is unchanged and still takes a slice the caller assembled — that is correct for `serve_live.py`, which is Python and uses the same rules. The new route is for callers that are not. The service still computes nothing: the test holds the route's answer against `selection.forecast_for` called directly, to the byte, exactly as the flat route is held against `FC.build`.
+
+**It refuses rather than guessing, in the three places guessing would produce a number.** No `contexts` is a refusal, not a forecast over whatever arrived — the slice is the thing being asked for. An unknown context id is a `404` rather than an empty forecast, because the request was well formed and named something absent. An out-of-range `items` is refused rather than clamped, with the bound in the sentence.
+
+**What this route lets the calculator see, said rather than discovered.** A context carries the names given to a board, a sprint and a team. They are not issue text and are not refused — the projection strips summaries, assignees, labels and epic names from *issues*, which is what that boundary is for — but they are customer strings. They have travelled this way since `/v1/facts` shipped, because `meta.sprintName` comes back as `generated_for`. Nothing computes with them: `team_slice` compares team labels for equality, and the rest is passed through for display.
+
+**Still not wired to Forge.** `remotes[0].baseUrl` is `.invalid` and the resolvers still refuse. This is the piece that had to exist before that commit could be honest; the wiring is next, and sequencing is not part of it — a Jira tenant has nowhere for an ask to come from, which is a product question rather than a plumbing one.
+
 ## 1.21.0
 
 **The calculator is tenant-aware in production.** Both regions run `SERVICE_AUTH=forge-token` with all four Atlassian values and, for the first time, **no secret mounted at all** — the service holds nothing. The startup guard is what proves the configuration: a service that came up is a service whose four values are present and whose PyJWT import worked.
