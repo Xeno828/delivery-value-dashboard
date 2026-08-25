@@ -273,6 +273,51 @@ def health_composition(b):
     check("scope stability is dropped, not given full marks for a phrase that has no referent",
           "no mid-sprint additions" not in tt, tt[:400])
 
+    # ---------- the tiles that would state a sprint-shaped figure ----------
+    # Each says what *it* in particular cannot show. A single banner over the
+    # grid was ruled out in ADR 0010 for the reason it throws away everything
+    # the page still knows, and that reasoning does not change because the
+    # cause is a board rather than an empty selection.
+    def tile(sel):
+        return page.text_content(sel)
+
+    burn = tile("#burn-chart")
+    check("the burndown names the board, not a missing series",
+          "runs no sprints" in burn and "No burndown series in the dataset" not in burn, burn[:150])
+    check("and does not blame the rollup either", "rolls up" not in burn, burn[:150])
+    check("the burndown refusal ends with the clause",
+          "the evidence is absent, not noisy" in burn, burn[-60:])
+    check("and states no figure", not re.search(r"\d", burn), burn[:150])
+
+    delivered = tile("#kpis .kpi:nth-child(1)")
+    check("Delivered refuses: a window has no committed scope to be a share of",
+          "no committed scope" in delivered, delivered)
+    check("and prints no percentage", not re.search(r"\d", delivered), delivered)
+
+    added = tile("#kpis .kpi:nth-child(5)")
+    check("Scope added refuses rather than claiming nothing was added",
+          "no sprint for work to be added to" in added, added)
+    check("and prints no zero, which would read as a measurement",
+          not re.search(r"\d", added), added)
+
+    carry = tile("#kpis .kpi:nth-child(6)")
+    check("open work keeps its figure and loses only the sprint-shaped label",
+          carry.startswith("Still open") and re.search(r"\d", carry), carry)
+
+    exec_v = tile("#exec-verdict")
+    check("the summary states counts and withholds the share",
+          "finished in this window" in exec_v and not re.search(r"\(\d+%\)", exec_v), exec_v[:160])
+
+    for sel, what in (("#pred-chart", "the commitment history"), ("#load-body", "team load")):
+        txt = tile(sel)
+        check("%s names the board rather than asking for more history" % what,
+              "runs no sprints" in txt and "Needs" not in txt, txt[:140])
+        check("and ends with the clause", "the evidence is absent, not noisy" in txt, txt[-60:])
+
+    age = tile("#age-chart")
+    check("ageing measures the same days and stops calling them a sprint",
+          "fortnight" in age and "sprint" not in age, age[-160:])
+
     # Three overlapping windows of one board must never be rolled up: the same
     # issue is in all three, so the rollup would hold it three times and every
     # count on the page would be a count of the issues in the selection.

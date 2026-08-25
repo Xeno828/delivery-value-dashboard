@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.16.8
+
+**Every tile that would have stated a sprint-shaped figure on a flow board now says what it in particular cannot show.** Step 4. Not a banner over the grid — [ADR 0010](docs/adr/0010-an-empty-selection-is-a-refusal.md) ruled that out for the reason it throws away everything the page still knows, and that reasoning does not change because the cause is a board rather than an empty selection.
+
+**Delivered read 55%.** A share of completed work needs a scope somebody committed to. A window's membership is *open now, plus resolved inside it*, so the denominator is partly defined by being in the numerator: widen the window and the share rises, narrow it and it falls, and neither movement is the team. The count of finished work is real and stays, in the sub-label and the drill-down. The percentage is withheld.
+
+**Scope added read `0 · 0% growth`.** `addedMidSprint` is *the sprint field changed after the sprint began*, so on a board with no sprints every issue carries false and the guard returns nought. A zero there is the claim that nothing was added, about a period that does not exist. Both of those figures are what the tiles print again the moment the guard is removed, which is what the tests assert against.
+
+**The executive summary states counts and withholds the share.** *"12 of 22 items are done (55%)"* has the same broken denominator; *"12 items were finished in this window and 10 are still open"* is honest, and is the more useful sentence for a board whose reader wants to know how much is in flight.
+
+**Four tiles were naming a cause that would send a reader to fix the wrong thing.** The burndown printed *"No burndown series in the dataset"* — true of the bytes, and it invites a re-import that would not help, because a burndown plots a committed scope down to a date and this board commits to neither. The commitment-history chart and team load both asked for *"at least two sprints of history"*, which on a flow board is a request that can never be satisfied rather than a threshold that has not been met yet. Each now names the board, and each ends with the same *the evidence is absent, not noisy* clause the tools use.
+
+**One tile was renamed rather than refused, and the distinction is the point.** *Likely to carry over* measures open work, which is measured on any board; only the label was sprint-shaped, because "carry over" names a boundary to carry over *into* and a flow board has none — work there does not roll forward, it continues. It reads **Still open**. Refusing a figure that is perfectly good would have been the same error in the other direction. For the same reason the ageing chart keeps its fourteen-day bands and its counts, and stops calling a fortnight a sprint: the measurement is identical and only the yardstick was named after something that does not exist here.
+
+The risk register's unrun rules and the executive card's silently dropped sentences are the last of it, and are next.
+
 ## 1.16.7
 
 **The page knows a window is not a clock.** Step 3, and the one that had to land before any real tenant saw a flow board. `contextWorkingDays()` derives a working-day list from any context carrying a start and an end — which is right for a sprint, right for a Forge sprint that arrives without one, and wrong for a window. Expanding a 30-day window gives twenty-two working days that are perfectly real and describe nothing, because nobody undertook to finish anything by the end of a rolling month.
