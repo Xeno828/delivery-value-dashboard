@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.21.0
+
+**The calculator is tenant-aware in production.** Both regions run `SERVICE_AUTH=forge-token` with all four Atlassian values and, for the first time, **no secret mounted at all** — the service holds nothing. The startup guard is what proves the configuration: a service that came up is a service whose four values are present and whose PyJWT import worked.
+
+**Three of the four values now have evidence beyond the documentation page they were read from.** Atlassian's JWKS was fetched live on 2026-08-25 and serves six RSA keys, every one `alg=RS256`, `use=sig`, with key ids prefixed `forge/invocation-token/`. That independently supports the URL, the issuer string, and the `RS256` pin in `service/app.py` — three things that were previously a single source each.
+
+**Eight hand-made tokens were fired at the live service and every one was refused.** Not against a signer the suite controls this time: against Atlassian's real key set, from outside. `alg: none`, an HMAC forgery carrying a genuine Atlassian key id, expired, wrong audience, and — the one that matters — an RS256 token carrying a **real** Atlassian `kid` but signed with a key Atlassian never issued. That last one can only be refused by fetching the named key and finding the signature does not verify against it, so it proves the JWKS URL, the egress and the signature check together.
+
+**The timings proved what no status code could.** Six of the eight refusals took **0 ms**: the algorithm is pinned before a key is looked up, so the forgeries are discarded without contacting Atlassian at all — which is what stops this service being used to hammer somebody else's endpoint. One took **164 ms**, the live fetch. One took **7 ms**, the cache. The behaviour `docs/forge-deployment.md` §2 specifies, observed in production. No traceback appeared for any of them, so the 1.18.1 contract — a verifier that cannot verify says no rather than raising — holds under real traffic.
+
+**The auth mode is chosen by whether `FORGE_AUDIENCE` is set.** Unsetting one repository variable and re-running the deploy rolls the whole thing back to shared-secret. While the four values have never seen a real token, the rollback should be a variable rather than a code change made under pressure.
+
+**What is still not proven, and it is the only thing left.** No real Forge token has been through this. `remotes[0].baseUrl` is still `.invalid`, the resolvers still refuse, and the tenant has never appeared in a log line. The verifier is now known to reject everything it should; that a genuine token is *accepted* remains untested and cannot be tested until the switchover.
+
 ## 1.20.3
 
 **The cold start is measured rather than feared.** §7 argued from documentation that a slow-starting platform would be a correctness problem here and not merely a slow tile, because the Forge invocation token lives about 25 seconds and a cold start spends that budget. One observation each against the deployed service, on revisions created seconds earlier so the instances were genuinely cold: **1.15s** in us-central1 and **0.39s** in europe-west3, full `/v1/forecast` over TLS including the calculation. Roughly half a second of cold-start overhead against a twenty-five second budget. That is the argument for keeping `min-instances=0` and not paying $9.86 a month per region to avoid something that is not happening — and it is written down with its limits, since one observation from a domestic connection is not the network Forge will see.

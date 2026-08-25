@@ -402,7 +402,26 @@ The shared secret is at version **2**; version 1 is disabled rather than destroy
 
 The check worth having made is stronger than "a figure came back". The forecast returned by **each region and by `forecast.build()` called directly are byte-identical**, all 5,825 of them. That is the seeded Monte Carlo holding across three machines in two continents, and it is the standing constraint — the service does no arithmetic — demonstrated rather than asserted. If a wrapper had rounded one percentile, this is where it would have shown.
 4. **Run `make forge-lint` and deploy to `development`.** The code changes in §3's table are already in — `invokeRemote`, `operations: [compute]`, the nested tenant claim — but nothing has linted them, and the removed `fetch` permission is the line to watch. The calculator tiles still refuse here, correctly, because `baseUrl` is still `.invalid`.
-5. **Confirm `FORGE_AUDIENCE` against the registered app id**, switch both services to `SERVICE_AUTH=forge-token`, and confirm they start.
+5. **Confirm `FORGE_AUDIENCE` against the registered app id**, switch both services to `SERVICE_AUTH=forge-token`, and confirm they start. **Done, 2026-08-25.** Both regions run `forge-token` with all four values and no secret mounted at all. Three of the runbook's four "done when" conditions are now met — see below; only a real Forge call remains.
+
+**What the live verifier was shown to do**, on 2026-08-25, against Atlassian's real key set rather than a signer the suite controls. Eight hand-made tokens, every one refused with `401`:
+
+| Token | |
+|---|---|
+| No `Authorization` header | refused |
+| `Bearer garbage` | refused |
+| `alg: none`, correct `aud` and `iss` | refused |
+| HMAC-forged, carrying a **real Atlassian `kid`** | refused |
+| RS256 signed by a key Atlassian never issued, unknown `kid` | refused |
+| RS256 signed by that key but carrying a **real Atlassian `kid`** | refused |
+| Correct shape, expired | refused |
+| Correct shape, wrong `aud` | refused |
+
+The sixth is the one worth having. A token whose `kid` genuinely appears in Atlassian's published key set can only be refused by fetching that key and finding the signature does not verify against it — so it proves the JWKS URL is right, the fetch works from inside the container, and the signature check is real rather than a check of shape.
+
+**The response times prove the cache and the algorithm pin as well**, which no status code could. Six refusals took **0 ms**: the algorithm is pinned before a key is ever looked up, so `alg: none` and the HMAC forgery are thrown out without Atlassian being contacted at all — which is what stops an attacker using this service to hammer Atlassian's endpoint. One took **164 ms**, the live JWKS fetch. One took **7 ms**, the cached key. That is exactly the behaviour `docs/forge-deployment.md` §2 specifies, observed in production rather than asserted in a test.
+
+No traceback appeared for any of them: the verifier refused rather than raised, which is the 1.18.1 contract holding under real traffic.
 6. **The atomic commit**: region-pinned `baseUrl`, the offline refusals removed from the forecast and ask-sequencing resolvers, the corrected manifest comment. Deploy with `--approve MAJOR_VERSION_RULE`, then **uninstall and install** — not upgrade — because the `baseUrl` format change is a major version change and Jira does not widen an existing installation on its own.
 7. **Watch the first real token through.** This is the moment §2 of the runbook has been waiting for: `SERVICE_AUTH=forge-token` accepting a token Atlassian minted, with the installation ARI in the log line. Capture the token's real `exp - iat` here.
 8. **Then, and only then, tighten the leeway** (§1.3) using the lifetime measured in step 7.
