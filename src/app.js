@@ -683,23 +683,16 @@ function derive(items) {
     const why = uniq(parts.filter(p => p.why).map(p => p.why));
     m.health = null;
     m.healthBand = null;
-    /* On a flow board both missing components have the same cause, and listing
-       it twice — once for pace, once for scope — reads as two problems to go
-       and fix. It is one fact about the board, and it is permanent: no
-       re-import, no wider window and no better data will produce a sprint. Say
-       it once, and say what is left rather than only what is gone. */
-    m.healthRefusal = window
-      ? "Sprint health is built from four measures and two of them — delivery pace and " +
-        "scope stability — describe a sprint. This board does not run sprints, so neither " +
-        "can be taken and what is left, blockers and ageing work, describes hygiene rather " +
-        "than whether anything is going to land. That is too little of the score to report " +
-        "a number for — the evidence is absent, not noisy."
-      : "Sprint health is built from four measures and only " + taken.length +
-        " of them could be taken here: " + why.join("; ") +
-        ". That is too little of the score to report a number for — the evidence is absent, not noisy.";
-    m.healthAdvice = window
-      ? "Blockers and ageing work are measured for this board and are shown below."
-      : m.totalU ? null
+    /* No flow-board wording here, deliberately. The chip is not shown at all on
+       a board that runs no sprints — a sprint-board figure refusing in the most
+       prominent position on the page is the noise, not the disclosure — so a
+       sentence written for that case would be prose nobody can reach, sitting
+       one edit away from disagreeing with the one in FLOW_UNAVAILABLE that
+       readers do see. */
+    m.healthRefusal = "Sprint health is built from four measures and only " + taken.length +
+      " of them could be taken here: " + why.join("; ") +
+      ". That is too little of the score to report a number for — the evidence is absent, not noisy.";
+    m.healthAdvice = m.totalU ? null
       : "Switch the measure to items in the filter row, where these issues do carry a figure.";
     return m;
   }
@@ -766,6 +759,22 @@ function renderHeader(m) {
       Math.round(p.v * 100) + "/100 — " + esc(p.d)).join("<br>");
 
   const hc = $("#t-health");
+  /* Hidden outright on a board that runs no sprints, rather than refusing in
+     the most prominent chip on the page. "Sprint health: not scored" is a true
+     sentence about a measure that does not apply here, sitting where the
+     headline verdict goes — and the context bar has already said this board
+     reports no sprint measures. `CONTEXT.md` calls it a sprint-board figure;
+     this is the header agreeing. */
+  hc.classList.toggle("hidden", !!m.isFlowBoard);
+  if (m.isFlowBoard) {
+    // Emptied, not merely hidden. Leaving the previous board's score in the
+    // markup and its working in the tooltip attribute is a stale figure one
+    // class away from being read — the same reason the ageing table is cleared
+    // along with its chart rather than left behind the toggle.
+    hc.innerHTML = "";
+    hc.dataset.tt = "";
+    return;
+  }
   if (m.health == null) {
     /* Withheld, not floored. A 0/100 here would read as "this sprint is in
        trouble" and the 66/100 it used to print read as "this sprint is fine" —
@@ -899,7 +908,12 @@ function renderContextBar() {
       sprints.map(c => opt(c.id, c.sprintName + stateChip(c),
         c.id === cur.id, "(" + c.issueCount + ")")).join("") + "</select></label>" +
     '<span class="ctx-meta">' + esc(fmtD(cur.startDate) + " – " + fmtD(cur.endDate)) +
-      (cur.isRollup ? " · rolled up, no burndown" : "") + "</span>" +
+      (cur.isRollup ? " · rolled up, no burndown" : "") +
+      /* Said where the reader is already looking, in the row that answers
+         "which data am I looking at" — the same place and the same shape as
+         the rollup's note. Three tiles are missing from the grid below and
+         this is the sentence that stops that being a surprise. */
+      (isWindow(cur) ? " · rolling window, so no burndown, pace or sprint health" : "") + "</span>" +
     (S.live ? '<button class="btn" id="c-live" style="margin-left:auto">Refresh from ' +
         esc(S.live.source || "server") + "</button>" : "");
 
@@ -1176,21 +1190,15 @@ function renderBurn(m) {
   const host = $("#burn-chart"), bd = S.view.burndown, u = U();
   const F = { rem: u.burn("remaining"), scope: u.burn("scope"), ideal: u.burn("ideal") };
   if (!bd.length) {
-    /* Three reasons for an empty chart and they are not the same reason. A
-       rollup has a burndown per member and no single line; a dataset can
-       simply not carry the series; and a flow board can never have one,
-       because a burndown plots a committed scope down to a date and this board
-       commits to neither. Only the last is permanent, and printing "no
-       burndown series in the dataset" for it sends a reader to re-import a
-       file that would not help. */
+    /* Two reasons for an empty chart and they are not the same reason: a
+       rollup has a burndown per member and no single line, and a dataset can
+       simply not carry the series. A board that runs no sprints is a third and
+       is not handled here — the tile is not shown at all on one, and its
+       reason lives with the other two in FLOW_UNAVAILABLE. */
     host.innerHTML = '<div class="note">' + (S.view.ctx.isRollup
       ? "A burndown describes one sprint. This view rolls up " + S.view.ctx.members.length +
         " of them, so there is no single line to draw — pick an individual sprint above. " +
         "Everything else on this page is valid across the rollup."
-      : m.isFlowBoard
-      ? "A burndown plots a committed scope down to the date it was committed for. " +
-        "This board runs no sprints, so there is no scope and no date, and no line to " +
-        "draw — the evidence is absent, not noisy."
       : "No burndown series in the dataset.") + "</div>";
     return;
   }
@@ -1457,17 +1465,7 @@ function renderAge(m) {
    ================================================================== */
 function renderPred(m) {
   const host = $("#pred-chart"), h = S.view.history || [];
-  /* A different cause from a sprint board with one sprint in the file: that
-     one is fixed by importing more, and this one never is. Both produce an
-     empty history and they are not the same sentence. */
-  if (h.length < 2) {
-    host.innerHTML = '<div class="note">' + (m.isFlowBoard
-      ? "This chart compares what was committed against what was completed, sprint by " +
-        "sprint. This board runs no sprints, so there is nothing to compare and no " +
-        "history to compare it over — the evidence is absent, not noisy."
-      : "Needs at least two sprints of history.") + "</div>";
-    return;
-  }
+  if (h.length < 2) { host.innerHTML = '<div class="note">Needs at least two sprints of history.</div>'; return; }
   const W = cw(host), H = 208, P = { t: 16, r: 12, b: 44, l: 34 };
   const iw = W - P.l - P.r, ih = H - P.t - P.b;
   const hc = U().hist("committed"), hd = U().hist("completed");
@@ -1581,14 +1579,7 @@ function renderDora(m) {
    ================================================================== */
 function renderLoad() {
   const h = S.view.history || [], host = $("#load-body");
-  if (h.length < 2) {
-    host.innerHTML = '<div class="note">' + (M_FLOW()
-      ? "Work in progress and unplanned work are counted at the end of each sprint. " +
-        "This board runs no sprints, so there are no per-sprint counts to trend — the " +
-        "evidence is absent, not noisy."
-      : "Needs sprint history.") + "</div>";
-    return;
-  }
+  if (h.length < 2) { host.innerHTML = '<div class="note">Needs sprint history.</div>'; return; }
 
   const mk = (title, key, fmt, col, note) => {
     const vals = h.map(d => d[key]).filter(v => v != null);
@@ -2305,6 +2296,53 @@ const TILES = [
 ];
 const TILE_IDS = TILES.map(t => t.id);
 
+/**
+ * Tiles that can say nothing at all on a board with no sprints, and the reason
+ * each of them cannot.
+ *
+ * These three do not have a figure to withhold — they have no subject. A
+ * burndown needs a scope somebody committed to and a date to burn it down to;
+ * the other two read per-sprint snapshots of a board that takes none. Every
+ * other tile on the page measures something here, which is why only these
+ * three are in the list: *Delivered* and *Scope added* refuse inside a strip
+ * whose other six tiles are real, and a strip that is mostly measuring is
+ * still a measurement.
+ *
+ * They are hidden rather than left refusing, and that is a change of mind
+ * rather than an oversight — the plan in `docs/kanban-boards.md` argued for
+ * refusing in place. Refusing in place is right for a condition that might
+ * lift: a sprint with no dates gets its dates, a points view gets its
+ * estimates, an empty selection gets issues. This one never lifts. Three
+ * permanent apologies occupying a third of the grid is not a disclosure, it is
+ * furniture, and it pushes the tiles that *do* measure this board below the
+ * fold.
+ *
+ * What keeps it from being a silent cap is that nothing is dropped without
+ * being named: the context bar says the board reports no sprint measures, and
+ * the tile picker lists all three with the reason and marks them unavailable
+ * rather than merely unticked. `S.shown` is never touched, so the reader's own
+ * choice of tiles survives switching boards and comes back intact.
+ */
+const FLOW_UNAVAILABLE = {
+  "c-burn": "a burndown plots a committed scope down to the date it was committed for, " +
+            "and this board commits to neither",
+  "c-pred": "it compares what was committed against what was completed, sprint by sprint",
+  "c-load": "work in progress and unplanned work are counted at the end of each sprint"
+};
+
+/** Tile ids the selected board cannot support, in display order. */
+function unavailableTiles() {
+  return isWindow(S.view && S.view.ctx) ? S.order.filter(id => FLOW_UNAVAILABLE[id]) : [];
+}
+
+/** What is actually on screen: the reader's choice, less what this board
+ *  cannot support. Masked at paint time rather than subtracted from `S.shown`,
+ *  so switching back to a sprint board restores the view untouched. */
+function shownTiles() {
+  const off = unavailableTiles();
+  return TILE_IDS.filter(id => S.shown.has(id) && off.indexOf(id) < 0);
+}
+
 /** Which tiles each audience gets. Taken from the agent's own two report
  *  templates rather than invented here — agent/templates/exec-brief.md asks
  *  will we make it / what changed / what it is worth / what we need from you;
@@ -2418,15 +2456,18 @@ function setShown(ids) {
 /** Show or hide each tile. Nothing here recomputes — render() has already
  *  produced every tile's content whether it is on screen or not. */
 function applyTiles() {
+  const on = shownTiles(), off = unavailableTiles();
   TILE_IDS.forEach(id => {
     const el = $("#" + id);
-    if (el) el.classList.toggle("hidden", !S.shown.has(id));
+    if (el) el.classList.toggle("hidden", on.indexOf(id) < 0);
   });
-  const name = presetOf(S.shown), hidden = TILE_IDS.length - S.shown.size;
+  const name = presetOf(S.shown), hidden = TILE_IDS.length - on.length;
   const btn = $("#btn-view");
-  btn.textContent = hidden ? "Tiles · " + (name === "custom" ? S.shown.size + " of " + TILE_IDS.length
-                                                             : PRESET_LABEL[name]) : "Tiles";
-  btn.title = hidden ? hidden + " of " + TILE_IDS.length + " tiles hidden in this view"
+  btn.textContent = hidden ? "Tiles · " + (name === "custom" || off.length
+                                             ? on.length + " of " + TILE_IDS.length
+                                             : PRESET_LABEL[name]) : "Tiles";
+  btn.title = hidden ? hidden + " of " + TILE_IDS.length + " tiles hidden in this view" +
+                       (off.length ? ", " + off.length + " of them because this board runs no sprints" : "")
                      : "Choose which tiles this view shows";
   paintPicker();
 }
@@ -2514,16 +2555,38 @@ function paintPicker() {
   const name = presetOf(S.shown);
   pop.querySelectorAll("[data-preset]").forEach(b =>
     b.setAttribute("aria-pressed", String(b.dataset.preset === name)));
-  pop.querySelectorAll("[data-tile]").forEach(c => { c.checked = S.shown.has(c.dataset.tile); });
-  const hidden = S.order.filter(id => !S.shown.has(id));
+  const off = unavailableTiles();
+  pop.querySelectorAll("[data-tile]").forEach(c => {
+    const id = c.dataset.tile, gone = off.indexOf(id) >= 0;
+    c.checked = S.shown.has(id) && !gone;
+    /* Disabled, not merely unticked. A checkbox that can be ticked and does
+       nothing is worse than one that says why it cannot be. */
+    c.disabled = gone;
+    const row = c.closest(".vp-row");
+    if (row) {
+      row.classList.toggle("vp-off", gone);
+      row.title = gone ? FLOW_UNAVAILABLE[id] : "";
+    }
+  });
+  const hidden = S.order.filter(id => !S.shown.has(id) && off.indexOf(id) < 0);
   // Name what is hidden rather than only counting it. A view that quietly
   // drops a tile reads as a complete page to whoever receives it. The same
   // goes for the order: a page in someone else's sequence should say so
   // rather than leave the recipient to wonder why it reads oddly.
+  const label = id => TILES.find(t => t.id === id).label;
+  /* Two different absences, said separately. A tile the reader turned off can
+     be turned back on; a tile this board cannot support cannot, and rolling
+     them into one count would tell a reader to go looking for a checkbox that
+     is not there. */
   $("#vp-count").innerHTML = (hidden.length
-    ? "<b>" + hidden.length + " hidden:</b> " +
-      esc(hidden.map(id => TILES.find(t => t.id === id).label).join(", "))
+    ? "<b>" + hidden.length + " hidden:</b> " + esc(hidden.map(label).join(", "))
+    : off.length ? "Every tile this board supports is shown."
     : "All " + TILE_IDS.length + " tiles shown.") +
+    (off.length
+      ? "<br><b>" + off.length + " not available on this board:</b> " +
+        esc(off.map(id => label(id) + " — " + FLOW_UNAVAILABLE[id]).join("; ")) +
+        ". This board runs no sprints."
+      : "") +
     (orderIsDefault() ? "" : "<br><b>Custom order.</b>");
 }
 

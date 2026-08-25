@@ -36,6 +36,14 @@ Two other memberships were available. **Resolved-in-window only** gives an exact
 
 **A rollup that mixes a board with sprints and a board without.** Rollups are already keyed per project and board, so nothing has to be built to prevent this; it is recorded because a project-level view will be asked for. Every clock-shaped figure inside such a rollup would have to refuse, and the cause would differ per member board — which is a new mechanism, not a reuse of this one.
 
+## A tile that can never say anything is not shown at all
+
+[ADR 0010](0010-an-empty-selection-is-a-refusal.md) ruled out a single "no data" banner over the grid, because a banner throws away the two things the page still knows — what it has, and which tiles were already refusing for their own reasons. That reasoning holds and this is not that. A banner replaces the page; this leaves every tile that measures something exactly where it was.
+
+The line is whether the condition can lift. A sprint with no dates may get its dates; a points view may get its estimates; an empty selection may get issues. Those refuse **in place**, addressed to a reader who can act on them. Three tiles on a flow board have no subject rather than no data — a burndown needs a scope somebody committed to, and the commitment-history and team-load charts read per-sprint snapshots of a board that takes none — and nothing will ever change that. Three permanent apologies across a third of the grid stop being a disclosure and become furniture, and they push the tiles that do measure this board below the fold. The sprint-health chip goes for the same reason, being a sprint-board figure sitting where the headline verdict goes.
+
+What keeps it from being the silent cap this repository has shipped three times is that nothing is dropped without being named. The context bar says it in the row that answers *which data am I looking at*; the tile picker lists all three with the reason and **disables** them rather than leaving them merely unticked, because a checkbox that can be ticked and does nothing is worse than one that says why it cannot be. The reader's own tile selection is masked rather than edited, so switching back to a sprint board restores the view intact.
+
 ## What it costs
 
 The context id gains a second shape. `PROJ/42/8891` is a sprint; `PROJ/42/win:30d` is a window. `parseContextId()` in `forge/src/jira.js` and its counterpart in `scripts/serve_live.py` both have to return which one they parsed, and refuse anything that is neither — the existing regex requires `project/digits/digits` and would reject a window silently, which reads on screen as "unknown context". The context entry gains a `kind` field so the page never infers the answer from the shape of a string. Both transports send it and `tests/test_service.py` compares it, because a discriminator that only one producer sets is worse than none.

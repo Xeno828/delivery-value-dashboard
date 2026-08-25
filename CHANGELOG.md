@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.16.11
+
+**A board with no sprints shows the tiles that measure it, and not the three that never can.** They refused in place until now, which was the wrong call and is corrected rather than quietly reversed — [ADR 0011](docs/adr/0011-a-kanban-context-is-a-window-not-a-clock.md) records both halves.
+
+The line is whether the condition can lift. A sprint with no dates may get its dates; a points view may get its estimates; an empty selection may get issues. Those refuse **in place**, addressed to a reader who can do something about it, and sit in the tile so it is clear which figure is missing from where. The burndown, the commitment-history chart and team load on a flow board are not that: a burndown needs a scope somebody committed to and a date to burn it down to, and the other two read per-sprint snapshots of a board that takes none. Nothing will ever change it. Three permanent apologies across a third of the grid stop being a disclosure and become furniture, and they push the tiles that do measure this board below the fold.
+
+The sprint-health chip goes with them. It is a sprint-board figure by definition — `CONTEXT.md` says so — and *"Sprint health: not scored"* in the most prominent chip on the page is the noise rather than the disclosure. It is emptied as well as hidden, because the previous board's score left in the markup and its working left in the tooltip attribute is a stale figure one class away from being read.
+
+**What stops this being the silent cap this repository has shipped three times is that nothing is dropped without being named, twice.** The context bar says *"rolling window, so no burndown, pace or sprint health"* in the row that already answers *which data am I looking at* — the same place and the same shape as the rollup's own note. The tile picker lists all three with the reason for each and **disables** them, rather than leaving them merely unticked: a checkbox that can be ticked and does nothing is worse than one that says why it cannot be. Tiles the reader turned off and tiles this board cannot support are counted separately, because rolling them together would send someone looking for a checkbox that is not there.
+
+**The reader's tile selection is masked, never edited.** Switching to a flow board and back restores the view exactly, including a custom set and a custom order, because `S.shown` is untouched and the board's applicability is applied at paint time.
+
+**This is not a kanban preset, and the difference matters.** The two presets are *audience* cuts — executive and team — taken from the agent's own report templates, and a board-kind preset would be a second axis crossed with the first: four to keep in step with two templates. Which tiles a board can support is a property of the board, applied on top of whichever audience cut the reader chose, so the two compose rather than multiply.
+
+Three refusal sentences written for these tiles in 1.16.8 are gone, because the tiles no longer show them and prose nobody can reach is one edit from disagreeing with the prose they do read. Each reason now has one home.
+
 ## 1.16.10
 
 **Cycle time works inside a Jira tenant.** The Forge resolver has never sent `started`, because the first transition into an in-progress status can only be recognised under organisation config and a resolver deciding that would be a third implementation of the rule. The page printed *"no completed items with both a start and a resolved date"*, which was true and which emptied the waiting-versus-working chart across every install. For a sprint that is a stated degradation. For a board with no sprints it is the measure, so it stopped being acceptable.

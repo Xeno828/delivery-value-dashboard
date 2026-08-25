@@ -27,24 +27,36 @@ The `contexts` resolver's 404 sentence — *"none of them uses sprints. This das
 
 ## Every tile, and what it does
 
-**Keeps** means the figure is measured and correct. **Refuses** means it prints a sentence naming why, ending in the same *the evidence is absent, not noisy* clause the tools use, and prints no digits. **Replaced** means a different tile takes the slot — nothing does in this pass.
+**Keeps** means the figure is measured and correct. **Refuses** means it prints a sentence naming why, ending in the same *the evidence is absent, not noisy* clause the tools use, and prints no digits. **Not shown** means the tile has no subject on this board at all and is left out of the grid, with the reason given in the tile picker and the fact of it in the context bar — see *Refusing in place, or not showing at all* below. **Replaced** means a different tile takes the slot — nothing does in this pass.
+
+## Refusing in place, or not showing at all
+
+Both, and the line between them is whether the condition can lift.
+
+A tile refuses **in place** when the thing it needs might yet arrive: a sprint with no dates gets its dates, a points view gets its estimates, an empty selection gets issues. The refusal is addressed to a reader who can act on it, and it sits in the tile so they can see which figure is missing from where.
+
+A tile is **not shown** when it has no subject on this board and never will. Three are: the burndown needs a scope somebody committed to and a date to burn it down to; the commitment-history chart and team load read per-sprint snapshots of a board that takes none. Three permanent apologies across a third of the grid are not a disclosure — they are furniture, and they push the tiles that do measure this board below the fold.
+
+What stops that being a silent cap is that nothing is dropped without being named, in two places: the context bar says *"rolling window, so no burndown, pace or sprint health"* in the row that answers *which data am I looking at*, and the picker lists all three with the reason and disables them rather than leaving them merely unticked — a checkbox that can be ticked and does nothing is worse than one that says why it cannot be. The reader's own tile selection is never touched, so switching back to a sprint board restores the view intact.
+
+The same reasoning takes the sprint-health chip off a flow board. It is a sprint-board figure by definition, and *"Sprint health: not scored"* in the most prominent chip on the page is the noise rather than the disclosure.
 
 | Tile | On a flow board | The cause it names |
 |---|---|---|
 | `c-exec` What this period means | **Keeps, minus two sentences** | The pace sentence and the scope-growth sentence are dropped *and said*, not silently omitted |
 | `c-kpis` Headline numbers | **Mixed — see below** | Per tile, in the sub-label |
-| `c-burn` Burndown | **Refuses** | no committed scope |
+| `c-burn` Burndown | **Not shown** | no committed scope — named in the picker |
 | `c-dist` Where each person's work sits | **Keeps** | — |
 | `c-flow` How long work takes, and what waits | **Keeps — and is the headline** | needs `started`; see below |
 | `c-age` How long open work has been sitting | **Keeps, re-worded** | threshold stated in days, not sprints |
-| `c-pred` Can we trust the forecast? | **Refuses** | no per-period history |
+| `c-pred` Can we trust the forecast? | **Not shown** | no per-period history — named in the picker |
 | `c-forecast` Monte Carlo forecast | **Keeps, minus `next_commitment`** | no cadence to size a commitment to |
 | `c-dora` Release quality & speed | **Keeps** | — |
-| `c-load` Team load | **Refuses** | no per-period history |
+| `c-load` Team load | **Not shown** | no per-period history — named in the picker |
 | `c-value` Business value delivered | **Keeps** | — |
 | `c-rel` Releases & milestones | **Keeps** | — |
 | `c-risk` Risks and what to do about them | **Keeps, minus two rules** | the register names the rules it could not run |
-| Sprint health (header chip) | **Refuses entirely** | below half the weight — see below |
+| Sprint health (header chip) | **Not shown** | a sprint-board figure; the context bar says so |
 
 ### The KPI strip
 
@@ -104,7 +116,7 @@ Costs, stated:
 
 ## What is not in this pass
 
-The tile picker gains no kanban preset. The two presets are **audience** cuts — executive and team — taken from the agent's own report templates, and a board-kind preset is a different axis entirely; mixing them would mean four presets to keep in step with two templates. The refusing tiles can be hidden by hand like any other.
+The tile picker gains no kanban **preset**, and that is a different question from the one above. The two presets are *audience* cuts — executive and team — taken from the agent's own report templates, and a board-kind preset would be a second axis crossed with the first: four presets to keep in step with two templates. What a flow board does instead is narrower and needs no preset. Which tiles a board can support is a property of the board, applied on top of whichever audience cut the reader chose, so the two axes compose rather than multiply.
 
 The flow tiles a team on a flow board actually wants — a cycle-time distribution with its percentiles, ageing work in progress, a cumulative flow diagram — are a second pass with their own vocabulary, their own tests and their own figures computed in `agent/tools/`, never in a renderer. Two constraints govern that pass before a line of it is written: an ageing-work-in-progress view invites a per-person cut, and [ADR 0003](adr/0003-the-dashboard-does-not-measure-people.md) forbids it; a "what should we pull next" ordering invites a priority score, and [ADR 0004](adr/0004-no-priority-score.md) forbids that.
 

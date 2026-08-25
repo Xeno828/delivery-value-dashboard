@@ -246,20 +246,13 @@ def health_composition(b):
     page.evaluate("d => window.DVD.applyDataset(d)", flow)
     page.wait_for_timeout(500)
 
-    chip, tt = page.evaluate(CHIP), page.evaluate(TT)
-    check("a flow board's sprint health refuses rather than scoring the remainder",
-          "not scored" in chip and "/100)" not in chip, chip)
-    check("both missing measures are named as not measured",
-          "Delivery pace — <b>not measured</b>" in tt
-          and "Scope stability — <b>not measured</b>" in tt, tt[:200])
-    check("the refusal says the board runs no sprints",
-          "does not run sprints" in tt, tt[:260])
-    check("and not that the dates are missing, or that it is a rollup",
-          "not in the data" not in tt and "rolls up" not in tt, tt[:260])
-    check("it ends with the clause, untrimmed",
-          "the evidence is absent, not noisy" in tt, tt[-90:])
-    check("and says what was measured rather than only what was not",
-          "Blockers and ageing work are measured" in tt, tt[-200:])
+    # Sprint health is a sprint-board figure — CONTEXT.md says so — and the
+    # chip is the most prominent thing on the page. "Sprint health: not scored"
+    # there is the noise, not the disclosure, so the chip goes and the context
+    # bar carries the fact instead.
+    check("the sprint-health chip is emptied, not left holding the last board's score",
+          page.evaluate(CHIP) == "" and page.evaluate(TT) in (None, ""),
+          (page.evaluate(CHIP), str(page.evaluate(TT))[:80]))
 
     kpi = page.text_content("#kpis .kpi:nth-child(2)")
     check("the pace KPI names the board, not the calendar",
@@ -281,13 +274,44 @@ def health_composition(b):
     def tile(sel):
         return page.text_content(sel)
 
-    burn = tile("#burn-chart")
-    check("the burndown names the board, not a missing series",
-          "runs no sprints" in burn and "No burndown series in the dataset" not in burn, burn[:150])
-    check("and does not blame the rollup either", "rolls up" not in burn, burn[:150])
-    check("the burndown refusal ends with the clause",
-          "the evidence is absent, not noisy" in burn, burn[-60:])
-    check("and states no figure", not re.search(r"\d", burn), burn[:150])
+    # Three tiles have no subject at all here, so they are not shown. Refusing
+    # in place is right for a condition that might lift — a sprint gets its
+    # dates, a points view gets its estimates. This one never lifts, and three
+    # permanent apologies across a third of the grid push the tiles that do
+    # measure this board below the fold.
+    #
+    # What keeps that from being a silent cap is that every one of them is
+    # named, twice: in the row the reader is already reading, and in the picker
+    # with the reason.
+    gone = page.evaluate("""() => ['c-burn','c-pred','c-load']
+      .map(id => id + ':' + document.getElementById(id).classList.contains('hidden'))""")
+    check("the tiles with nothing to show on this board are not shown",
+          gone == ["c-burn:true", "c-pred:true", "c-load:true"], gone)
+    still = page.evaluate("""() => ['c-kpis','c-exec','c-flow','c-age','c-risk','c-value']
+      .filter(id => document.getElementById(id).classList.contains('hidden'))""")
+    check("and every tile that measures something still is", still == [], still)
+
+    check("the context bar says the grid is short, where the reader is looking",
+          "rolling window, so no burndown, pace or sprint health"
+          in page.text_content("#ctxbar"), page.text_content("#ctxbar")[:200])
+
+    page.evaluate("() => document.getElementById('btn-view').click()")
+    page.wait_for_timeout(300)
+    picker = page.text_content("#vp-count")
+    check("the picker names all three and why, rather than counting them",
+          "3 not available on this board" in picker
+          and "Burndown" in picker and "committed scope" in picker, picker[:260])
+    check("and separates them from tiles the reader turned off",
+          "hidden:" not in picker, picker[:260])
+    disabled = page.evaluate("""() => ['c-burn','c-pred','c-load'].map(id =>
+      document.querySelector('[data-tile=\"' + id + '\"]').disabled)""")
+    check("their checkboxes say they cannot be turned on, rather than doing nothing",
+          disabled == [True, True, True], disabled)
+    page.evaluate("() => document.getElementById('btn-view').click()")
+    page.wait_for_timeout(200)
+
+    check("the sprint-health chip is not the headline on a board with no sprints",
+          page.evaluate("() => document.getElementById('t-health').classList.contains('hidden')"))
 
     delivered = tile("#kpis .kpi:nth-child(1)")
     check("Delivered refuses: a window has no committed scope to be a share of",
@@ -307,12 +331,6 @@ def health_composition(b):
     exec_v = tile("#exec-verdict")
     check("the summary states counts and withholds the share",
           "finished in this window" in exec_v and not re.search(r"\(\d+%\)", exec_v), exec_v[:160])
-
-    for sel, what in (("#pred-chart", "the commitment history"), ("#load-body", "team load")):
-        txt = tile(sel)
-        check("%s names the board rather than asking for more history" % what,
-              "runs no sprints" in txt and "Needs" not in txt, txt[:140])
-        check("and ends with the clause", "the evidence is absent, not noisy" in txt, txt[-60:])
 
     age = tile("#age-chart")
     check("ageing measures the same days and stops calling them a sprint",
