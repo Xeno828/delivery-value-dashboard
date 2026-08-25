@@ -2553,7 +2553,8 @@ function renderForecast() {
       'value="' + esc(String(S.fcItems != null ? S.fcItems
                             : (asked.default_items != null ? asked.default_items : ""))) + '">' +
       (S.fcItems != null
-        ? '<button type="button" class="linkish" data-fc-reset="items">Use this sprint\'s ' +
+        ? '<button type="button" class="linkish" data-fc-reset="items">Use this ' +
+          (M_FLOW() ? "window" : "sprint") + "'s " +
           (asked.default_items != null ? asked.default_items : "own") + "</button>"
         : '<span class="note">Outstanding in the selected ' + (M_FLOW() ? "window" : "sprint") +
           '. Change it to size any ask.</span>') +
@@ -2563,9 +2564,18 @@ function renderForecast() {
       '<input id="fc-date" type="date" value="' +
       esc(S.fcDate || asked.default_date || "") + '">' +
       (S.fcDate
-        ? '<button type="button" class="linkish" data-fc-reset="date">Use the sprint end</button>'
-        : '<span class="note">The end of the selected ' + (M_FLOW() ? "window" : "sprint") +
-          '. Change it to ask about any date.</span>') +
+        ? (M_FLOW()
+            ? '<button type="button" class="linkish" data-fc-reset="date">Clear the date</button>'
+            : '<button type="button" class="linkish" data-fc-reset="date">Use the sprint end</button>')
+        /* A window has no end to fall back to, and saying it has one was not a
+           wording problem. The server used that end as the forecast's default
+           target, so "will this land in time" was asked against a date that is
+           always today and answered 0%. The control now offers a date rather
+           than pretending to remember one. */
+        : M_FLOW()
+        ? '<span class="note">This board sets no end date, so nothing is assumed. ' +
+          'Pick one to ask whether the open work lands by then.</span>'
+        : '<span class="note">The end of the selected sprint. Change it to ask about any date.</span>') +
       "</div>";
 
   // Offline is a state, not an error. Say what is missing and how to get it

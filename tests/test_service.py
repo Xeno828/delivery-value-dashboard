@@ -1009,6 +1009,113 @@ def test_the_resolver_sends_the_raw_material_for_started():
           st["outOfOrder"])
 
 
+
+def _window_bundle(windows=(14, 30, 90)):
+    """A flow board's contexts and issues, one copy of the issue set per window.
+
+    That is what a real fetch produces: the windows overlap completely, so an
+    issue inside the 14-day one is inside the 30- and 90-day ones as well.
+    """
+    sample = json.loads((ROOT / "data" / "sample-multi-sprint.json").read_text())
+    end = sample["meta"]["asOfDate"]
+    ctxs, issues = [], []
+    for days in windows:
+        c = LIVE.window_entry(board_id=9, board_name="Flow Board", project_key="SFT",
+                              project_name="Storefront", days=days, as_of=end)
+        ctxs.append(c)
+        issues.extend(dict(i, contextId=c["id"]) for i in sample["issues"])
+    return ctxs, issues
+
+
+def test_the_forecaster_counts_one_issue_once():
+    """The Monte Carlo tile, on a board whose contexts overlap.
+
+    `team_slice()` gathers every context belonging to the same team, which on a
+    sprint board is that team's sprints — they do not overlap, and no key
+    appears twice in one slice. A flow board's three windows are 14, 30 and 90
+    days of the *same* board, so every issue in the short one is in the long
+    ones too and the slice held each of them three times.
+
+    Nothing failed. `throughput_samples()` counted three completions on the day
+    one item finished, the forecaster read a team delivering three times as
+    fast, and the 85th percentile came back correspondingly early — on this
+    fixture, four working days against a true ten. `item_risk` listed the same
+    issue three times over. A smaller number, arrived at by arithmetic, with
+    nothing on screen to suggest it.
+    """
+    ctxs, issues = _window_bundle()
+    cid = ctxs[1]["id"]
+    got = LIVE.forecast_for(ctxs, issues, {}, cid)
+
+    distinct = len({i["key"] for i in issues})
+    check("the fixture really does hold each issue three times",
+          len(issues) == distinct * 3, (len(issues), distinct))
+    risky = [i["key"] for i in got["item_risk"]["items"]]
+    check("and the risk list names each issue once",
+          len(risky) == len(set(risky)), sorted(risky)[:6])
+
+    # The strongest form of it: the same board, described by one window instead
+    # of three, must forecast identically. Duplication is then provably not an
+    # input rather than merely reduced.
+    one_ctxs, one_issues = _window_bundle(windows=(30,))
+    alone = LIVE.forecast_for(one_ctxs, one_issues, {}, one_ctxs[0]["id"])
+    check("the sample counts each completed item once, not once per window",
+          got["inputs"]["items_completed_in_window"]
+          == alone["inputs"]["items_completed_in_window"],
+          (got["inputs"]["items_completed_in_window"],
+           alone["inputs"]["items_completed_in_window"]))
+    for field in ("percentiles", "days", "samples", "remaining_items"):
+        check("three overlapping windows forecast the same %s as one" % field,
+              got["sprint_completion"][field] == alone["sprint_completion"][field],
+              (got["sprint_completion"][field], alone["sprint_completion"][field]))
+
+
+def test_a_window_is_not_a_deadline_to_the_forecaster():
+    """ADR 0011 has to hold in the forecaster as much as on the page.
+
+    A window's `endDate` is today, not a date anybody undertook to finish by.
+    It was passed through as the forecast's default target, so *will this land
+    in time* was asked against an end that is always now — and answered
+    **0%**, in the one tile whose job is to say when work will land. A
+    probability of nought is a number a reader can quote, and it was quoting a
+    deadline nobody set.
+    """
+    ctxs, issues = _window_bundle()
+    got = LIVE.forecast_for(ctxs, issues, {}, ctxs[1]["id"])
+    sc = got["sprint_completion"]
+
+    check("a window sets no target for the forecast to answer against",
+          sc["target_date"] is None, sc["target_date"])
+    check("so no probability of hitting one is stated",
+          sc["prob_by_target"] is None, sc["prob_by_target"])
+    check("and the date control is offered no default to remember",
+          got["asked"]["default_date"] is None, got["asked"])
+    check("the capacity refusal names the right cause, not a date that passed",
+          got["capacity_to_target"]["reason"] == "this period has no end date to forecast against",
+          got["capacity_to_target"])
+    check("a commitment still refuses, for want of a cadence rather than a date",
+          got["next_commitment"]["reason"] == "sprint length is unknown",
+          got["next_commitment"])
+    check("and the forecast itself is produced, because none of it needed a sprint",
+          sc["available"] is True and sc["percentiles"], sc.get("reason", sc.get("percentiles")))
+
+    # A caller who names a date gets it answered — the window withholds a
+    # default, it does not refuse the question.
+    asked = LIVE.forecast_for(ctxs, issues, {}, ctxs[1]["id"], target="2026-09-30")
+    check("a date the reader asks for is honoured",
+          asked["capacity_to_target"].get("available") is True,
+          asked["capacity_to_target"])
+
+    # And a sprint board still has its own end to fall back on.
+    d = json.loads((ROOT / "data" / "demo-bundle.json").read_text())
+    sprint = LIVE.forecast_for(d["contexts"], d["issues"], d.get("byContext") or {},
+                               d["contexts"][1]["id"])
+    check("a sprint board still forecasts against its own end date",
+          sprint["asked"]["default_date"] is not None
+          and sprint["sprint_completion"]["target_date"] is not None,
+          (sprint["asked"]["default_date"], sprint["sprint_completion"]["target_date"]))
+
+
 def test_forge_app_dependencies():
     """This code runs inside a customer's Jira tenant, so what it depends on is
     a security question rather than a packaging one.
@@ -1155,6 +1262,9 @@ if __name__ == "__main__":
     test_every_context_says_which_kind_it_is()
     test_the_footer_accounts_for_every_board()
     test_the_resolver_sends_the_raw_material_for_started()
+    print("the forecast over a board with no sprints")
+    test_the_forecaster_counts_one_issue_once()
+    test_a_window_is_not_a_deadline_to_the_forecaster()
     print("the Forge app's dependencies")
     test_forge_app_dependencies()
     print("the container image")

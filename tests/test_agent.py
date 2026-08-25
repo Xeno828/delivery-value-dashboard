@@ -178,6 +178,21 @@ def test_forecast_behaviour():
           probable.prob_by_target is not None and 0 <= probable.prob_by_target <= 1,
           probable.prob_by_target)
 
+    # Two reasons there is no capacity answer, and they are not the same one.
+    # A target that has passed is a date somebody set and missed; no target at
+    # all is a period with no end to forecast against, which is what a rolling
+    # window is. Both said "the target date has passed", which sends a reader
+    # looking for a deadline nobody set — the same wrong-cause fault ADR 0010
+    # found three times in the health score's disclosure.
+    dateless = dict(ds, meta={k: v for k, v in ds["meta"].items() if k != "endDate"})
+    no_target = F.build(dateless, as_of=ds["meta"]["asOfDate"])["capacity_to_target"]
+    check("with no target at all, the refusal says there is no end date",
+          no_target["reason"] == "this period has no end date to forecast against",
+          no_target["reason"])
+    passed = F.build(ds, as_of="2099-01-01")["capacity_to_target"]
+    check("and a target that has been and gone still says exactly that",
+          passed["reason"] == "the target date has passed", passed["reason"])
+
 
 def test_commitment_sizing():
     """Commitment recommendations must be in items, from a distribution."""

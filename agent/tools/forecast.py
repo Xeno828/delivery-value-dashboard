@@ -575,9 +575,16 @@ def build(dataset, as_of=None, remaining=None, target=None, snapshots=None,
         },
         "sprint_completion": out(forecast_completion(
             remaining, samples, as_of, target_date=target, scope_growth=growth, cfg=cfg)),
+        # Two reasons there is no answer here and they are not the same reason.
+        # A target that has passed is a date somebody set and missed; no target
+        # at all is a period with no end to forecast against, which is what a
+        # rolling window is. Both produced "the target date has passed", which
+        # sends a reader looking for a deadline that was never set.
         "capacity_to_target": out(forecast_count_by_date(samples, as_of, target, cfg=cfg))
         if target and target > as_of else
-        out(Refusal(reason="the target date has passed", have=0, need=1)),
+        out(Refusal(reason=("the target date has passed" if target else
+                            "this period has no end date to forecast against"),
+                    have=0, need=1)),
         "item_risk": out(item_risk(issues, as_of, cfg=cfg)),
         "next_commitment": out(recommend_commitment(samples, sprint_days)),
         "size_stability": out(size_stability(issues, as_of, cfg=cfg)),

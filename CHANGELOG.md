@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.16.13
+
+**The Monte Carlo tile was forecasting a board with no sprints two and a half times too fast.** Found by asking whether it still worked rather than assuming it did, and it is the exact failure this repository names as its worst: not a crash, a credible number.
+
+`forecast.build()` needed no change and never has — it samples throughput over a rolling window of *days* and has never wanted a sprint boundary. The slice assembled around it is what broke. `team_slice()` gathers every context belonging to a team, and on a sprint board that is that team's sprints, which do not overlap: no key appears twice, and the slice has been correct for as long as it has existed. A flow board's three contexts are 14, 30 and 90 days of the *same* board. Every issue in the short window is in the long ones as well, so the slice held each of them three times, `throughput_samples()` counted three completions on the day one item finished, and the 85th percentile came back at **four working days against a true ten**. `item_risk` listed the same issue three times over.
+
+Issues are de-duplicated by key now: one issue is one item, however many contexts hold it. It is a no-op on a sprint board. The test asserts the strong form — the same board described by one window and by three must forecast identically, so duplication is provably not an input rather than merely reduced.
+
+**And the tile was answering a question about a deadline nobody set.** A window's `endDate` is today, because that is what the end of *the last thirty days* means, and it was being passed through as the forecast's default target. So *will this land in time* was asked against an end that is always now, and answered **0%** — in the one tile whose job is to say when work will land, with a probability of nought a reader can quote. The capacity figure alongside it refused with *"the target date has passed"*, which sends someone looking for a date that was never set.
+
+A window now supplies no default target. The forecast still runs and still says when the open work lands; it just states no probability against a date nobody chose. The capacity refusal says *"this period has no end date to forecast against"*, which is a different fact from a target that has been and gone — both said the latter, including for any dataset carrying no end date at all, so that is fixed for sprint boards too. The date control offers a date rather than pretending to remember one, and a date the reader does name is answered normally.
+
+**Neither was reachable inside a Jira tenant**, because the Forge forecast resolver still answers with the no-calculator refusal ([ADR 0008](docs/adr/0008-forge-calls-a-hosted-calculator.md)). Both were reachable over loopback, which is the route the demo and every local check use.
+
+`next_commitment` was already refusing correctly, for want of a cadence rather than a date — that guard was put back in 1.16.4 and this is the first thing to lean on it.
+
 ## 1.16.12
 
 **A board with no sprints gets a health score of its own.** The chip carried nothing on a flow board as of 1.16.11, which was right while there was nothing to put in it — a sprint-board figure refusing in the position the headline verdict occupies is noise rather than disclosure. There is something to put in it now. **Flow health** is built on flow efficiency at 40% of the weight, with blockers and ageing work at 30% each, and it is the one place in this work where a figure is genuinely *replaced* rather than refused or hidden.

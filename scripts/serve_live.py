@@ -107,7 +107,28 @@ def forecast_for(contexts, issues, byContext, cid, items=None, target=None, org_
         return None
     members, slice_label = team_slice(contexts, ctx)
     member_ids = {c["id"] for c in members}
-    team_issues = [i for i in issues if i.get("contextId") in member_ids]
+    # One issue is one item, however many contexts hold it. On a sprint board
+    # that is free — a team's sprints do not overlap, and no key appears twice
+    # in one slice. A flow board's windows overlap completely: 14, 30 and 90
+    # days of the *same* board, so every issue in the short window is also in
+    # the long ones, and the slice held each of them three times.
+    #
+    # Nothing failed. `throughput_samples` counted three completions on the day
+    # one item finished, the forecaster read a team going three times as fast,
+    # and the 85th-percentile date came back correspondingly early. `item_risk`
+    # listed the same issue three times over. This is the class of fault this
+    # repository keeps finding: a smaller number, arrived at by arithmetic,
+    # with nothing on screen to suggest it.
+    seen, team_issues = set(), []
+    for i in issues:
+        if i.get("contextId") not in member_ids:
+            continue
+        key = i.get("key")
+        if key is not None:
+            if key in seen:
+                continue
+            seen.add(key)
+        team_issues.append(i)
     # Remaining work is the selected context's, never the team's — the sample is
     # wide, the outstanding count is narrow. A rollup's "selected context" is
     # every sprint it spans.
@@ -120,20 +141,34 @@ def forecast_for(contexts, issues, byContext, cid, items=None, target=None, org_
     # The defaults are still reported, so the tile can show what was swapped.
     remaining = actual_remaining if items is None else items
     as_of = ctx.get("asOfDate") or ctx.get("endDate")
+    # A window's end date is today, not a deadline. Passed through as one it
+    # became the forecast's default target, so "will this land by the end of
+    # the period" was asked against an end that is always now — and answered
+    # **0%**, in a tile whose whole job is to say when work will land. A
+    # probability of nought is a number a reader can quote, and it was quoting
+    # a deadline nobody set. ADR 0011: a window bounds a selection and is not a
+    # clock, and that has to hold in the forecaster as much as on the page.
+    is_window = ctx.get("kind") == "window"
     meta = {"sprintName": ctx.get("sprintName"), "startDate": ctx.get("startDate"),
-            "endDate": ctx.get("endDate"), "asOfDate": as_of,
-            "workingDays": ctx.get("workingDays")}
+            "endDate": None if is_window else ctx.get("endDate"), "asOfDate": as_of,
+            "workingDays": [] if is_window else ctx.get("workingDays")}
     # The bundle's own config, carried onto the slice. Building this dict
     # without it would forecast the customer's board against a calendar they do
     # not keep — a different answer, arrived at silently, from the same data.
     ds = {"issues": team_issues, "meta": meta,
           "orgConfig": org_cfg or {},
           "releases": (byContext.get(cid) or {}).get("releases", [])}
-    eff_target = target or ctx.get("endDate")
+    # A window has no end to fall back to, so a caller who names no date gets
+    # no date — not today dressed up as a deadline. The `meta` above says the
+    # same thing, and this line has to agree with it: it is the one the tool
+    # actually reads, and setting only the other left the tile answering
+    # "0% by 2026-08-10" for a board that set no deadline at all.
+    eff_target = target if is_window else (target or ctx.get("endDate"))
     out = FC.build(ds, as_of=as_of, remaining=remaining, target=eff_target)
     out["asked"] = {
         "items": items, "date": target,
-        "default_items": actual_remaining, "default_date": ctx.get("endDate"),
+        "default_items": actual_remaining,
+        "default_date": None if is_window else ctx.get("endDate"),
         "as_of": as_of,
     }
     resolved = sorted(x for x in (FC._d(i["resolved"]) for i in team_issues

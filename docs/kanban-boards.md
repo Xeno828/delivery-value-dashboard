@@ -66,7 +66,7 @@ The chip says which composite it is carrying. *Flow health* and *Sprint health* 
 | `c-flow` How long work takes, and what waits | **Keeps — and is the headline** | needs `started`; see below |
 | `c-age` How long open work has been sitting | **Keeps, re-worded** | threshold stated in days, not sprints |
 | `c-pred` Can we trust the forecast? | **Not shown** | no per-period history — named in the picker |
-| `c-forecast` Monte Carlo forecast | **Keeps, minus `next_commitment`** | no cadence to size a commitment to |
+| `c-forecast` Monte Carlo forecast | **Keeps, minus `next_commitment` and the by-date question** | no cadence to size a commitment to; no end date to forecast against |
 | `c-dora` Release quality & speed | **Keeps** | — |
 | `c-load` Team load | **Not shown** | no per-period history — named in the picker |
 | `c-value` Business value delivered | **Keeps** | — |
@@ -136,7 +136,12 @@ The tile picker gains no kanban **preset**, and that is a different question fro
 
 The flow tiles a team on a flow board actually wants — a cycle-time distribution with its percentiles, ageing work in progress, a cumulative flow diagram — are a second pass with their own vocabulary, their own tests and their own figures computed in `agent/tools/`, never in a renderer. Two constraints govern that pass before a line of it is written: an ageing-work-in-progress view invites a per-person cut, and [ADR 0003](adr/0003-the-dashboard-does-not-measure-people.md) forbids it; a "what should we pull next" ordering invites a priority score, and [ADR 0004](adr/0004-no-priority-score.md) forbids that.
 
-Forecasting inside Forge stays blocked on the hosted calculator either way ([ADR 0008](adr/0008-forge-calls-a-hosted-calculator.md)). Over loopback it works today, and it works for a flow board unchanged — `forecast.build()` samples throughput over a rolling window of days and has never needed a sprint boundary.
+Forecasting inside Forge stays blocked on the hosted calculator either way ([ADR 0008](adr/0008-forge-calls-a-hosted-calculator.md)). Over loopback it works, and the forecaster itself needed no change — `forecast.build()` samples throughput over a rolling window of days and has never needed a sprint boundary. What did need changing was the *slice* around it, twice, and both were wrong numbers rather than failures:
+
+- **`team_slice()` returns every context on the team, and a flow board's three windows are 14, 30 and 90 days of the same board.** Every issue was in the slice up to three times, so the throughput series counted three completions on the day one item finished and the 85th percentile came back two and a half times too early. Issues are de-duplicated by key: one issue is one item, however many contexts hold it. It is a no-op on a sprint board, where a team's sprints do not overlap.
+- **A window's `endDate` is today, and it was being passed through as the forecast's default target.** *Will this land in time* was asked against an end that is always now and answered **0%** — a number a reader can quote, about a deadline nobody set. A window supplies no default target, the date control offers one instead of remembering one, and the capacity refusal says *"this period has no end date to forecast against"* rather than *"the target date has passed"*.
+
+Both were reachable only over loopback, because the Forge forecast resolver still answers with the no-calculator refusal.
 
 ---
 
