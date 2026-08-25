@@ -315,15 +315,40 @@ function normalise(d) {
    ================================================================== */
 const ROLL = "roll:";   // synthetic id prefix for a cross-sprint rollup
 
+/** Is this context a window rather than a sprint — a board that runs no
+ *  sprints, reported over a rolling stretch of calendar days (ADR 0011)?
+ *
+ *  Read from the field both transports send, never recovered by re-reading the
+ *  id. Absent means a sprint: every context in a file written before flow
+ *  boards existed is one, and that is a compatibility default rather than an
+ *  inference. `BundleBackend` fills it in for the same reason.
+ *
+ *  A window bounds a selection and is deliberately not a clock. Everything
+ *  downstream that would measure this team against its dates asks here first. */
+function isWindow(ctx) { return !!ctx && ctx.kind === "window"; }
+
 function contextById(id) {
   return (S.data.contexts || []).find(c => c.id === id) || null;
 }
 
-/** Every selectable context, including one rollup per board. */
+/** Every selectable context, including one rollup per board.
+ *
+ *  Windows are excluded from the rollup, and not as a matter of taste. A flow
+ *  board is offered 14, 30 and 90 days of itself, which overlap — the same
+ *  issue is in all three. A rollup over them would hold that issue three
+ *  times, and every count on the page is a count of the issues in the
+ *  selection, so the board's throughput would triple. That is the worst kind
+ *  of bug here: a bigger number, arrived at by arithmetic, with nothing on
+ *  screen to say it is the same work counted again.
+ *
+ *  There is no honest rollup to build instead. "All three windows" is not a
+ *  longer period, it is one period asked about three times. The 90-day window
+ *  already *is* the wide view. */
 function selectableContexts() {
   const real = S.data.contexts || [];
   const boards = {};
   real.forEach(c => {
+    if (isWindow(c)) return;
     const k = (c.projectKey || c.projectName || "") + "|" + (c.boardId || c.boardName || "");
     (boards[k] = boards[k] || []).push(c);
   });
@@ -369,8 +394,22 @@ function selectableContexts() {
  *  list describing nothing — "how far through nineteen sprints are we" is not
  *  a pace, and it would compute to a confident number. */
 function contextWorkingDays(ctx) {
+  /* Checked before the sent list, not after. A producer that shipped
+     `workingDays` on a window would otherwise walk straight past the rule
+     below — the guard would never run, and the figure it exists to prevent
+     would arrive looking like data rather than like a derivation. Neither
+     transport sends one today; the point is that this does not depend on
+     that staying true. */
+  if (isWindow(ctx)) return [];
   if (ctx.workingDays && ctx.workingDays.length) return ctx.workingDays;
-  if (ctx.isRollup || !ctx.startDate || !ctx.endDate) return [];
+  /* A window keeps its empty list for the same reason a rollup does, one step
+     further out. Its dates are real and they bound the selection; expand them
+     and you get twenty-two working days that are also real and that describe
+     nothing, because nobody committed to finishing anything by the end of a
+     rolling window. `timeElapsed` would come out at 0.6 and *Pace vs clock*
+     would print "−18 pp" about a team that never agreed to the deadline it is
+     being measured against. ADR 0011 exists for this line. */
+  if (ctx.isRollup || isWindow(ctx) || !ctx.startDate || !ctx.endDate) return [];
   return workingDays(ctx.startDate, ctx.endDate, ORG());
 }
 
@@ -487,8 +526,15 @@ function derive(items) {
   m.oldest = m.ages.slice().sort((a, b) => b.age - a.age)[0] || null;
 
   // elapsed working-time position in the sprint
-  const wd = S.view.meta.workingDays || [];
+  const window = isWindow(S.view.ctx);
+  const wd = window ? [] : (S.view.meta.workingDays || []);
   const idx = wd.indexOf(now);
+  /* Belt as well as braces. `contextWorkingDays()` already withholds the
+     calendar from a window, so this would be null anyway — but every reader of
+     `timeElapsed` and `paceGap` would then be relying on one guard two
+     functions away, and `renderExec` reads `paceGap` directly. Removing that
+     one guard in a mutation test printed **Pace vs clock −45 pp** for a board
+     that had committed to nothing. One place to be wrong is enough. */
   m.timeElapsed = wd.length ? (idx >= 0 ? (idx + 1) / wd.length : 1) : null;
   m.paceGap = (m.timeElapsed != null && m.totalU) ? (m.doneU / m.totalU) - m.timeElapsed : null;
 
@@ -500,22 +546,43 @@ function derive(items) {
      that names the wrong cause sends them to fix the wrong thing. */
   const noVolume = "nothing in this selection carries a figure in " + U().label;
   const rollup = S.view.ctx && S.view.ctx.isRollup;
-  m.paceUnknown = m.timeElapsed == null
+  /* A fourth cause, and it is the one that has to be said out loud rather than
+     folded into "no sprint dates". A window *has* dates. They are on screen,
+     in the picker, beside the board's name — so a reader told the dates are
+     missing goes looking for the thing that is plainly there. What is missing
+     is the commitment: nobody undertook to finish this work by the end of a
+     rolling thirty days, so there is no line for delivery to be behind. */
+  const noSprint = "this board does not use sprints, so nothing was committed by a date " +
+    "and there is no clock to measure delivery against";
+  m.paceUnknown = window ? noSprint
+    : m.timeElapsed == null
     ? (rollup
         ? "this view rolls up " + (S.view.ctx.members || []).length + " sprints, so there is no single " +
           "clock to measure against — pick one sprint above"
         : "this sprint's start and end dates are not in the data, so there is no clock to measure against")
     : (!m.totalU ? noVolume : null);
   /* The same fact in the width of a KPI sub-label. It used to read "no
-     calendar" for all three causes, including a rollup that has dates and a
+     calendar" for all four causes, including a rollup that has dates and a
      points view of issues nobody estimated. */
-  m.paceUnknownShort = m.timeElapsed == null
+  m.paceUnknownShort = window ? "no sprints on this board"
+    : m.timeElapsed == null
     ? (rollup ? "no single sprint clock" : "no sprint dates")
     : (!m.totalU ? "no " + U().label + " recorded" : null);
-  /* Scope stability has the same hole and it fails the other way: with no
+  /* Scope stability has the same hole and it fails the other way. With no
      volume, `addedU` and `totalU` are both zero, the guard returns 0% growth
-     and the component scores full marks for a sprint nobody measured. */
-  m.scopeUnknown = m.totalU ? null : noVolume;
+     and the component scores full marks for a sprint nobody measured.
+
+     A window fails it the same way and more quietly. `addedMidSprint` is the
+     sprint field changing after the sprint began, and a board with no sprints
+     has no such moment — so every issue in a window carries false, the guard
+     returns 0% growth, and the component reads **100/100, "no mid-sprint
+     additions"** for a board where the phrase has no referent. That is the
+     exact shape ADR 0009 caught the resolver in when it defaulted the field:
+     not a silence, a claim that nothing was added. */
+  m.scopeUnknown = window
+    ? "this board does not use sprints, so there is no point in a period after which " +
+      "work counts as added"
+    : (m.totalU ? null : noVolume);
 
   /* health score, fully disclosed — and withheld entirely over an empty
      selection.
@@ -584,10 +651,23 @@ function derive(items) {
     const why = uniq(parts.filter(p => p.why).map(p => p.why));
     m.health = null;
     m.healthBand = null;
-    m.healthRefusal = "Sprint health is built from four measures and only " + taken.length +
-      " of them could be taken here: " + why.join("; ") +
-      ". That is too little of the score to report a number for — the evidence is absent, not noisy.";
-    m.healthAdvice = m.totalU ? null
+    /* On a flow board both missing components have the same cause, and listing
+       it twice — once for pace, once for scope — reads as two problems to go
+       and fix. It is one fact about the board, and it is permanent: no
+       re-import, no wider window and no better data will produce a sprint. Say
+       it once, and say what is left rather than only what is gone. */
+    m.healthRefusal = window
+      ? "Sprint health is built from four measures and two of them — delivery pace and " +
+        "scope stability — describe a sprint. This board does not run sprints, so neither " +
+        "can be taken and what is left, blockers and ageing work, describes hygiene rather " +
+        "than whether anything is going to land. That is too little of the score to report " +
+        "a number for — the evidence is absent, not noisy."
+      : "Sprint health is built from four measures and only " + taken.length +
+        " of them could be taken here: " + why.join("; ") +
+        ". That is too little of the score to report a number for — the evidence is absent, not noisy.";
+    m.healthAdvice = window
+      ? "Blockers and ageing work are measured for this board and are shown below."
+      : m.totalU ? null
       : "Switch the measure to items in the filter row, where these issues do carry a figure.";
     return m;
   }
@@ -783,7 +863,7 @@ function renderContextBar() {
       projects.map(pn => opt(pn, pn, pn === curProj)).join("") + "</select></label>" +
     '<label class="ctx-f">Board<select id="c-board">' +
       boards.map(bn => opt(bn, bn, bn === curBoard)).join("") + "</select></label>" +
-    '<label class="ctx-f">Sprint<select id="c-sprint">' +
+    '<label class="ctx-f">' + (isWindow(cur) ? "Window" : "Sprint") + '<select id="c-sprint">' +
       sprints.map(c => opt(c.id, c.sprintName + stateChip(c),
         c.id === cur.id, "(" + c.issueCount + ")")).join("") + "</select></label>" +
     '<span class="ctx-meta">' + esc(fmtD(cur.startDate) + " – " + fmtD(cur.endDate)) +

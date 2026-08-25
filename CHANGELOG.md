@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.16.7
+
+**The page knows a window is not a clock.** Step 3, and the one that had to land before any real tenant saw a flow board. `contextWorkingDays()` derives a working-day list from any context carrying a start and an end — which is right for a sprint, right for a Forge sprint that arrives without one, and wrong for a window. Expanding a 30-day window gives twenty-two working days that are perfectly real and describe nothing, because nobody undertook to finish anything by the end of a rolling month.
+
+Removing that guard in a mutation test is the whole argument for it: the page printed **Pace vs clock — −45 pp** for a board that had committed to nothing at all. Not an error, not a blank. A negative figure in percentage points, in the tile the dashboard was built to add, about a deadline nobody ever agreed to.
+
+**Two guards, because one of them is two functions away from every reader.** The calendar is withheld in `contextWorkingDays()` *before* the sent list is consulted — a producer that shipped `workingDays` on a window would otherwise walk straight past the rule, and the figure would arrive looking like data rather than like a derivation. Neither transport sends one, and this no longer depends on that staying true. `derive()` then withholds `timeElapsed` at source as well, because `renderExec` reads `paceGap` directly and one place to be wrong is enough.
+
+**Scope stability was the quiet one, and it failed upward.** `addedMidSprint` is *the sprint field changed after the sprint began*, and a board with no sprints has no such moment — so every issue in a window carries false, the divide-by-zero guard returns 0% growth, and the component read **100/100, "no mid-sprint additions"** for a board where the phrase has no referent. Left alone it kept the composite above its half-weight floor, and the header printed **Sprint health: Needs attention (63/100, 3 of 4 measures)** for a flow board. Exactly the shape [ADR 0009](docs/adr/0009-one-contract-two-transports.md) caught the resolver in when it defaulted the same field: not a silence, a claim that nothing was added.
+
+With both measures dropped and named, what is left is 0.44 of the weight, and the score refuses whole. That is the answer rather than a gap — blockers and ageing work describe hygiene, not whether anything is going to land — and it is [ADR 0010](docs/adr/0010-an-empty-selection-is-a-refusal.md)'s existing rule reaching its fourth cause rather than a new mechanism.
+
+**The fourth cause gets its own words, and only one set of them.** *"No sprint dates"* would have been the natural thing to reuse and it would have been a lie: a window has dates, they are in the picker beside the board's name, and a reader sent to find the missing ones would be looking for something plainly there. What is missing is the commitment. Both dropped measures have that same single cause, so the disclosure says it once — listing it twice, once for pace and once for scope, reads as two problems to fix, and it is one permanent fact about the board that no re-import will change.
+
+**Three overlapping windows must never be rolled up.** A flow board is offered 14, 30 and 90 days of *itself*; the same issue is in all three. The rollup builder keys per project and board, so it would have built one — holding every issue three times, and every count on the page is a count of the issues in the selection. A board's throughput would have tripled. There is no honest rollup to build instead: "all three windows" is not a longer period, it is one period asked about three times, and the 90-day window already is the wide view.
+
+The picker's third dropdown says **Window** rather than **Sprint** when that is what it lists. The remaining tiles — the burndown, Delivered %, the *Scope added* KPI, the executive card's dropped sentences and the risk register's unrun rules — still say sprint things on a flow board, and are the next step.
+
 ## 1.16.6
 
 **A board that runs no sprints is offered something for the first time.** It was detected and declined: `sprintsFor()` caught Jira's 400, the footer counted it as *"N without sprints and not offered"*, and the picker left it out. It now gets three windows — 14, 30 and 90 days — and `context` resolves one into that board's issues over both transports. Step 2 of the flow-board plan, and offering and loading landed together on purpose: a picker entry whose id 404s is worse than a board that is honestly not offered.

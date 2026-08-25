@@ -7,6 +7,7 @@ wizard with the fixture files, asserting the dashboard actually changes.
     python3 tests/e2e.py
 """
 
+import datetime
 import json
 import pathlib
 import re
@@ -196,9 +197,140 @@ def health_composition(b):
     page.evaluate("() => window.DVD.debug.setUnit('items')")
     page.wait_for_timeout(400)
 
+
+    # ---------- a board that runs no sprints ----------
+    # The fourth cause, and the one most likely to be reported as the second.
+    # A window *has* dates — they are in the picker, beside the board name — so
+    # "no sprint dates" would send a reader looking for something that is
+    # plainly there. What is missing is the commitment. ADR 0011.
+    #
+    # Expanding those dates under the org config would have produced twenty-two
+    # perfectly real working days, `timeElapsed` of 0.6, and a Pace vs clock
+    # figure about a team that never agreed to the deadline it was being
+    # measured against. This is the block that stops that.
+    flow = flow_board(sample)
+    page.evaluate("d => window.DVD.applyDataset(d)", flow)
+    page.wait_for_timeout(500)
+
+    js = page.evaluate("""() => {
+      const v = window.DVD.debug.view();
+      return { kind: v.ctx.kind, days: v.meta.workingDays,
+               start: v.meta.startDate, end: v.meta.endDate,
+               derivable: window.DVD.workingDays(v.meta.startDate, v.meta.endDate,
+                                                 window.DVD.orgConfig()).length };
+    }""")
+    check("the window is selected and knows what it is", js["kind"] == "window", js["kind"])
+    check("it has real dates, so this is not the missing-dates case",
+          bool(js["start"]) and bool(js["end"]), (js["start"], js["end"]))
+    check("a working-day list could have been derived from them",
+          js["derivable"] > 0, js["derivable"])
+    check("and the page refuses to derive one anyway — a window is not a clock",
+          js["days"] == [], js["days"][:3])
+
+    # A producer that shipped `workingDays` on a window would walk straight
+    # past a guard placed after the sent list. Neither transport sends one
+    # today, and this does not depend on that staying true.
+    sent = json.loads(json.dumps(flow))
+    for c in sent["contexts"]:
+        # Includes the as-of, so it is a list the page really could have paced against.
+        c["workingDays"] = ["2026-07-13", "2026-07-14", "2026-07-15", c["endDate"]]
+    page.evaluate("d => window.DVD.applyDataset(d)", sent)
+    page.wait_for_timeout(500)
+    check("a calendar sent for a window is refused as firmly as a derived one",
+          page.evaluate("() => window.DVD.debug.view().meta.workingDays") == []
+          and "no sprints on this board" in page.text_content("#kpis .kpi:nth-child(2)"),
+          page.evaluate("() => window.DVD.debug.view().meta.workingDays"))
+    check("and no pace figure appears with it",
+          not re.search(r"-?\d+ pp", page.text_content("#kpis .kpi:nth-child(2)")),
+          page.text_content("#kpis .kpi:nth-child(2)"))
+    page.evaluate("d => window.DVD.applyDataset(d)", flow)
+    page.wait_for_timeout(500)
+
+    chip, tt = page.evaluate(CHIP), page.evaluate(TT)
+    check("a flow board's sprint health refuses rather than scoring the remainder",
+          "not scored" in chip and "/100)" not in chip, chip)
+    check("both missing measures are named as not measured",
+          "Delivery pace — <b>not measured</b>" in tt
+          and "Scope stability — <b>not measured</b>" in tt, tt[:200])
+    check("the refusal says the board runs no sprints",
+          "does not run sprints" in tt, tt[:260])
+    check("and not that the dates are missing, or that it is a rollup",
+          "not in the data" not in tt and "rolls up" not in tt, tt[:260])
+    check("it ends with the clause, untrimmed",
+          "the evidence is absent, not noisy" in tt, tt[-90:])
+    check("and says what was measured rather than only what was not",
+          "Blockers and ageing work are measured" in tt, tt[-200:])
+
+    kpi = page.text_content("#kpis .kpi:nth-child(2)")
+    check("the pace KPI names the board, not the calendar",
+          "no sprints on this board" in kpi and "no sprint dates" not in kpi, kpi)
+    check("and states no figure for it", not re.search(r"-?\d+ pp", kpi), kpi)
+
+    # Scope stability is the quiet one. `addedMidSprint` is false on every
+    # issue here — there is no sprint for anything to be added to — so the
+    # guard returns 0% growth and the component would read 100/100, "no
+    # mid-sprint additions", for a board where the phrase has no referent.
+    check("scope stability is dropped, not given full marks for a phrase that has no referent",
+          "no mid-sprint additions" not in tt, tt[:400])
+
+    # Three overlapping windows of one board must never be rolled up: the same
+    # issue is in all three, so the rollup would hold it three times and every
+    # count on the page would be a count of the issues in the selection.
+    ids = page.evaluate("() => window.DVD.debug.contexts().map(c => c.id)")
+    check("overlapping windows are not offered as a rollup",
+          not [i for i in ids if i.startswith("roll:")], ids)
+    check("all three windows are still offered", len([i for i in ids if "win:" in i]) == 3, ids)
+    check("the picker calls the dropdown what it lists, and lists the windows",
+          "Window" in page.text_content("#ctxbar")
+          and "Sprint" not in page.text_content("#ctxbar"),
+          page.text_content("#ctxbar")[:140])
+
+    # And none of it leaks back into a sprint board.
+    page.evaluate("d => window.DVD.applyDataset(d)", sample)
+    page.wait_for_timeout(500)
+    check("a sprint board is unaffected by any of it", page.evaluate(CHIP) == full,
+          (page.evaluate(CHIP), full))
+
     check("no console errors while composing the score", not errs, errs[:2])
     page.close()
 
+
+def flow_board(sample):
+    """A bundle whose only board runs no sprints — three overlapping windows.
+
+    Built from the sample sprint's own issues so the selection carries real
+    volume: a window that refuses for want of *issues* would prove nothing
+    about a window that refuses for want of a sprint, and those are different
+    sentences. `addedMidSprint` is stripped for the reason the product gives —
+    a board with no sprints has no moment after which work counts as added, so
+    the resolver sends false and the page must not read that as "nothing was
+    added".
+    """
+    issues = json.loads(json.dumps(sample["issues"]))
+    end = sample["meta"]["asOfDate"]
+    ctxs, tagged = [], []
+    for days in (14, 30, 90):
+        start = (datetime.date.fromisoformat(end)
+                 - datetime.timedelta(days=days - 1)).isoformat()
+        cid = "SFT/9/win:%dd" % days
+        ctxs.append({
+            "id": cid, "kind": "window", "source": "jira",
+            "projectKey": "SFT", "projectName": "Storefront",
+            "boardId": "9", "boardName": "Flow Board", "team": "Flow Board",
+            "sprintName": "Last %d days" % days, "sprintState": "window",
+            "sprintGoal": "", "startDate": start, "endDate": end,
+            "asOfDate": end, "issueCount": len(issues),
+        })
+        for i in issues:
+            c = dict(i, contextId=cid)
+            c.pop("addedMidSprint", None)
+            tagged.append(c)
+    return {"meta": dict(sample["meta"], sprintName="Last 30 days",
+                         startDate=ctxs[1]["startDate"], endDate=end,
+                         workingDays=[]),
+            "orgConfig": sample.get("orgConfig") or {},
+            "contexts": ctxs, "issues": tagged, "byContext": {},
+            "defaultContextId": "SFT/9/win:30d"}
 
 def empty_selection(b):
     """Zero issues is a refusal, not a zero.
