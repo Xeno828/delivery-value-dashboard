@@ -1,0 +1,114 @@
+# 0013 — The brief is written inside the tenant; only the file leaves
+
+Roadmap item 3 sends the two views out on a schedule: *"Monday at nine, the
+executive view to the leadership channel, the team view to the team's. Both
+carry the narrative and the agent's written brief."* Everything before it either
+ran on a reader's machine or handled numbers that had been stripped of text.
+This is the first feature that takes customer issue text somewhere nobody is
+looking, on a timer, with no human in the loop.
+
+That is two questions, not one — who writes the brief, and who carries the file
+— and they were nearly answered the same way.
+
+## The brief is written by Forge LLMs, in Atlassian's runtime
+
+`agent/SKILL.md` is an agent definition. It needs a model to execute it, and
+nothing on a Forge schedule can execute one. The obvious answer is an API key,
+a third-party endpoint and a declared egress — which would put every issue
+title on this board through a provider the customer has no relationship with,
+weekly, to produce a paragraph.
+
+**Forge LLMs is the answer instead.** `@forge/llm` reached GA in July 2026 and
+calls Atlassian-hosted Claude from inside a Forge runtime function with no
+egress. The model reads the tenant's real issue titles and the brief is
+genuinely written rather than filled in from a template — and the text never
+crosses the boundary the customer already agreed to when they put the tickets
+in Jira. It is declared as a module, `model: [claude]`, one per app.
+
+The alternative that was rejected on its own merits is worth stating, because it
+will be proposed again as a tightening: **project the issues before prompting**,
+the way `service/app.py` does, so the model sees dates and status categories and
+never a title. That projection exists to protect a boundary crossing. Inside
+Atlassian's runtime there is no crossing to protect, and a brief written without
+titles cannot say which piece of work is stuck — which is most of why anyone
+reads it. The projection stays exactly where it is, guarding the calculator,
+and does not spread to a place whose threat model is different.
+
+### What this costs
+
+Adding the module is a **major version upgrade**, which on this app means a
+forced reinstall for every tenant rather than a silent upgrade. There are no
+external installs today, so the cost is currently zero and becomes real the
+moment there is one. It joins two other deferred major-version changes already
+recorded in `forge/manifest.yml` — residency regions beyond EU/US, and the
+permanent `*.run.app` hostname. If one is taken, all three should be considered
+in the same breath.
+
+It does **not** recover the *Runs on Atlassian* badge. Apps using Forge LLMs
+qualify for it; this one is still disqualified by the calculator egress that
+ADR 0008 accepted deliberately. Nothing about that trade has changed.
+
+## The file leaves, and that is the crossing that remains
+
+The self-contained HTML file carries issue titles by construction — that is what
+makes it worth reading, and ADR 0001 is the reason it is a file at all. Mailing
+it hands those titles to a mail provider. Forge has no SMTP, so this is a second
+declared remote and a real egress, and it is the one boundary this feature
+crosses.
+
+It is the right crossing to make. The roadmap's own thesis is that the artifact
+arrives in an inbox and opens without a login, against a market whose answer is
+a dashboard URL nobody clicks. Delivering a link instead would keep the boundary
+and lose the product.
+
+Two alternatives were rejected:
+
+**Slack.** *"The leadership channel"* reads literally as Slack, and a
+self-contained file in Slack is an attachment nobody opens — so in practice it
+becomes a summary plus a link, which is the dashboard URL with extra steps. The
+egress is identical. Nothing is saved and the artifact argument is lost.
+
+**Letting the calculator build the file.** It already receives the dataset, so
+it looks like the natural place. It is the opposite: `clean_dataset()` *refuses*
+free-text fields and says so in the response — *"issue text does not belong here
+and was not stored"* — and `service/README.md` calls that projection the one
+thing the boundary exists for. Rendering a brief there would invert the
+service's entire argument to save one hop. The file is assembled in the Forge
+runtime, which already holds the tenant's issues and the split build, and which
+calls the calculator for figures exactly as the tile does today.
+
+## The guard that matters more than either
+
+A model writing prose over figures is a new way for this product to state a
+number that no tool produced — the thing ADR 0005 exists to prevent, arriving by
+a route ADR 0005 did not anticipate. Two failure modes are specific and both are
+worse than a wrong paragraph:
+
+**A softened refusal.** `CLAUDE.md` requires refusals printed verbatim, and the
+closing clause — *the evidence is absent, not noisy* — is the entire point of
+ADR 0007. A model asked to write readable prose around *"too little completion
+history to sample from"* will paraphrase it into something that sounds like a
+wide interval. **Refusal sentences are therefore inserted verbatim and are not
+passed through the model at all.** Where a figure was refused, the brief carries
+the refusal, not the model's account of it.
+
+**A restated figure.** A model given the numbers will restate them, and a
+restatement is a second copy that can disagree. Every figure in the brief comes
+from the tool output by substitution, and the generated prose is checked against
+that output before the brief is sent. Prose that introduces a numeral the tools
+did not produce fails the check and the brief is not sent.
+
+This keeps the existing contract rather than bending it. ADR 0005 says the tools
+compute and the agent narrates; a narration that varies between runs over
+figures that do not is exactly that contract, not an exception to it. The
+seeded, reproducible Monte Carlo is untouched — `SEED` is fixed, trials stay at
+20,000, and the numbers in two briefs generated from one dataset are identical
+even when the sentences around them are not.
+
+## What is still open
+
+Per-tenant recipient configuration — which audience goes to which addresses —
+does not exist and is not decided here. It is the same question item 3 raises
+about where a customer records anything the product needs and Jira has no field
+for, and it is the same question that leaves `intake.sequence` with no input on
+Forge. Whatever answers one should answer both.

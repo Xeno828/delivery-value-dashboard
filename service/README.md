@@ -214,7 +214,9 @@ region — and then let Forge choose between them. A `remotes` entry whose
 `baseUrl` is an object of region-specific URLs is resolved per installation
 from the customer's own Atlassian residency setting, so this app never decides
 which region a tenant belongs in. That is the half of roadmap item 6 that moves
-earlier if you take the Forge route, and it is smaller than it looks.
+earlier if you take the Forge route, and it is smaller than it looks. It has
+since been taken — [`../docs/roadmap.md`](../docs/roadmap.md) has the items and
+what each of them is now.
 
 ## Logging
 

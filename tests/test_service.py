@@ -1807,6 +1807,106 @@ def test_refuses_to_start_unauthenticated():
           (r.returncode, (r.stdout + r.stderr)[:80]))
 
 
+def test_the_brief_never_states_a_figure():
+    """The scheduled brief's guard: the model writes the sentences, never the
+    numbers.
+
+    Roadmap item 3 mails a written brief out weekly with nobody reading it
+    first, which makes it the one place in this product where a model's prose
+    reaches a customer unreviewed. `forge/src/brief.js` answers that by never
+    letting the model near a figure — values are substituted from tool output
+    and prose carrying a numeral is refused. ADR 0013.
+
+    The refusal case is the one that matters most and it is checked against the
+    real sentence rather than a copy: `forecast.Refusal.sentence()` produces it
+    here, it is piped through the JavaScript, and it has to come back
+    identical. A test holding two hand-written copies of that string would pass
+    while the product paraphrased.
+    """
+    refusal = FC.Refusal(reason="too little completion history to sample from",
+                         have=2, need=6).sentence()
+
+    node = subprocess.run(["node", str(ROOT / "tests" / "brief_shapes.mjs")],
+                          input=json.dumps({"refusal": refusal}),
+                          capture_output=True, text=True, cwd=str(ROOT))
+    if node.returncode != 0:
+        check("the brief shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    b = json.loads(node.stdout)
+
+    # Prose a model may write. Each of these contains a word that *contains* a
+    # number word — often, someone, behalf, phone — so a substring check would
+    # refuse all of them and the guard would be a nuisance rather than a guard.
+    usable = [name for name, probs in b["usable"].items() if probs]
+    check("prose with no figure in it is usable", not usable, usable)
+
+    # Every way a figure can arrive: digits, a percentage, a decimal, a
+    # thousands separator, a word, a capitalised word, a fraction, a slot the
+    # model placed itself, and nothing at all.
+    slipped = [name for name, probs in b["carriesAFigure"].items() if not probs]
+    check("prose carrying a figure is refused, however it is spelled",
+          not slipped, slipped)
+
+    # The refusal, byte for byte, and the model's prose nowhere near it.
+    sec = b["refusedSection"]
+    check("a refused section prints the tool's sentence verbatim",
+          sec.get("text") == refusal,
+          (sec.get("text", "")[:60], refusal[:60]))
+    check("a refused section keeps the clause that is the point of the refusal",
+          "absent, not noisy" in sec.get("text", ""))
+    check("a refused section discards what the model wrote about it",
+          "on track" not in sec.get("text", "")
+          and "finish early" not in sec.get("text", ""))
+    check("a refused section says it refused", sec.get("refused") is True)
+
+    # A slot the tools did not fill stops the brief, and does not come back
+    # half-rendered beside the complaint — a caller reading `text` first would
+    # send "Throughput was  items", which a reader completes themselves.
+    check("a figure the tools did not return refuses",
+          "problems" in b["missingSlot"] and "text" not in b["missingSlot"],
+          list(b["missingSlot"]))
+    check("a figure the tools did return is substituted",
+          b["filled"].get("text") == "Throughput was 9 items against 12 committed.",
+          b["filled"])
+    # Written as `x === undefined || x === null || x === ""` rather than `!x`
+    # for this one case: a measured zero is a figure, and refusing it would be
+    # ADR 0010 applied backwards — silence where there was a real observation.
+    check("a measured zero is a figure, not a missing one",
+          b["filledWithZero"].get("text") == "Unplanned work was 0 items.",
+          b["filledWithZero"])
+
+    # One bad section stops the whole brief rather than shrinking it. A brief
+    # that does not arrive is noticed; a brief that quietly lost a section is
+    # not, and at a weekly cadence nobody goes looking.
+    check("one unusable section stops the whole brief",
+          b["brokenBrief"]["sent"] is False and b["brokenBrief"]["problems"],
+          b["brokenBrief"].get("problems"))
+    check("the complaint names the section it came from",
+          any(p.startswith("Forecast:") for p in b["brokenBrief"]["problems"]),
+          b["brokenBrief"]["problems"])
+
+    # A refusal is not a broken section. It is the product working.
+    check("a brief carrying a refusal is still sent",
+          b["briefWithARefusal"]["sent"] is True
+          and b["briefWithARefusal"]["refusedSections"] == ["Forecast"],
+          b["briefWithARefusal"].get("refusedSections"))
+    check("the refusal reaches the sent brief intact",
+          refusal in b["briefWithARefusal"]["text"])
+
+    # The guard is bounded and has to say so. A number-word list cannot be
+    # complete and a check that reads as total is how a truncated list gets
+    # mistaken for a full one — the failure this repository has had twice.
+    check("the guard states what it does not catch", bool(b["unchecked"].strip()))
+
+    # The instruction and the check must describe one rule. A prompt that
+    # invites a figure and a guard that forbids one produces a brief that fails
+    # every week for a reason invisible from the prompt.
+    rule = b["proseRule"].lower()
+    check("the model is told the rule the guard enforces",
+          "number" in rule and "words" in rule and "digits" in rule, rule[:80])
+
+
 if __name__ == "__main__":
     import os
     os.environ["SERVICE_SHARED_SECRET"] = SECRET
@@ -1843,6 +1943,8 @@ if __name__ == "__main__":
     test_a_window_is_not_a_deadline_to_the_forecaster()
     print("the Forge invocation token")
     test_forge_token_verification()
+    print("the scheduled brief")
+    test_the_brief_never_states_a_figure()
     print("the Forge app's dependencies")
     test_forge_app_dependencies()
     print("the container image")

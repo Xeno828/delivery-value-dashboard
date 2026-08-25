@@ -12,6 +12,9 @@ Roadmap item 1 says *"a Forge or Connect app"*, and the roadmap calls that the
 one genuinely open decision in phase 1. This directory exists so choosing Forge
 is a decision rather than a rewrite.
 
+It resolved as *both* rather than either, and item 1 is done. The items, the
+numbering and what is still open are in [`../docs/roadmap.md`](../docs/roadmap.md).
+
 ## The four files
 
 | | |

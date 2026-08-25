@@ -101,6 +101,8 @@ These are product decisions, not style. Violating one is a bug even when the tes
 | Why a tile with nothing to count says so instead | `docs/adr/0010-an-empty-selection-is-a-refusal.md` |
 | Why a board without sprints gets a window, not a clock | `docs/adr/0011-a-kanban-context-is-a-window-not-a-clock.md` |
 | Why Forge reaches the calculator by `invokeRemote`, region-pinned | `docs/adr/0012-the-calculator-is-reached-by-invokeremote.md` |
+| Why the scheduled brief is written inside the tenant | `docs/adr/0013-the-brief-is-written-inside-the-tenant.md` |
+| Which commercial roadmap item something is, and what is done | `docs/roadmap.md` |
 | What the dashboard does for a board with no sprints | `docs/kanban-boards.md` |
 | Finishing the Forge route — the three unfinished pieces | `docs/forge-deployment.md` |
 | Where the hosted calculator runs, what it costs, and in what order | `docs/hosting-the-calculator.md` |
