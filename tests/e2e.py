@@ -624,6 +624,9 @@ def transports(b):
         page.evaluate("id => window.DVD.debug.selectContext(id)", cid)
         page.wait_for_timeout(1500)
         loop_print = page.evaluate(fingerprint)
+        STARTS = ("() => window.DVD.debug.view().issues"
+                  ".map(i => i.key + ':' + (i.started || '')).sort()")
+        starts_loop = page.evaluate(STARTS)
         page.close()
 
         # ---------- bridge ----------
@@ -714,16 +717,32 @@ def transports(b):
         #   statusCategory  derived from the raw status name under the config
         #   contextId       tagged by loadContext(), never trusted from a body
         #
-        # `started` is deliberately NOT stripped. The resolver does omit it, but
-        # that absence is a visible, stated degradation — the page prints "no
-        # completed items with both a start and a resolved date" — rather than
-        # something it silently makes good.
+        # `started` is stripped too now, and replaced by the raw material the
+        # resolver really sends: every move the issue made between statuses,
+        # with the names undecided. Recognising an in-progress status is
+        # organisation config, so the resolver will not decide it and the page
+        # does — the same move it already makes for `statusCategory`.
+        #
+        # The transitions below are deliberately out of date order, because
+        # Jira does not return a changelog in date order. A page taking the
+        # *first* in-progress transition rather than the earliest would report
+        # a later start, a shorter cycle time and a higher flow efficiency, and
+        # the render would still look entirely reasonable.
         import copy
         forge_shaped = copy.deepcopy(context_body)
         forge_shaped["context"].pop("workingDays", None)
         for issue in forge_shaped["issues"]:
             for field in ("statusCategory", "contextId"):
                 issue.pop(field, None)
+            started = issue.pop("started", None)
+            if started:
+                later = (datetime.date.fromisoformat(started)
+                         + datetime.timedelta(days=3)).isoformat()
+                issue["statusTransitions"] = [
+                    {"to": "In Review", "at": later},
+                    {"to": "In Progress", "at": started},
+                    {"to": "Done", "at": issue.get("resolved") or later},
+                ]
 
         shaped_stub = """
         window.__DVD_BRIDGE__ = { name: 'stub', invoke: (route, params) => {
@@ -741,10 +760,14 @@ def transports(b):
         page.wait_for_timeout(1200)
         shaped_print = page.evaluate(fingerprint)
         wd = page.evaluate("() => window.DVD.debug.view().meta.workingDays.length")
+        starts_shaped = page.evaluate(STARTS)
         page.close()
 
         check("the page fills in the working days the resolver does not send",
               wd > 0, wd)
+        check("and resolves `started` out of the raw transitions, earliest first",
+              starts_shaped == starts_loop, {"served": starts_loop[:4],
+                                             "forge-shaped": starts_shaped[:4]})
         for field in ("foot", "kpis", "contexts", "issues", "ctx"):
             check("a Forge-shaped body renders the same %s as a served one" % field,
                   loop_print[field] == shaped_print[field],

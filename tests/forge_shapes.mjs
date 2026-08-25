@@ -158,6 +158,32 @@ console.log(JSON.stringify({
     ).storyPoints,
     whenUnset: issueFrom({ key: 'X-2', fields: {} }, { storyPointField: SP_FIELD }).storyPoints,
   },
+  /* The raw material for `started`, with the names undecided. The resolver
+     will not say which of these is a start — that is organisation config —
+     and the page applies its own rule to them, exactly as it does to a raw
+     status name. The out-of-order history is the trap: Jira does not return
+     the changelog in date order, so a page taking the *first* in-progress
+     transition rather than the *earliest* would report a later start, a
+     shorter cycle time and a higher flow efficiency. */
+  statusTransitions: {
+    fromFixture: issueFrom(rawIssues[1], {}).statusTransitions,
+    outOfOrder: issueFrom({
+      key: 'X-1',
+      fields: {},
+      changelog: {
+        histories: [
+          { created: '2026-08-06T09:00:00.000Z', items: [{ field: 'status', toString: 'In Review' }] },
+          { created: '2026-08-04T09:00:00.000Z', items: [{ field: 'Sprint', toString: 'Sprint 24' }] },
+          { created: '2026-08-05T10:00:00.000Z', items: [{ field: 'status', toString: 'With QA' }] },
+          { created: '2026-08-09T10:00:00.000Z', items: [{ field: 'status', toString: 'Signed off' }] },
+        ],
+      },
+    }, {}).statusTransitions,
+    // No changelog at all is an empty list, not a missing key: a consumer
+    // testing `Array.isArray` must not have to test for undefined as well.
+    noChangelog: issueFrom({ key: 'X-2', fields: {} }, {}).statusTransitions,
+  },
+
   // The id is the string the page round-trips, so it is checked both ways.
   roundTrip: { id: contextId('SFT', 2, 43), parsed: parseContextId('SFT/2/43') },
   rejects: ['', 'SFT/2', 'SFT/2/43/extra', '../../etc', 'SFT/x/43',

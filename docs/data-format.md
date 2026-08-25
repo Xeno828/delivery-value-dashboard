@@ -21,6 +21,7 @@ One row per issue drives every chart on the page. You do **not** need these exac
 | `dueDate` | date | no | Overdue tile and risk |
 | `flagged` | boolean | no | Blocked tile and risk |
 | `addedMidSprint` | boolean | no | The scope line on the burndown |
+| `statusTransitions` | array of `{to, at}` | no | Raw material for `started` when the producer could not resolve it |
 | `businessValue` | number | no | Value card |
 | `valueBasis` | string | no | The justification shown under each value figure |
 | `labels` | array or `;`-separated | no | Shown in drill-downs |
@@ -36,7 +37,7 @@ Separately, and not affected by the toggle: **elapsed time is reported in calend
 
 ## The three fields that do disproportionate work
 
-- **`started`** — without it there is no cycle time, and the waiting-vs-working chart (the most useful thing on the page) is empty.
+- **`started`** — without it there is no cycle time, and the waiting-vs-working chart (the most useful thing on the page) is empty. A producer that cannot resolve it may send `statusTransitions` instead: every move the issue made between statuses, as `{"to": "In Review", "at": "2026-08-04"}`, with the names left undecided. The page takes the **earliest** transition into a status its own config calls in-progress — earliest, not first, because Jira does not return a changelog in date order. This is how the Forge resolver supplies it: recognising an in-progress status is organisation config, and a resolver deciding it would be a third implementation of that rule. A bundle carries `started` outright and the raw list is ignored, because re-deriving a resolved field under a different config is how two answers appear for one issue.
 - **`addedMidSprint`** — without it the burndown's scope line is flat, and scope growth stays invisible. This is what separates *"we were slow"* from *"we were given more"*.
 - **`valueBasis`** — a value figure without a stated basis should not be on an executive dashboard. The card counts only items that have one.
 

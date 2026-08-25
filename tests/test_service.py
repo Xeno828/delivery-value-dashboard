@@ -613,9 +613,40 @@ def test_the_two_transports_answer_the_same_shape():
     # fields one bundle happens to carry. `sample-bundle.json` has no `url` on
     # its issues, and comparing to it would have called a schema field an
     # invention.
+    #
+    # Two fields are read by the page without being displayed, so they are not
+    # in the column list and are named here instead — each checked to be
+    # genuinely referenced in `src/app.js`, so an exception cannot outlive the
+    # code that justified it. That is this guard's own failure mode, one level
+    # up.
+    #
+    #   contextId           tagged on the way in by loadContext()
+    #   statusTransitions   raw material for `started`, consumed by
+    #                       normaliseIssue() and then never shown
     app_js = (ROOT / "src" / "app.js").read_text()
     cols = re.search(r"const ISSUE_COLS = \[(.*?)\];", app_js, re.S)
-    schema = set(re.findall(r'"(\w+)"', cols.group(1))) | {"contextId", "epicKey"}
+    read_by_page = {"contextId", "statusTransitions"}
+    for f in sorted(read_by_page):
+        check("the page really reads %s, so allowing it here is not a loophole" % f,
+              re.search(r"\b%s\b" % f, app_js) is not None, f)
+
+    # `epicKey` is not one of them, and writing the check above is how that
+    # surfaced. Nothing in `src/app.js` reads it and nothing in `agent/tools/`
+    # does either — `intake.py` groups by `epic`, the free-text name, which is
+    # in NEVER_SEND and so never reaches the calculator at all. It travels from
+    # the resolver, through the calculator's allow-list, to nobody.
+    #
+    # Allowed here rather than quietly dropped: whether epic sizing should key
+    # on it is a change to `intake.py`, not to this test. Named, so the next
+    # reader does not assume it is load bearing, and asserted so that the day
+    # something does read it this stops being true and says so.
+    check("epicKey still reaches no consumer, which is a known loose end",
+          re.search(r"\bepicKey\b", app_js) is None
+          and not any(re.search(r"\bepicKey\b", f.read_text())
+                      for f in (ROOT / "agent" / "tools").glob("*.py")),
+          "something reads epicKey now — move it into read_by_page")
+
+    schema = set(re.findall(r'"(\w+)"', cols.group(1))) | read_by_page | {"epicKey"}
     forge_issue = forge["context"]["issues"][0]
     invented = sorted(set(forge_issue) - schema)
     check("the Forge issue invents no field the page does not read",
@@ -916,6 +947,68 @@ def test_every_context_says_which_kind_it_is():
           sorted(set(forge["contexts"]["contexts"][0]) ^ set(forge["window"]["entries"][0])))
 
 
+
+def test_the_resolver_sends_the_raw_material_for_started():
+    """`started` is the first transition into an in-progress status, and which
+    statuses those are is organisation config.
+
+    So the resolver does not decide. It sends the transitions with their names
+    undecided and the page applies its own rule, which is the same move it
+    already makes for `statusCategory`. The alternative — the resolver
+    resolving it, which it now plainly could — is refused for the reason
+    recorded against `workingDays`: a third implementation of the rule, in the
+    one place nobody can run a test against a customer's tenant.
+
+    What makes this different from `workingDays`, and why it needed deciding
+    rather than citing: the page can derive a working-day list from dates
+    already on the wire, and nothing on the wire let it derive `started`. That
+    absence was a real gap rather than a silence, and on a board with no
+    sprints cycle time is not a nicety, it is the measure.
+    """
+    node = subprocess.run(["node", str(ROOT / "tests" / "forge_shapes.mjs")],
+                          cwd=str(ROOT), capture_output=True, text=True, timeout=60)
+    if node.returncode != 0:
+        check("the Forge shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    out = json.loads(node.stdout)
+    st = out["statusTransitions"]
+
+    check("the resolver still sends no `started` of its own",
+          all("started" not in i for i in out["context"]["issues"]),
+          [sorted(i) for i in out["context"]["issues"]][:1])
+    check("and sends the transitions instead",
+          all(isinstance(i.get("statusTransitions"), list)
+              for i in out["context"]["issues"]),
+          [i.get("statusTransitions") for i in out["context"]["issues"]])
+    check("an issue with no changelog gets an empty list, not a missing key",
+          st["noChangelog"] == [], st["noChangelog"])
+
+    check("only status changes are sent, not every field the changelog holds",
+          all(t["to"] != "Sprint 24" for t in st["outOfOrder"])
+          and len(st["outOfOrder"]) == 3, st["outOfOrder"])
+    check("the names are the site's own, undecided",
+          {t["to"] for t in st["outOfOrder"]} == {"In Review", "With QA", "Signed off"},
+          st["outOfOrder"])
+    check("each carries a date, in calendar days",
+          all(re.fullmatch(r"\d{4}-\d{2}-\d{2}", t["at"]) for t in st["outOfOrder"]),
+          st["outOfOrder"])
+
+    # The trap, stated here so the page's rule has something to be right
+    # about: Jira does not return the changelog in date order. A consumer
+    # taking the first in-progress transition rather than the earliest reports
+    # a later start, a shorter cycle time and a higher flow efficiency — all
+    # plausible, none checkable. `tests/e2e.py` asserts the page takes the
+    # earliest; this asserts the resolver really does hand it a list where the
+    # two answers differ.
+    check("the fixture really is out of date order, so the page's rule is tested",
+          [t["at"] for t in st["outOfOrder"]] != sorted(t["at"] for t in st["outOfOrder"]),
+          [t["at"] for t in st["outOfOrder"]])
+    check("and the two readings of it genuinely disagree",
+          st["outOfOrder"][0]["at"] != min(t["at"] for t in st["outOfOrder"]),
+          st["outOfOrder"])
+
+
 def test_forge_app_dependencies():
     """This code runs inside a customer's Jira tenant, so what it depends on is
     a security question rather than a packaging one.
@@ -1061,6 +1154,7 @@ if __name__ == "__main__":
     test_the_two_transports_agree_about_windows()
     test_every_context_says_which_kind_it_is()
     test_the_footer_accounts_for_every_board()
+    test_the_resolver_sends_the_raw_material_for_started()
     print("the Forge app's dependencies")
     test_forge_app_dependencies()
     print("the container image")

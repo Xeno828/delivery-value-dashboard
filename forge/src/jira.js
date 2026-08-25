@@ -522,11 +522,10 @@ export const contextsBody = (label, contexts, orgConfig) => ({
  *                   the config the page is running, exactly as it does for any
  *                   file whose producer did not resolve it.
  *   started         The first transition into an "In Progress" status — which
- *                   needs that same config to recognise. Left out rather than
- *                   guessed: the page prints "no completed items with both a
- *                   start and a resolved date", which is true, and flow
- *                   efficiency stays silent rather than reporting a number
- *                   built on a rule this file made up.
+ *                   needs that same config to recognise, so this file does not
+ *                   recognise it. It sends the raw transitions instead and the
+ *                   page decides what they mean, exactly as it does for a raw
+ *                   status name. See `statusTransitions` below.
  *   businessValue   Jira has no native value field, and the fetcher writes 0
  *                   here too.
  *   contextId       The page tags these itself in `loadContext()`, and does it
@@ -568,6 +567,7 @@ export const issueFrom = (raw, opts) => {
     dueDate: f.duedate ?? null,
     flagged: Boolean(f.flagged),
     addedMidSprint: addedMidSprint(raw, o.sprintStart),
+    statusTransitions: statusTransitions(raw),
     businessValue: 0,
     valueBasis: '',
     labels: f.labels || [],
@@ -584,6 +584,46 @@ const pointsOf = (fields, fieldId) => {
   // be pointed at here, and coercing "M" to 0 would put a made-up figure into
   // the burndown.
   return Number.isFinite(n) ? n : null;
+};
+
+/**
+ * Every move this issue made between statuses, with the names undecided.
+ *
+ * `started` is the first transition into an in-progress status, and which
+ * statuses those are is organisation config. The resolver could resolve it —
+ * it resolves that config already, and it expands the changelog anyway for
+ * `addedMidSprint`, so this costs no call — and it must not, for the reason
+ * recorded against `workingDays`: the rule would then have a third
+ * implementation, in the one place nobody can run a test against a customer's
+ * tenant.
+ *
+ * The `workingDays` argument does not transfer whole, though, and the
+ * difference is why this needed deciding rather than citing. `workingDays` can
+ * be left out because the page can *derive* it from `startDate` and `endDate`,
+ * which are already on the wire. Nothing on the wire let the page derive
+ * `started`, so leaving it out was a real gap rather than a silence — and on a
+ * board with no sprints, cycle time is not a nicety, it is the measure. So the
+ * raw material goes out and the page applies its own rule, which is the same
+ * move `statusCategory` already makes.
+ *
+ * Uncapped, deliberately. A truncated transition list would silently move a
+ * start date later and shorten a cycle time — a smaller number, arrived at by
+ * arithmetic, with nothing to say it was cut. If a cap ever becomes necessary
+ * it is reported, like every other cap here.
+ */
+const statusTransitions = (raw) => {
+  const out = [];
+  for (const h of (raw.changelog || {}).histories || []) {
+    const at = String(h.created || '').slice(0, 10);
+    if (!at) continue;
+    for (const item of h.items || []) {
+      if (String(item.field || '').toLowerCase() !== 'status') continue;
+      // The name the site uses, not a category. Deciding what it means is the
+      // page's job and the config's.
+      out.push({ to: item.toString ?? null, at });
+    }
+  }
+  return out;
 };
 
 /**

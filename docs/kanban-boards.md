@@ -81,7 +81,7 @@ Both are the same class of bug and neither is caused by this work; both become v
 
 Cycle time is a nicety for a team with a burndown and it is **the** measure for a team without one. `forge/src/jira.js` omits `started` today, and the page prints *"No completed items with both a start and a resolved date in this selection"* — which is true, and which on a flow board empties the one tile the board most needs.
 
-**The resolver sends the raw status transitions; the page decides what they mean.**
+**The resolver sends the raw status transitions; the page decides what they mean.** *(Done.)*
 
 ```
 statusTransitions: [ { to: "In Progress", at: "2026-08-04" },
@@ -120,4 +120,4 @@ Forecasting inside Forge stays blocked on the hosted calculator either way ([ADR
 3. **Done.** `contextWorkingDays()` returns `[]` for a window — checked *before* the sent list, so a producer that shipped one could not walk past the rule — and `derive()` withholds `timeElapsed` at source rather than relying on that one guard two functions away. Pace and scope stability are both dropped and named, which takes the composite below half its weight, so sprint health refuses whole. Overlapping windows are excluded from the rollup: the same issue is in all three, and rolling them up would have tripled every count on the page.
 4. **Done.** The refusals, one tile at a time, each with the digit sweep the empty-selection tiles already have: the burndown, *Delivered*, *Scope added*, the commitment-history chart and team load. *Likely to carry over* was renamed rather than refused — the figure is open work and is measured either way; only the label named a boundary that does not exist. The ageing chart keeps its fourteen-day threshold and stops calling it a sprint.
 5. **Done.** The register names every rule it could not run, and the summary names the sentences it did not write. Deliberately not flow-board-specific: a sprint board with no start date, or any dataset without `started`, has been quietly not running these for as long as the register has existed.
-6. `statusTransitions`, and the flow tile lighting up over the bridge.
+6. **Done.** `statusTransitions`, and the flow tile lighting up over the bridge. One loose end found while writing the guard for it: `epicKey` travels from the resolver through the calculator's allow-list to nobody — `intake.py` groups by `epic`, the free-text name, which is in `NEVER_SEND` and never reaches the calculator. Whether epic sizing should key on `epicKey` instead is a change to `intake.py`, so it is named and asserted rather than quietly dropped.

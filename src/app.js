@@ -251,6 +251,28 @@ function normaliseIssue(i, meta, cfg) {
   // category was categorised under its own config, and re-deriving it here
   // against a different one is how two answers appear for one issue.
   if (!o.statusCategory) o.statusCategory = statusCategoryOf(o.status, cfg);
+  /* Same move, one field along. `forge/src/jira.js` sends the raw status
+     transitions and declines to say which of them is a start, because
+     recognising an in-progress status is organisation config and a resolver
+     resolving it would be a third implementation of that rule. The page holds
+     the config, so it is the first opinion rather than another one.
+ 
+     Only when the producer did not resolve it — a bundle carries `started`
+     already, decided under the config it was built with, and re-deriving it
+     here against a different one is how two answers appear for one issue.
+ 
+     The **earliest** in-progress transition, not the first in the list. Jira
+     does not return the changelog in date order, and `jira_pull()` in the
+     Python takes the minimum for exactly this reason. Taking the first would
+     have produced a later start, a shorter cycle time and a higher flow
+     efficiency — all plausible, none checkable. */
+  if (!o.started && Array.isArray(o.statusTransitions)) {
+    const starts = o.statusTransitions
+      .filter(t => t && t.at && statusCategoryOf(t.to, cfg) === "In Progress")
+      .map(t => String(t.at).slice(0, 10))
+      .sort();
+    o.started = starts.length ? starts[0] : o.started;
+  }
   o.labels = Array.isArray(o.labels) ? o.labels
     : (typeof o.labels === "string" && o.labels ? o.labels.split(/[;,|]\s*/) : []);
   const base = safeUrl(meta && meta.baseUrl);

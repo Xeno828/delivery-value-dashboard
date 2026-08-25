@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.16.10
+
+**Cycle time works inside a Jira tenant.** The Forge resolver has never sent `started`, because the first transition into an in-progress status can only be recognised under organisation config and a resolver deciding that would be a third implementation of the rule. The page printed *"no completed items with both a start and a resolved date"*, which was true and which emptied the waiting-versus-working chart across every install. For a sprint that is a stated degradation. For a board with no sprints it is the measure, so it stopped being acceptable.
+
+The resolver now sends **`statusTransitions`** — every move the issue made between statuses, as `{"to": "In Review", "at": "2026-08-04"}`, with the names left undecided — and the page picks the earliest one its own config calls in-progress. The rule still has one implementation and it is still not in a resolver. What changed is that the raw material travels, and the reason it must is the difference from `workingDays`: the page can derive a working-day list from dates already on the wire, and there was nothing on the wire from which to derive a start. Leaving that out was a gap, not a silence. It costs one changelog expansion the resolver was already doing for `addedMidSprint`, so no extra call and no new scope.
+
+**Earliest, not first, and that distinction is the bug this could have shipped.** Jira does not return a changelog in date order. Taking the first in-progress transition in list order rather than the earliest by date moves every start date later — on the demo data, three days later for every issue — which shortens every cycle time and raises flow efficiency. A smaller wait and a more efficient team, arrived at by arithmetic, with nothing on screen to suggest it. `jira_pull()` in the Python has always taken the minimum for this reason; the page now mirrors it, the fixtures are deliberately out of order, and `tests/e2e.py` fails on the sort alone.
+
+The list is uncapped, deliberately: a truncated transition list silently moves a start date later, which is the same wrong number by a different route.
+
+**`epicKey` reaches no consumer, and writing the guard for this is how it surfaced.** The check that the resolver invents no field the page does not read had an allow-list, and `epicKey` was on it under the assumption it feeds the epic filter. It does not. Nothing in `src/app.js` reads it and nothing in `agent/tools/` does either — `intake.py` groups by `epic`, the free-text name, which is in `NEVER_SEND` and so never reaches the calculator at all. So it travels from the resolver, through the calculator's allow-list, to nobody, and epic-based sizing cannot work over that route as things stand. Whether it should key on `epicKey` instead is a change to `intake.py` rather than to a test, so it is named and asserted rather than quietly dropped — the assertion fails the day something does read it.
+
+Every exception in that allow-list is now checked to be genuinely referenced in the code that justifies it, which is the same failure the guard exists to catch, one level up.
+
 ## 1.16.9
 
 **The risk register was reporting a clean bill of health over rules it never ran.** Three of its eight rules depend on something beyond the issues on screen — scope growth needs a sprint to have added work to, the over-commitment rule needs four sprints of history, flow efficiency needs closed items carrying both a start and a resolved date — and each of them fails the same silent way: the condition is false, the rule vanishes, and *"No risks triggered against the current filters"* stands over a shorter examination than the reader thinks they are getting.
