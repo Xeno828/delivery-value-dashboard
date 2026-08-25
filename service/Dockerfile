@@ -1,8 +1,15 @@
-# The calculator. Python and nothing else — the tools it wraps are stdlib-only,
-# which is why there is no pip install here and no requirements.txt to drift.
+# The calculator. The tools it wraps are stdlib-only; the service itself has
+# exactly one dependency, and only in SERVICE_AUTH=forge-token — PyJWT with its
+# crypto extra, for verifying the Atlassian-issued invocation token. In
+# shared-secret mode nothing here is imported.
 FROM python:3.12-slim
 
 WORKDIR /app
+# Installed before the source is copied, so a change to app.py does not
+# reinstall the wheel on every build.
+COPY service/requirements.txt /app/service/requirements.txt
+RUN pip install --no-cache-dir -r /app/service/requirements.txt
+
 # Only what the calculation needs. No .env, no data/, no dist/, and nothing
 # that could carry a credential into an image that gets pushed to a registry.
 COPY agent/tools/ /app/agent/tools/

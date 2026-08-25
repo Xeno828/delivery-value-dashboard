@@ -175,24 +175,32 @@ Reached, on a dev site. Getting there took three deploys, and all three were the
 
 ---
 
-## 2. Verify the Forge invocation token
+## 2. Verify the Forge invocation token — written, not yet confirmed against Atlassian
 
 The calculator authenticates with a bearer shared secret today. That is honest and it works, but it is not tenant-aware: every installation presents the same string, so the service cannot tell one customer from another, and rotating it means redeploying everything at once.
 
 The tenant-aware mechanism is the invocation token Forge attaches to a remote call — a JWT signed by Atlassian, carrying claims that identify the app and the installation.
 
-### The seam is already there
+### What is done
 
-`service/app.py` has two auth modes. `SERVICE_AUTH=forge-token` currently **refuses to start**:
+`_verify_forge_token()` is written and every mechanic below is proved by `tests/test_service.py`, which generates a keypair, serves a JWKS from a local HTTP server and mints its own tokens. A verifier now returns *who the caller is* rather than a boolean, so the access log names the tenant; the shared-secret mode returns no tenant rather than a placeholder, because one string presented by every installation cannot identify anybody.
 
-```
-SERVICE_AUTH=forge-token is not implemented yet, and this service will not
-fall back to something weaker.
-```
+### What is not, and it is the part only you can do
 
-That refusal is deliberate. Fill in `_verify_forge_token(headers)` and remove the guard in `startup_problem()`; nothing else in the service changes, because every route already goes through `authorised()`.
+The four values that identify Atlassian's issuer are **configuration, not constants**, and the service refuses to start in this mode without them:
 
-I did not write this function. Verifying RS256 needs a crypto library, and there is no way to test a token verifier here without a real token to test against — shipping security code whose correctness nobody has observed is worse than shipping an honest placeholder.
+| | |
+|---|---|
+| `FORGE_JWKS_URL` | where the signing keys are published |
+| `FORGE_ISSUER` | the exact `iss` value to require |
+| `FORGE_AUDIENCE` | what goes in `aud` — the app id, the app ari, or something else |
+| `FORGE_TENANT_CLAIM` | which claim carries the installation or tenant identity |
+
+They are environment variables precisely so that no value nobody has confirmed lives in the source. Confirm each against current Atlassian documentation, and record the date beside the deployment that sets them. Guessing one produces a verifier that rejects every real token — or, the case that matters, accepts one minted for a different app.
+
+Also still unconfirmed: whether the call presents an app-system token or a user token, and whether that differs between a scheduled trigger and a user-initiated resolver call.
+
+**No real Forge token has been through this.** The mechanics are proved against a signer the test controls, which is the only way to test a verifier without one. That is a different claim from "it works", and it is the claim being made.
 
 ### What it has to check
 
@@ -206,29 +214,15 @@ Generic JWT verification, none of which is Forge-specific and all of which is ro
 6. **Check `iss`** against Atlassian's issuer.
 7. **Bind the tenant.** Take the installation or context claim and use it — that is the entire point of moving off the shared secret. A verifier that checks the signature and ignores who the token is for has bought you nothing.
 
-### What you must confirm from current Atlassian documentation
+### The dependency — done
 
-I am not going to guess these, and neither should the implementation:
+`PyJWT[crypto]` is in `service/requirements.txt`, not `scripts/requirements.txt`: the security suite asserts the fetcher's dependency list stays at one, and the fetcher is what holds a customer's credentials, so that is the list worth keeping boring. The Dockerfile installs it before copying the source, CI audits it alongside the fetcher's, and `service/README.md` no longer claims the service is stdlib-only.
 
-- the JWKS endpoint URL
-- the exact `iss` value
-- what goes in `aud` — the app id, the app ari, or something else
-- which claim carries the installation or tenant identity
-- whether the call presents an app-system token or a user token, and whether that differs between a scheduled trigger and a user-initiated resolver call
+It is imported **inside** the verifier rather than at module scope, so shared-secret mode still runs and the suite still passes on a host that never installed it. The startup guard is what makes that safe: the token mode refuses to start if the import fails.
 
-Write each one down in a comment next to the check that uses it, with the date you confirmed it.
+### Proved before it is trusted — done
 
-### The dependency
-
-RS256 needs `PyJWT[crypto]`. Put it in a **new** `service/requirements.txt`, not `scripts/requirements.txt` — the security suite asserts the fetcher's dependency list stays at one, and that assertion is worth keeping. Then:
-
-- add `pip install -r service/requirements.txt` to `service/Dockerfile`
-- add `service/requirements.txt` to the `pip-audit` step in CI
-- update `service/README.md`, which currently says the service is stdlib-only
-
-### Prove it before you trust it
-
-Generate a keypair in the test, serve a JWKS from a local HTTP server, and mint your own tokens. That tests the mechanics without needing Atlassian. Every one of these must be rejected:
+The harness generates a keypair, serves a JWKS from a local HTTP server, and mints its own tokens. Every one of these is rejected, and the suite fails if any is not:
 
 | Token | Must be |
 |---|---|
@@ -244,11 +238,15 @@ Generate a keypair in the test, serve a JWKS from a local HTTP server, and mint 
 | Unknown `kid` | rejected, after at most one JWKS refetch |
 | Well-formed but truncated | rejected |
 
-Add the same startup-refusal checks that exist for the current mode: an unknown `SERVICE_AUTH`, and a `forge-token` mode with its configuration missing, must both stop the process rather than serve.
+The HMAC forgery is assembled by hand rather than with `jwt.encode`, which refuses to use an asymmetric key as an HMAC secret. That is a good guard on the minting side and not one a verifier may rely on — an attacker writes those three lines.
+
+Two properties of the key cache are pinned as well, because both failures are silent: inside the re-fetch floor an unknown `kid` costs Atlassian nothing at all, and past it costs exactly one fetch however many unknown ids arrive. An unknown `kid` is what somebody would send in a loop if this were unbounded.
+
+An unknown `SERVICE_AUTH`, and a `forge-token` mode with any of its four values missing, both stop the process **and** refuse the request — a guard that only exists at startup is a guard somebody removes.
 
 ### Done when
 
-`SERVICE_AUTH=forge-token` starts, a real Forge remote call succeeds against it, a hand-made token fails, and the tenant identity from the token appears in the service's log line. Keep the shared-secret mode — it is what makes the service testable without a Forge installation.
+`SERVICE_AUTH=forge-token` starts, **a real Forge remote call succeeds against it**, a hand-made token fails, and the tenant identity appears in the log line. The first, third and fourth are done; the second is what the four values above are for and is the outstanding item. Keep the shared-secret mode — it is what makes the service testable without a Forge installation.
 
 ---
 

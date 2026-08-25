@@ -61,8 +61,10 @@ import json
 import os
 import pathlib
 import sys
+import threading
 import time
 import traceback
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -113,16 +115,22 @@ class Refused(Exception):
 # Two modes, selected by SERVICE_AUTH, and a seam between them so swapping one
 # for the other is a contained change rather than surgery on every route.
 #
-#   shared-secret   implemented, tested, and what runs today
-#   forge-token     NOT IMPLEMENTED. Verifying an Atlassian-issued invocation
-#                   token needs RS256 and a JWKS fetch, and writing that without
-#                   a real token to test against would ship security code whose
-#                   correctness nobody has observed. The service refuses to
-#                   start in this mode rather than falling back to something
-#                   weaker — see docs/forge-deployment.md § 2 for what it has to
-#                   check and the harness to prove it.
+#   shared-secret   one string, presented by every installation. Simple, and
+#                   it cannot tell one customer from another — which is what
+#                   makes it the mode for local runs and the test suite rather
+#                   than the mode for a tenant.
+#   forge-token     the Atlassian-issued invocation token. Tenant-aware, and
+#                   this app holds no secret of its own. Needs four facts about
+#                   Atlassian's issuer that are configuration rather than
+#                   constants, and RS256, which is the one dependency this
+#                   service has — see docs/forge-deployment.md § 2.
 #
-# The property that matters: an unknown or unimplemented mode is a refusal to
+# A verifier now returns *who the caller is* rather than a boolean, because the
+# whole point of the token mode is being able to say which tenant asked. A
+# rejection is None; nothing downstream reads anything but truthiness, so the
+# shared-secret path is unchanged by it.
+#
+# The property that matters: an unknown or misconfigured mode is a refusal to
 # start, never a request that sails through. Failing open here would be
 # invisible — the service would look perfectly healthy.
 AUTH_MODES = ("shared-secret", "forge-token")
@@ -148,14 +156,177 @@ def _verify_shared_secret(headers):
     return hmac.compare_digest(got[len("Bearer "):].strip(), want)
 
 
+# ------------------------------------------------- the Forge invocation token
+#
+# Four facts about Atlassian's issuer that this repository must not guess, and
+# does not: they are configuration, required at startup in this mode, and the
+# service refuses to come up without them. Guessing any of them produces a
+# verifier that rejects every real token — or, worse, one that accepts a token
+# minted for a different app.
+#
+#   FORGE_JWKS_URL       where the signing keys are published
+#   FORGE_ISSUER         the exact `iss` value to require
+#   FORGE_AUDIENCE       what goes in `aud` — the app id, the app ari, or other
+#   FORGE_TENANT_CLAIM   which claim carries the installation or tenant identity
+#
+# Confirm each against current Atlassian documentation and record the date you
+# confirmed it beside the deployment that sets them. They are environment
+# variables rather than constants here precisely so that this file carries no
+# value nobody has checked.
+FORGE_ENV = ("FORGE_JWKS_URL", "FORGE_ISSUER", "FORGE_AUDIENCE", "FORGE_TENANT_CLAIM")
+
+#: The only algorithm accepted, pinned rather than read from the token.
+#:
+#: A verifier that picks its algorithm from the header is the textbook failure:
+#: `alg: none` strips the signature entirely, and an HMAC-signed token verified
+#: with the RSA *public* key as the shared secret passes, because the public key
+#: is public. Both are rejected before a key is even looked up.
+FORGE_ALGORITHMS = ("RS256",)
+
+#: Allowed clock skew on `exp` and `nbf`. Small on purpose — a generous window
+#: is an expired token that still works, which is the thing `exp` is for.
+FORGE_LEEWAY_SECONDS = 30
+
+#: How long a fetched key set is trusted, and the shortest gap between fetches.
+#:
+#: An uncached fetch per request makes Atlassian's endpoint this service's
+#: availability ceiling. A cache that never refreshes breaks silently at the
+#: next key rotation, which is the failure you meet months later. So: cached by
+#: `kid` with a TTL, and one re-fetch permitted when a `kid` is unknown, rate
+#: limited so an attacker cannot use unknown key ids to drive traffic at
+#: Atlassian on this service's behalf.
+FORGE_JWKS_TTL_SECONDS = 600
+FORGE_JWKS_MIN_REFETCH_SECONDS = 30
+
+_jwks_cache = {"keys": {}, "fetched_at": 0.0, "last_attempt": 0.0}
+_jwks_lock = threading.Lock()
+
+
+def _forge_env(name):
+    return os.environ.get(name) or ""
+
+
+def _fetch_jwks(url):
+    """The key set, as `{kid: jwk}`. Separated so the test can serve its own."""
+    with urllib.request.urlopen(url, timeout=FORGE_JWKS_FETCH_TIMEOUT) as r:
+        body = json.loads(r.read().decode("utf-8"))
+    out = {}
+    for k in body.get("keys") or []:
+        kid = k.get("kid")
+        if kid:
+            out[kid] = k
+    return out
+
+
+FORGE_JWKS_FETCH_TIMEOUT = 5
+
+
+def _jwk_for(kid, url, now):
+    """The signing key for one `kid`, re-fetching at most once and not often.
+
+    Returns None rather than raising, because every caller turns a missing key
+    into the same answer: this token is not verifiable, so it is rejected.
+    """
+    with _jwks_lock:
+        fresh = (now - _jwks_cache["fetched_at"]) < FORGE_JWKS_TTL_SECONDS
+        if fresh and kid in _jwks_cache["keys"]:
+            return _jwks_cache["keys"][kid]
+        # Unknown kid, or a stale cache. One attempt, and not more often than
+        # the floor — an unknown kid is exactly what an attacker would send
+        # repeatedly if this were unbounded.
+        if (now - _jwks_cache["last_attempt"]) < FORGE_JWKS_MIN_REFETCH_SECONDS:
+            return _jwks_cache["keys"].get(kid) if fresh else None
+        _jwks_cache["last_attempt"] = now
+        try:
+            keys = _fetch_jwks(url)
+        except Exception:                       # noqa: BLE001 — see below
+            # Never surfaced and never distinguished from a bad token. Which of
+            # the two it was is useful to an operator in a log and useful to an
+            # attacker in a response.
+            return None
+        _jwks_cache["keys"] = keys
+        _jwks_cache["fetched_at"] = now
+        return keys.get(kid)
+
+
 def _verify_forge_token(headers):
-    # Unreachable: startup_problem() stops the process before any request in
-    # this mode. Present so the seam is visible, and refusing so that removing
-    # that guard fails closed instead of silently accepting every caller.
-    return False
+    """The Atlassian-issued invocation token, or None.
+
+    Returns the tenant this call is for, which is the entire point of moving
+    off the shared secret: a verifier that checks a signature and ignores who
+    the token was issued for has bought nothing at all.
+
+    Every rejection returns None. None of them says *why* in the response —
+    which check failed is useful to an operator reading a log and useful to
+    somebody probing the endpoint, and only one of those is a customer.
+    """
+    import jwt                                  # noqa: PLC0415 — see below
+    # Imported here rather than at module scope so the service still runs, and
+    # still passes its suite, in shared-secret mode on a host that has not
+    # installed the crypto dependency. The startup guard is what makes that
+    # safe: this mode cannot serve unless the import works.
+
+    raw = str(headers.get("Authorization") or "")
+    if not raw.startswith("Bearer "):
+        return None
+    token = raw[len("Bearer "):].strip()
+    if not token:
+        return None
+
+    try:
+        head = jwt.get_unverified_header(token)
+    except Exception:                           # noqa: BLE001
+        return None
+
+    # Pinned before a key is looked up, so `alg: none` and the HMAC-with-the-
+    # public-key trick are refused by this service rather than left to the
+    # library's defaults.
+    if head.get("alg") not in FORGE_ALGORITHMS:
+        return None
+    kid = head.get("kid")
+    if not kid:
+        return None
+
+    jwk = _jwk_for(kid, _forge_env("FORGE_JWKS_URL"), time.time())
+    if jwk is None:
+        return None
+    try:
+        key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(jwk))
+        claims = jwt.decode(
+            token, key=key,
+            algorithms=list(FORGE_ALGORITHMS),
+            audience=_forge_env("FORGE_AUDIENCE"),
+            issuer=_forge_env("FORGE_ISSUER"),
+            leeway=FORGE_LEEWAY_SECONDS,
+            options={"require": ["exp", "iss", "aud"],
+                     "verify_exp": True, "verify_nbf": True,
+                     "verify_aud": True, "verify_iss": True,
+                     "verify_signature": True},
+        )
+    except Exception:                           # noqa: BLE001
+        return None
+
+    tenant = claims.get(_forge_env("FORGE_TENANT_CLAIM"))
+    if not isinstance(tenant, str) or not tenant.strip():
+        # A signature that verifies against an unknown tenant is a call this
+        # service cannot attribute, and attributing calls is why this mode
+        # exists. Refused rather than served anonymously.
+        return None
+    return {"mode": "forge-token", "tenant": tenant.strip()}
 
 
-VERIFIERS = {"shared-secret": _verify_shared_secret, "forge-token": _verify_forge_token}
+def _shared_secret_principal(headers):
+    """The shared-secret verifier, in the shape the seam now returns.
+
+    One tenant, unnamed, because a single string presented by every
+    installation cannot identify one. That is the limitation the token mode
+    exists to remove, and saying `None` here is how the log line stays honest
+    about it.
+    """
+    return {"mode": "shared-secret", "tenant": None} if _verify_shared_secret(headers) else None
+
+
+VERIFIERS = {"shared-secret": _shared_secret_principal, "forge-token": _verify_forge_token}
 
 
 def startup_problem(insecure=False):
@@ -172,10 +343,23 @@ def startup_problem(insecure=False):
         return ("SERVICE_AUTH=%r is not a mode this service has. Use one of: %s"
                 % (mode, ", ".join(AUTH_MODES)))
     if mode == "forge-token":
-        return ("SERVICE_AUTH=forge-token is not implemented yet, and this service "
-                "will not fall back to something weaker.\nImplement "
-                "_verify_forge_token() first — docs/forge-deployment.md section 2 "
-                "lists what it must check and how to test it.")
+        missing = [k for k in FORGE_ENV if not _forge_env(k)]
+        if missing:
+            # The same rule the shared secret has: a mode that cannot verify
+            # must not serve. Guessing any of these produces a verifier that
+            # rejects every real token, or — the case that matters — accepts one
+            # minted for a different app.
+            return ("SERVICE_AUTH=forge-token needs %s, and this service will not "
+                    "fall back to something weaker.\nConfirm each against current "
+                    "Atlassian documentation — docs/forge-deployment.md section 2 "
+                    "lists what they are." % ", ".join(missing))
+        try:
+            import jwt  # noqa: F401,PLC0415
+        except Exception:                       # noqa: BLE001
+            return ("SERVICE_AUTH=forge-token needs PyJWT with its crypto extra, "
+                    "which is not importable here.\n"
+                    "  pip install -r service/requirements.txt")
+        return None
     if not _expected_secret():
         return ("Refusing to start without SERVICE_SHARED_SECRET.\n"
                 "An open calculator is free compute for whoever finds it, and\n"
@@ -186,11 +370,12 @@ def startup_problem(insecure=False):
 
 
 def authorised(headers, insecure=False):
+    """Who this caller is, or None. Truthy exactly where it used to be True."""
     if insecure:
-        return True
+        return {"mode": "insecure", "tenant": None}
     verify = VERIFIERS.get(_auth_mode())
     if verify is None:
-        return False
+        return None
     return verify(headers)
 
 
@@ -329,13 +514,36 @@ def meta():
 
 
 # ---------------------------------------------------------------- dispatch
+#
+# Who the current request is for, so the access log can say it. Kept beside the
+# request rather than returned from `handle()` because `handle()` is the seam
+# every test calls directly and its two-value contract is worth not disturbing
+# for a log line.
+#
+# Thread-local: the built-in server is threading, so a module-level variable
+# would attribute one tenant's request to another under any concurrency at all
+# — which is a worse failure in a log than having no tenant in it.
+_current = threading.local()
+
+
+def _seen(headers, who):
+    _current.who = who
+
+
+def caller():
+    """The principal on this thread, or None. For the access log only."""
+    return getattr(_current, "who", None)
+
+
 def handle(method, path, raw_body, headers, insecure=False):
     """One request in, (status, dict) out. No sockets, so tests call it directly."""
     if method == "GET" and path == "/healthz":
         return 200, {"ok": True, "version": VERSION}
     if method == "GET" and path == "/v1/meta":
-        if not authorised(headers, insecure):
+        who = authorised(headers, insecure)
+        if not who:
             return 401, {"ok": False, "error": "unauthorised"}
+        _seen(headers, who)
         return 200, {"ok": True, "result": meta()}
 
     fn = ROUTES.get(path)
@@ -343,8 +551,10 @@ def handle(method, path, raw_body, headers, insecure=False):
         return 404, {"ok": False, "error": "no such route: %s" % path}
     if method != "POST":
         return 405, {"ok": False, "error": "%s takes POST" % path}
-    if not authorised(headers, insecure):
+    who = authorised(headers, insecure)
+    if not who:
         return 401, {"ok": False, "error": "unauthorised"}
+    _seen(headers, who)
     if raw_body is None or len(raw_body) > MAX_BODY_BYTES:
         return 413, {"ok": False, "error":
                      "body over the %d-byte limit. Send one team's slice rather "
@@ -420,9 +630,16 @@ class Handler(BaseHTTPRequestHandler):
             n = len(json.loads(body or b"{}").get("dataset", {}).get("issues", []))
         except Exception:
             pass
-        sys.stderr.write("%s %s -> %d  %d issues  %.0fms%s\n"
+        # The tenant, where the auth mode can name one. This is the whole
+        # reason for the token mode: a shared secret presented by every
+        # installation cannot say who is asking, so it logs no tenant rather
+        # than a placeholder that reads like one.
+        who = caller() or {}
+        tenant = who.get("tenant")
+        sys.stderr.write("%s %s -> %d  %d issues  %.0fms%s%s\n"
                          % (method, self.path.split("?")[0], status, n,
                             1000 * (time.time() - started),
+                            ("  tenant=%s" % tenant) if tenant else "",
                             "  [INSECURE]" if self.insecure else ""))
 
     def do_GET(self):

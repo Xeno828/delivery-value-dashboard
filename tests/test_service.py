@@ -21,11 +21,13 @@ Needs nothing but Python 3.
 
 import datetime
 import json
+import os
 import pathlib
 import re
 import secrets
 import subprocess
 import sys
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "agent" / "tools"))
@@ -256,37 +258,43 @@ def test_no_internals_leak():
 def test_auth_seam_fails_closed():
     """Swapping the verifier must be a contained change that cannot fail open.
 
-    The shared secret is a placeholder for Atlassian's invocation token. The one
-    thing that must not happen during that swap is a configuration which serves
-    requests without checking anything — a calculator that came up
-    unauthenticated looks healthy to everything watching it.
+    Both modes are written now. The one thing that must not happen in either is
+    a configuration which serves requests without checking anything — a
+    calculator that came up unauthenticated looks healthy to everything
+    watching it. So every way of being misconfigured is checked here, and each
+    one has to stop the process *and* refuse the request, because a guard that
+    only exists at startup is a guard somebody removes.
     """
     import os
     saved = dict(os.environ)
     try:
-        # the mode that is not written yet must stop the process, not degrade
+        # The token mode, with none of the four values it needs. Configuration
+        # rather than constants, precisely so this file carries no value nobody
+        # has confirmed against Atlassian — which means it can be absent.
         os.environ["SERVICE_AUTH"] = "forge-token"
+        for k in SVC.FORGE_ENV:
+            os.environ.pop(k, None)
         problem = SVC.startup_problem()
-        check("an unimplemented auth mode refuses to start",
-              problem and "not implemented" in problem, problem)
+        check("an unconfigured token mode refuses to start",
+              problem and all(k in problem for k in SVC.FORGE_ENV), problem)
         check("and says where the specification lives",
               problem and "forge-deployment" in problem, problem)
         # even if the startup guard were removed, requests must not pass
-        check("the unimplemented verifier refuses every request",
-              SVC.authorised({"Authorization": "Bearer anything"}) is False)
+        check("and its verifier refuses every request while unconfigured",
+              SVC.authorised({"Authorization": "Bearer anything"}) is None)
 
         os.environ["SERVICE_AUTH"] = "typo-mode"
         problem = SVC.startup_problem()
         check("an unknown auth mode refuses to start", bool(problem), problem)
         check("an unknown auth mode refuses every request",
-              SVC.authorised({"Authorization": "Bearer anything"}) is False)
+              SVC.authorised({"Authorization": "Bearer anything"}) is None)
 
         os.environ["SERVICE_AUTH"] = "shared-secret"
         os.environ.pop("SERVICE_SHARED_SECRET", None)
         check("the implemented mode still refuses to start with no secret",
               bool(SVC.startup_problem()))
         check("and refuses every request while unconfigured",
-              SVC.authorised({"Authorization": "Bearer anything"}) is False)
+              SVC.authorised({"Authorization": "Bearer anything"}) is None)
 
         os.environ["SERVICE_SHARED_SECRET"] = SECRET
         check("a configured service may start", SVC.startup_problem() is None)
@@ -1212,6 +1220,238 @@ def test_epic_sizing_survives_the_projection():
           "grouped by epic key" in (sizing.get("basis") or ""), sizing.get("basis"))
 
 
+
+# =====================================================================
+# the Forge invocation token
+# =====================================================================
+def _jwt_available():
+    try:
+        import jwt                                          # noqa: F401,PLC0415
+        import cryptography                                 # noqa: F401,PLC0415
+        return True
+    except Exception:                                       # noqa: BLE001
+        return False
+
+
+def test_forge_token_verification():
+    """SERVICE_AUTH=forge-token, proved without Atlassian.
+
+    A keypair is generated here, a JWKS is served from a local HTTP server, and
+    the tokens are minted in the test. That exercises every mechanic — algorithm
+    pinning, key lookup by `kid`, cache and rotation, `exp`, `nbf`, `aud`,
+    `iss`, tenant binding — against a signer this test controls, which is the
+    only way to test a verifier without a real token to test against.
+
+    What it does **not** prove is the four values that identify Atlassian's
+    issuer: the JWKS URL, the `iss`, what belongs in `aud`, and which claim
+    carries the tenant. Those are configuration, the service refuses to start
+    without them, and confirming them against current Atlassian documentation
+    is a step no test here can do for you.
+    """
+    if not _jwt_available():
+        # Reported, never skipped silently. A security test that quietly did
+        # not run reads exactly like one that passed.
+        check("PyJWT with its crypto extra is installed, so the verifier can be tested",
+              False, "pip install -r service/requirements.txt")
+        return
+
+    import http.server
+    import threading
+    import jwt
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    KID = "test-key-1"
+
+    def jwk_of(k, kid):
+        pub = jwt.algorithms.RSAAlgorithm.to_jwk(k.public_key(), as_dict=True)
+        pub.update({"kid": kid, "use": "sig", "alg": "RS256"})
+        return pub
+
+    served = {"keys": [jwk_of(key, KID)]}
+    fetches = {"n": 0}
+
+    class JWKS(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):                                   # noqa: N802
+            fetches["n"] += 1
+            body = json.dumps(served).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):                          # keep the run quiet
+            pass
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), JWKS)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = "http://127.0.0.1:%d/jwks" % srv.server_address[1]
+
+    ISS, AUD, TENANT_CLAIM = "https://forge.example/iss", "ari:app/abc", "installationId"
+    env = {"SERVICE_AUTH": "forge-token", "FORGE_JWKS_URL": url, "FORGE_ISSUER": ISS,
+           "FORGE_AUDIENCE": AUD, "FORGE_TENANT_CLAIM": TENANT_CLAIM}
+    old_env = {k: os.environ.get(k) for k in env}
+
+    def mint(k=key, kid=KID, alg="RS256", **over):
+        now = int(time.time())
+        claims = {"iss": ISS, "aud": AUD, "exp": now + 300, "nbf": now - 5,
+                  TENANT_CLAIM: "tenant-abc"}
+        claims.update(over)
+        return jwt.encode(claims, k, algorithm=alg, headers={"kid": kid})
+
+    def bearer(tok):
+        return {"Authorization": "Bearer " + tok}
+
+    try:
+        os.environ.update(env)
+        SVC._jwks_cache.update({"keys": {}, "fetched_at": 0.0, "last_attempt": 0.0})
+
+        check("the token mode starts once its four values are configured",
+              SVC.startup_problem() is None, SVC.startup_problem())
+
+        who = SVC.authorised(bearer(mint()))
+        check("a correctly signed, in-date token is accepted",
+              bool(who) and who.get("mode") == "forge-token", who)
+        check("and it carries the tenant, which is the point of the mode",
+              (who or {}).get("tenant") == "tenant-abc", who)
+
+        now = int(time.time())
+        rejects = [
+            ("expired", mint(exp=now - 60, nbf=now - 600)),
+            ("nbf in the future", mint(nbf=now + 600, exp=now + 900)),
+            ("right signature, wrong aud", mint(aud="ari:app/somebody-else")),
+            ("right signature, wrong iss", mint(iss="https://not-atlassian.example")),
+            ("signed with a key not in the JWKS", mint(k=other)),
+            ("no kid in the header", jwt.encode({"iss": ISS, "aud": AUD,
+                                                 "exp": now + 300,
+                                                 TENANT_CLAIM: "t"}, key,
+                                                algorithm="RS256")),
+            ("well-formed but truncated", mint()[:-8]),
+            ("no tenant claim at all", mint(**{TENANT_CLAIM: None})),
+            ("an empty tenant claim", mint(**{TENANT_CLAIM: "   "})),
+        ]
+        for name, tok in rejects:
+            check("a token that is %s is rejected" % name,
+                  SVC.authorised(bearer(tok)) is None, name)
+
+        # The two that are attacks rather than mistakes, and the reason the
+        # algorithm is pinned before a key is ever looked up.
+        unsigned = jwt.encode({"iss": ISS, "aud": AUD, "exp": now + 300,
+                               TENANT_CLAIM: "t"}, key=None, algorithm="none",
+                              headers={"kid": KID})
+        check("a token with alg:none and no signature is rejected",
+              SVC.authorised(bearer(unsigned)) is None, "alg:none")
+
+        # The classic: sign with HMAC using the RSA *public* key as the shared
+        # secret, against a verifier that takes its algorithm from the header.
+        # The public key is public, so this is free to construct.
+        # Assembled by hand rather than with `jwt.encode`, which refuses to use
+        # an asymmetric key as an HMAC secret — a good guard on the *minting*
+        # side, and not one a verifier may rely on. An attacker writes these
+        # three lines.
+        import base64
+        import hashlib
+        import hmac as _hmac
+        from cryptography.hazmat.primitives import serialization
+        pub_pem = key.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo)
+        b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=")
+        signing = (b64(json.dumps({"alg": "HS256", "typ": "JWT", "kid": KID}).encode())
+                   + b"." + b64(json.dumps({"iss": ISS, "aud": AUD, "exp": now + 300,
+                                            TENANT_CLAIM: "t"}).encode()))
+        forged = (signing + b"." + b64(_hmac.new(pub_pem, signing,
+                                                 hashlib.sha256).digest())).decode()
+        check("an HMAC-signed token using the public key as the secret is rejected",
+              SVC.authorised(bearer(forged)) is None, "HS256 with the public key")
+
+        check("a request with no Authorization header at all is rejected",
+              SVC.authorised({}) is None)
+
+        # The algorithm pin is defence in depth: PyJWT's own `algorithms=`
+        # already refuses both forgeries above, so removing the pin changes no
+        # verdict and no mutation of it would fail. What the pin *does* change
+        # is observable, and is the property worth having — the token is thrown
+        # out before a key is looked up, so an attacker cannot use `alg: none`
+        # to make this service fetch from Atlassian's endpoint on their behalf.
+        # It also means the rejection is this service's rather than a library
+        # default somebody widens later.
+        # Carrying a `kid` this service has never seen, so that without the
+        # pin the verifier would go and fetch looking for it. With `kid` set to
+        # a key already cached the check proves nothing, because no fetch would
+        # happen either way — which is what the first version of it did.
+        probe = (b64(json.dumps({"alg": "HS256", "typ": "JWT",
+                                 "kid": "never-seen"}).encode())
+                 + b"." + b64(json.dumps({"iss": ISS, "aud": AUD, "exp": now + 300,
+                                          TENANT_CLAIM: "t"}).encode()))
+        probe = (probe + b"." + b64(_hmac.new(pub_pem, probe,
+                                              hashlib.sha256).digest())).decode()
+        SVC._jwks_cache["last_attempt"] = 0.0
+        before = fetches["n"]
+        check("and that token is rejected", SVC.authorised(bearer(probe)) is None)
+        check("a token whose algorithm is not pinned is refused before any key is fetched",
+              fetches["n"] == before, (before, fetches["n"]))
+        # The floor was opened to make that check mean something; close it
+        # again, because the cache assertions below depend on a recent attempt
+        # and a test that quietly changes a precondition for the next one is
+        # its own kind of wrong answer.
+        SVC._jwks_cache["last_attempt"] = time.time()
+
+        # ---------- the cache, and rotation ----------
+        before = fetches["n"]
+        for _ in range(5):
+            SVC.authorised(bearer(mint()))
+        check("the key set is cached rather than fetched per request",
+              fetches["n"] == before, (before, fetches["n"]))
+
+        # An unknown kid is exactly what somebody would send in a loop if this
+        # were unbounded, so it is rate limited by when the last fetch was
+        # attempted — not by whether the kid was found. Both halves of that are
+        # worth pinning: inside the floor an unknown kid costs Atlassian
+        # nothing at all, and past it costs one fetch however many arrive.
+        before = fetches["n"]
+        for _ in range(4):
+            SVC.authorised(bearer(mint(kid="nope")))
+        check("inside the refetch floor an unknown kid triggers no fetch at all",
+              fetches["n"] == before, (before, fetches["n"]))
+
+        SVC._jwks_cache["last_attempt"] = 0.0
+        before = fetches["n"]
+        for _ in range(4):
+            SVC.authorised(bearer(mint(kid="nope")))
+        check("past the floor it refetches once, not once per attempt",
+              fetches["n"] == before + 1, (before, fetches["n"]))
+
+        # Rotation: a new key appears under a new kid, and the floor is what
+        # keeps it from being picked up instantly — so the floor is dropped to
+        # prove the refetch works rather than waiting thirty seconds for it.
+        served["keys"] = [jwk_of(other, "test-key-2")]
+        SVC._jwks_cache["last_attempt"] = 0.0
+        rotated = SVC.authorised(bearer(mint(k=other, kid="test-key-2")))
+        check("a rotated key is picked up on the next unknown kid",
+              bool(rotated) and rotated.get("tenant") == "tenant-abc", rotated)
+        check("and the key it replaced stops verifying",
+              SVC.authorised(bearer(mint(k=key, kid=KID))) is None)
+
+        # ---------- misconfiguration must not serve ----------
+        for missing in SVC.FORGE_ENV:
+            keep = os.environ.pop(missing)
+            problem = SVC.startup_problem()
+            os.environ[missing] = keep
+            check("without %s the service refuses to start" % missing,
+                  problem is not None and missing in problem, problem)
+    finally:
+        srv.shutdown()
+        for k, v in old_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        SVC._jwks_cache.update({"keys": {}, "fetched_at": 0.0, "last_attempt": 0.0})
+
+
 def test_forge_app_dependencies():
     """This code runs inside a customer's Jira tenant, so what it depends on is
     a security question rather than a packaging one.
@@ -1363,6 +1603,8 @@ if __name__ == "__main__":
     print("the forecast over a board with no sprints")
     test_the_forecaster_counts_one_issue_once()
     test_a_window_is_not_a_deadline_to_the_forecaster()
+    print("the Forge invocation token")
+    test_forge_token_verification()
     print("the Forge app's dependencies")
     test_forge_app_dependencies()
     print("the container image")

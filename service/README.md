@@ -31,21 +31,62 @@ Two modes, chosen with `SERVICE_AUTH`:
 
 | | |
 |---|---|
-| `shared-secret` | Implemented and tested. What runs today |
-| `forge-token` | **Not implemented.** The service refuses to start in this mode rather than falling back to something weaker |
+| `shared-secret` | One string, presented by every installation. Cannot tell one customer from another, which is what makes it the mode for local runs and the suite |
+| `forge-token` | The Atlassian-issued invocation token. Tenant-aware, and this app holds no secret of its own |
 
-The shared secret is not tenant-aware: every installation presents the same
-string. The tenant-aware mechanism is the invocation token Forge attaches to a
-remote call, and `_verify_forge_token()` is the seam it goes in — every route
-already runs through `authorised()`, so nothing else changes. What it has to
-check, what to confirm from Atlassian's docs, and the token-forgery cases the
-tests must reject: [docs/forge-deployment.md](../docs/forge-deployment.md).
+A verifier returns *who the caller is* rather than a boolean, so the access log
+can name the tenant a request was for — which is the entire point of the token
+mode. The shared secret logs no tenant rather than a placeholder that reads
+like one, because a single string every installation presents cannot identify
+anybody.
+
+### `forge-token` needs four values, and this repository does not guess them
+
+| | |
+|---|---|
+| `FORGE_JWKS_URL` | where Atlassian publishes the signing keys |
+| `FORGE_ISSUER` | the exact `iss` to require |
+| `FORGE_AUDIENCE` | what goes in `aud` — the app id, the app ari, or something else |
+| `FORGE_TENANT_CLAIM` | which claim carries the installation or tenant identity |
+
+They are environment variables rather than constants precisely so that no value
+nobody has confirmed lives in the source. **Confirm each against current
+Atlassian documentation and record the date beside the deployment that sets
+them.** The service refuses to start in this mode with any of them missing:
+guessing one produces a verifier that rejects every real token, or — the case
+that matters — accepts one minted for a different app.
+
+The mechanics are proved without Atlassian. `tests/test_service.py` generates a
+keypair, serves a JWKS from a local HTTP server and mints its own tokens, then
+requires every one of these to be refused: expired, `nbf` in the future, wrong
+`aud`, wrong `iss`, signed with a key outside the JWKS, `alg: none`, HMAC-signed
+using the RSA public key as the secret, no `kid`, unknown `kid`, truncated, and
+a valid signature carrying no tenant. What that cannot prove is the four values
+above.
+
+## Dependencies
+
+Stdlib, except one: `PyJWT[crypto]`, in `service/requirements.txt`, used only by
+`forge-token`. It is imported inside the verifier rather than at module scope,
+so shared-secret mode runs and the suite passes on a host that never installed
+it — the startup guard is what makes that safe, because the token mode cannot
+serve unless the import works.
+
+Deliberately not in `scripts/requirements.txt`: the security suite asserts the
+fetcher's dependency list stays at one, and that is the list worth keeping
+boring, since the fetcher is what holds a customer's credentials.
 
 ## Running it
 
 ```bash
 SERVICE_SHARED_SECRET=$(openssl rand -hex 32) python3 service/app.py
 python3 service/app.py --insecure          # local development only
+
+# tenant-aware, once the four values are confirmed
+pip install -r service/requirements.txt
+SERVICE_AUTH=forge-token \
+  FORGE_JWKS_URL=... FORGE_ISSUER=... FORGE_AUDIENCE=... FORGE_TENANT_CLAIM=... \
+  python3 service/app.py
 ```
 
 It refuses to start without a secret. An open calculator is free compute for

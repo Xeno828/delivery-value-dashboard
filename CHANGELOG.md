@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.18.0
+
+**The calculator can authenticate a tenant.** `SERVICE_AUTH=forge-token` was a mode that refused to start; it is written now, and with it the hosted calculator stops being blocked on code and starts being blocked only on somewhere to run.
+
+A verifier returns **who the caller is** rather than a boolean, which is the whole point of moving off the shared secret: a check that validates a signature and ignores who the token was issued for has bought nothing. The tenant reaches the access log. The shared-secret mode logs no tenant rather than a placeholder, because one string presented by every installation cannot identify anybody, and a log that implies otherwise is worse than one that says nothing.
+
+**Found while checking, and it changes the order of the remaining work.** `callCalculator()` in the Forge resolver sends no `Authorization` header at all — deliberately, since the design is for Forge to attach the token. But the only implemented mode wanted a bearer secret, so hosting the service on its own would have returned 401 on every call. The two halves did not meet, and section 2 of the runbook was never optional groundwork that could be deferred behind hosting.
+
+**Four values are configuration, not constants, and are not guessed here.** `FORGE_JWKS_URL`, `FORGE_ISSUER`, `FORGE_AUDIENCE` and `FORGE_TENANT_CLAIM` must be confirmed against current Atlassian documentation. The service refuses to start in this mode with any of them missing, and refuses every request too — a guard that only exists at startup is a guard somebody removes. Guessing one produces a verifier that rejects every real token, or, in the case that matters, accepts one minted for a different app.
+
+**The mechanics are proved against a signer the test controls.** `tests/test_service.py` generates a keypair, serves a JWKS from a local HTTP server and mints its own tokens, then requires every one of these to be refused: expired, `nbf` in the future, wrong `aud`, wrong `iss`, signed with a key outside the key set, `alg: none`, HMAC-signed using the RSA public key as the secret, no `kid`, unknown `kid`, truncated, a valid signature carrying no tenant, and one carrying a blank tenant. The HMAC forgery is assembled by hand, because `jwt.encode` refuses to use an asymmetric key as an HMAC secret — a good guard on the minting side and not one a verifier may lean on.
+
+**Two cache properties are pinned, because both failures are silent.** Inside the re-fetch floor an unknown `kid` costs Atlassian nothing at all; past it, it costs exactly one fetch however many unknown ids arrive. An unknown `kid` is precisely what somebody would send in a loop if this were unbounded, and an uncached fetch per request would make Atlassian's endpoint this service's availability ceiling.
+
+**Two of the mutation tests were worthless and it took a second look to notice.** The first tenant-binding mutation was malformed and silently changed nothing, so its clean run proved nothing — applied properly it fails two checks. And removing the algorithm pin altogether changed no verdict at all, because PyJWT's own `algorithms=` already refuses both forgeries: the pin is defence in depth, and no assertion about a *verdict* could ever have covered it. What the pin genuinely changes is observable — the token is thrown out before a key is looked up, so `alg: none` cannot be used to make this service fetch from Atlassian on somebody's behalf. That is what is asserted now, with a probe carrying a `kid` the cache has never seen, because the first version used a cached one and no fetch would have happened either way.
+
+**The dependency.** `PyJWT[crypto]`, in a new `service/requirements.txt` — deliberately not in `scripts/requirements.txt`, because the security suite asserts the fetcher's dependency list stays at one and the fetcher is what holds a customer's credentials. It is imported inside the verifier rather than at module scope, so shared-secret mode still runs and the whole suite still passes on a host that never installed it; the startup guard is what makes that safe. The Dockerfile installs it before copying the source, CI audits it alongside the fetcher's, and `service/README.md` no longer says the service is stdlib-only.
+
+**What this does not claim.** No real Forge token has been through this verifier, and none can be until the four values are confirmed and the service is hosted somewhere Forge can reach. The mechanics are proved; the deployment is not. `remotes[0].baseUrl` still points at `.invalid`, the forecast and sequencing resolvers still answer with the offline notice, and `tests/test_service.py` still ties those two together so neither can change without the other.
+
 ## 1.17.1
 
 **Sizing an ask could never work over the route Forge would use, and the reason was one field reaching nobody.**

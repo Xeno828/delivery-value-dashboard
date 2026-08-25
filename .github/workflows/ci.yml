@@ -45,6 +45,7 @@ jobs:
         run: |
           pip install pip-audit
           pip-audit -r scripts/requirements.txt
+          pip-audit -r service/requirements.txt
 
       - name: Upload the rendered page
         if: always()
