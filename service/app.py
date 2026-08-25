@@ -249,6 +249,31 @@ def _jwk_for(kid, url, now):
         return keys.get(kid)
 
 
+def _claim_at(claims, path):
+    """The claim at a dotted path, or None.
+
+    The invocation token has no flat tenant claim. The installation identity is
+    `app.installationId` and the site identity is `context.cloudId`, both nested
+    one level below the top of the payload, and neither is reachable with a flat
+    `claims.get()`. That is what this replaces, and the failure it replaces was
+    invisible: the verifier refused every genuine token while every token the
+    suite mints — all of which carry a flat claim — was accepted, so nothing in
+    the harness could tell the difference. Only Atlassian's published payload
+    can, which is why the fix arrives with a nested case beside it.
+
+    A path with no dot in it is a single-element walk, so a flat claim name goes
+    on working. `context.cloudId` resolves too, and is the wrong choice here for
+    a reason worth stating: no context is delivered to the backend-function
+    invocations this app makes, so on this route that claim is always absent.
+    """
+    node = claims
+    for part in str(path or "").split("."):
+        if not part or not isinstance(node, dict):
+            return None
+        node = node.get(part)
+    return node
+
+
 def _verify_forge_token(headers):
     """The Atlassian-issued invocation token, or None.
 
@@ -316,7 +341,7 @@ def _verify_forge_token(headers):
     except Exception:                           # noqa: BLE001
         return None
 
-    tenant = claims.get(_forge_env("FORGE_TENANT_CLAIM"))
+    tenant = _claim_at(claims, _forge_env("FORGE_TENANT_CLAIM"))
     if not isinstance(tenant, str) or not tenant.strip():
         # A signature that verifies against an unknown tenant is a call this
         # service cannot attribute, and attributing calls is why this mode

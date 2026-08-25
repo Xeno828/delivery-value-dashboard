@@ -71,18 +71,39 @@ resources:
 # The hosted calculator — service/app.py. Forge cannot run agent/tools/, so it
 # posts the fields a calculation reads and gets the figures back, rather than a
 # second Monte Carlo being written in JavaScript. ADR 0008 has the reasoning and
-# the measurements. Declaring it as a `remote` rather than a bare egress URL is
-# what gets each call an Atlassian-issued invocation token, so the service can
-# tell which tenant is asking without this app holding a secret.
+# the measurements.
+#
+# What attaches the Atlassian-issued invocation token is `invokeRemote` in
+# forge/src/index.js — not this declaration. The comment here used to say the
+# opposite, and the code it described called plain `fetch` against a URL out of
+# the environment, which sends no Authorization header at all: pointing baseUrl
+# at a real host would have returned 401 on every call, in either of the
+# service's auth modes. Declaring the remote is what makes the egress
+# permitted; that is a different claim and it was the one being made.
+#
+# `operations: [compute]` does two jobs. Forge requires it before `invokeRemote`
+# will resolve this key at all, and it is the declaration that this remote
+# processes data without storing any. With `operations` absent Forge assumes the
+# opposite — that the app stores end-user data here — which is the worst
+# available reading of a service whose entire argument is that it stores
+# nothing, and it would cost the app its data-residency PINNED status.
+#
+# There is no `permissions.external.fetch` entry any more, because nothing
+# fetches. It was the egress rule for the `fetch` call that is gone.
+#
+# `baseUrl` becomes an object of region-specific URLs at switchover, resolved
+# per install from the customer's own residency setting, so this app never picks
+# a tenant's region. Converting the format is a major version change and a
+# reinstall, so it lands once, with the real URLs and with the refusals in
+# forge/src/index.js removed in the same commit — tests/test_service.py asserts
+# those two move together. docs/hosting-the-calculator.md §5, ADR 0012.
 remotes:
   - key: calculator
     baseUrl: https://calculator.example.invalid
+    operations:
+      - compute
 
 permissions:
-  external:
-    fetch:
-      backend:
-        - remote: calculator
   scopes:
     # Read-only, and every one of them is asserted read-only on every push —
     # an app that asks for write access to close a deal is one whose consent

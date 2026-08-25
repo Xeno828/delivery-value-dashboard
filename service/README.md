@@ -50,9 +50,14 @@ anybody.
 | `FORGE_TENANT_CLAIM` | which claim carries the installation or tenant identity |
 
 They are environment variables rather than constants precisely so that no value
-nobody has confirmed lives in the source. **Confirm each against current
-Atlassian documentation and record the date beside the deployment that sets
-them.** The service refuses to start in this mode with any of them missing:
+nobody has confirmed lives in the source. **All four are now confirmed and
+dated** in [hosting the calculator](../docs/hosting-the-calculator.md)
+Appendix A — `aud` is the app id ARI, not the bare UUID, and the tenant claim
+is `app.installationId`, which is **nested**. The verifier walks a dotted path
+for exactly that reason: a flat lookup found no tenant in a real token and so
+refused every one of them, while every token this suite mints carries a flat
+claim and was accepted. Re-confirm against current Atlassian documentation and
+record the date beside any deployment that sets them. The service refuses to start in this mode with any of them missing:
 guessing one produces a verifier that rejects every real token, or — the case
 that matters — accepts one minted for a different app.
 
@@ -152,13 +157,23 @@ history looks exactly like a forecast over all of it.
 else — no `.env`, no `data/`, no `dist/`. Non-root, no writes at runtime, so a
 read-only root filesystem works.
 
-Stateless and sub-second suits scale-to-zero (Cloud Run, Fargate, Fly). Inject
-`SERVICE_SHARED_SECRET` from the platform's secret store; the same value goes
-in the Forge app's remote configuration.
+Stateless and sub-second suits scale-to-zero. Where it runs, what it costs and
+in what order: [hosting the calculator](../docs/hosting-the-calculator.md).
+The recommendation is Cloud Run in two regions on `SERVICE_AUTH=forge-token`,
+which needs no secret store at all — the four `FORGE_*` values are
+configuration, not credentials. Fargate is retired as a candidate there: it has
+no scale-to-zero, so it bills 730 hours a month for a service busy for minutes.
 
-**Data residency is yours now.** Pin a deployment per region and route each
-tenant to its own — this is the half of roadmap item 6 that moves earlier if
-you take the Forge route.
+For a local run or a shared-secret deployment, inject `SERVICE_SHARED_SECRET`
+from the platform's secret store; the same value goes in the Forge app's remote
+configuration.
+
+**Data residency is yours, but the routing is not.** Pin a deployment per
+region — and then let Forge choose between them. A `remotes` entry whose
+`baseUrl` is an object of region-specific URLs is resolved per installation
+from the customer's own Atlassian residency setting, so this app never decides
+which region a tenant belongs in. That is the half of roadmap item 6 that moves
+earlier if you take the Forge route, and it is smaller than it looks.
 
 ## Logging
 

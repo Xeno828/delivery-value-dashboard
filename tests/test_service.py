@@ -381,9 +381,34 @@ def test_forge_manifest_matches_the_code():
 
     declared = re.findall(r"^remotes:\s*$\n(?:\s+- key:\s*(\S+)\s*$)", man, re.M)
     referenced = re.findall(r"^\s+- remote:\s*(\S+)\s*$", man, re.M)
-    check("the egress rule points at a remote that is declared",
-          referenced and set(referenced) <= set(declared),
+    check("any egress rule points at a remote that is declared",
+          set(referenced) <= set(declared),
           {"declared": declared, "referenced": referenced})
+
+    # That check used to require an egress rule to exist, because the calculator
+    # was reached with `fetch` and `permissions.external.fetch.backend` named the
+    # remote. It is reached with `invokeRemote` now — the only call that attaches
+    # the invocation token — so there is no egress rule left to check and the
+    # typo it guarded against has moved into the code. `invokeRemote` names its
+    # remote with a string, and a mistyped one fails at runtime, inside a tenant,
+    # which is exactly what the old assertion existed to prevent.
+    idx_src = (ROOT / "forge" / "src" / "index.js").read_text()
+    invoked = set(re.findall(r"invokeRemote\(\s*'([^']+)'", idx_src))
+    check("every remote invokeRemote names is declared in the manifest",
+          bool(invoked) and invoked <= set(declared),
+          {"declared": declared, "invoked": sorted(invoked)})
+
+    # `operations: [compute]` is required before Forge will resolve a remote key
+    # for `invokeRemote` at all, so without it the calculator route fails in a
+    # tenant with nothing here to have caught it. It is also the declaration that
+    # this remote computes without storing: absent, Forge assumes the app stores
+    # end-user data on the remote, which is both untrue and the reading that
+    # costs the app its data-residency PINNED status.
+    block = re.search(r"^remotes:\s*$\n((?:[ \t]+.*\n|\n)*)", man, re.M)
+    ops = block.group(1) if block else ""
+    check("the calculator remote declares operations: [compute]",
+          re.search(r"^\s+operations:\s*$\n\s+- compute\s*$", ops, re.M) is not None,
+          ops.strip() or "no remotes block found")
 
     # `forge register` writes an app id into the manifest, and having one locally
     # is the correct state for anyone who has registered. Only committing it is
@@ -1397,6 +1422,52 @@ def test_forge_token_verification():
 
         check("a request with no Authorization header at all is rejected",
               SVC.authorised({}) is None)
+
+        # ---------- the tenant claim is nested in a real token ----------
+        #
+        # Every token minted above carries a *flat* tenant claim, and that is
+        # why twelve rejection cases could pass against a verifier that could
+        # not read a real one. The invocation token has no flat tenant claim at
+        # all: the installation identity is `app.installationId`, one level
+        # down, and `context.cloudId` — the other candidate — is not delivered
+        # to the backend-function invocations this app makes, so on this route
+        # it is always absent. A flat `claims.get()` found neither, so the mode
+        # refused 100% of genuine traffic while this suite stayed green.
+        #
+        # It failed in the safe direction — nothing wrong was ever accepted —
+        # and it still meant the tenant-aware mode did not work. Nothing minted
+        # by a signer this test controls could have shown it; only Atlassian's
+        # published payload could, which is why the shape is copied from it.
+        INSTALL = ("ari:cloud:ecosystem::installation/"
+                   "0a3a7799-53ae-4a5b-9e7e-03338980abb5")
+        os.environ["FORGE_TENANT_CLAIM"] = "app.installationId"
+        nested = mint(**{TENANT_CLAIM: None,
+                         "app": {"id": AUD, "installationId": INSTALL}})
+        who = SVC.authorised(bearer(nested))
+        check("a nested tenant claim is read, as a real token carries it",
+              bool(who) and who.get("tenant") == INSTALL, who)
+
+        # The walk has to refuse as firmly as the flat lookup did. A path that
+        # runs out, or lands on an object, or lands on blank, is a call this
+        # service cannot attribute — and attributing calls is the whole reason
+        # this mode exists.
+        for name, tok in [
+            ("a dotted path whose object is absent",
+             mint(**{TENANT_CLAIM: None})),
+            ("a dotted path that lands on an object rather than a string",
+             mint(**{TENANT_CLAIM: None,
+                     "app": {"installationId": {"id": INSTALL}}})),
+            ("a dotted path that lands on a blank string",
+             mint(**{TENANT_CLAIM: None, "app": {"installationId": "   "}})),
+        ]:
+            check("%s is rejected" % name,
+                  SVC.authorised(bearer(tok)) is None, name)
+
+        # And a claim name with no dot in it still reads flat, so the twelve
+        # cases above are not rewritten to suit the fix.
+        os.environ["FORGE_TENANT_CLAIM"] = TENANT_CLAIM
+        check("a claim name with no dot in it still reads flat",
+              (SVC.authorised(bearer(mint())) or {}).get("tenant") == "tenant-abc")
 
         # The algorithm pin is defence in depth: PyJWT's own `algorithms=`
         # already refuses both forgeries above, so removing the pin changes no

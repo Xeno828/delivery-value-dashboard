@@ -20,7 +20,7 @@
  */
 
 import Resolver from '@forge/resolver';
-import api, { route, fetch } from '@forge/api';
+import api, { route, invokeRemote } from '@forge/api';
 
 import {
   CONFIG_PROPERTY_KEY, contextEntry, contextsBody, contextBody, contextId,
@@ -92,13 +92,33 @@ const reattach = (result, byKey) => {
 };
 
 /**
- * One call to the calculator. `fetch` here is @forge/api's, which routes
- * through the remote declared in manifest.yml and attaches an Atlassian-issued
- * invocation token — that is what lets the service know the call came from this
- * app and which tenant it is for, without this app holding a secret of its own.
+ * One call to the calculator.
+ *
+ * `invokeRemote` rather than `fetch`, and the difference is the whole point:
+ * only `invokeRemote` attaches the Forge Invocation Token, which is what lets
+ * the service know the call came from this app and which installation it is
+ * for, without this app holding a secret of its own. Declaring the `remotes`
+ * entry is what makes the egress *permitted*; it is not what authenticates it.
+ * This code used to say otherwise and used to call `fetch` against a URL out of
+ * `process.env.CALCULATOR_URL`, which sends no Authorization header at all — so
+ * pointing the manifest at a real host would have returned 401 on every call,
+ * in either of the service's auth modes. The remote also needs
+ * `operations: [compute]`, which is what Forge requires before `invokeRemote`
+ * will resolve this key.
+ *
+ * The URL is gone with it, and that is a gain rather than a loss. A URL built
+ * here is one URL for every installation in the world; a `baseUrl` resolved
+ * from the manifest is chosen per install from the customer's own Atlassian
+ * data residency setting, so this app never decides which region a tenant's
+ * numbers are computed in. docs/adr/0012.
+ *
+ * The remote key is a literal so `tests/test_service.py` can hold it against
+ * the manifest: a mistyped key fails at runtime, inside a tenant, which is the
+ * same failure the egress rule used to be checked for.
  */
 const callCalculator = async (path, body) => {
-  const res = await fetch(`${process.env.CALCULATOR_URL ?? ''}${path}`, {
+  const res = await invokeRemote('calculator', {
+    path,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

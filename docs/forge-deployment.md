@@ -177,6 +177,9 @@ Reached, on a dev site. Getting there took three deploys, and all three were the
 
 ## 2. Verify the Forge invocation token — written, not yet confirmed against Atlassian
 
+**Read [hosting the calculator](hosting-the-calculator.md) §1 before starting this.** The four values below are now confirmed and dated, and confirming them turned up three things this section did not know: the resolver used plain `fetch` and so would have received no token at all, the verifier read the tenant with a flat lookup against a claim that is nested, and the clock-skew allowance is longer than the token's whole life. The first two are fixed and pinned by the suite; the third is left at 30 seconds deliberately until a real token measures the lifetime. This section is otherwise still correct — it is the *"only you can do it"* framing that was wrong, because two of the three were code.
+
+
 The calculator authenticates with a bearer shared secret today. That is honest and it works, but it is not tenant-aware: every installation presents the same string, so the service cannot tell one customer from another, and rotating it means redeploying everything at once.
 
 The tenant-aware mechanism is the invocation token Forge attaches to a remote call — a JWT signed by Atlassian, carrying claims that identify the app and the installation.
@@ -284,6 +287,10 @@ docker rm -f calc
 `--read-only` is worth keeping in the real deployment. The service writes nothing, so the claim is true, and a true claim is a cheap one to make in a security review.
 
 ### Scan it
+
+The policy this section calls "a decision rather than a task" is taken in
+[hosting the calculator](hosting-the-calculator.md) §11, and the rebuild cadence in §10.
+
 
 Not yet in CI, because adding a scanner that fails the build on somebody else's CVE feed needs a policy decision about what blocks a merge:
 
