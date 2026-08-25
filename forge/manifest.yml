@@ -10,11 +10,15 @@
 # iframe and reads the tenant's own boards, sprints and issues over the bridge
 # in forge/bridge/bridge.js.
 #
-# What is not: the hosted calculator. `remotes[0].baseUrl` below still points at
-# `.invalid` and no environment has been provisioned, so the forecast and the
-# ask-sequencing answer with a refusal naming that. tests/test_service.py ties
-# the two together, so a real baseUrl with the refusal still in place — or the
-# reverse — fails rather than shipping.
+# The hosted calculator is provisioned and the forecast is wired to it. Two
+# Cloud Run services, region-pinned below, both running SERVICE_AUTH=forge-token
+# so the app holds no secret of its own. tests/test_service.py ties the URL and
+# the resolver together, so a real baseUrl with the offline refusal still in
+# place — or the reverse — fails rather than shipping.
+#
+# Sequencing still refuses, and for a different reason that is not hosting: a
+# Jira site has no way to record an ask, so there is nothing to sequence. The
+# resolver says which of the two it is.
 
 modules:
   jira:projectPage:
@@ -99,7 +103,21 @@ resources:
 # those two move together. docs/hosting-the-calculator.md §5, ADR 0012.
 remotes:
   - key: calculator
-    baseUrl: https://calculator.example.invalid
+    # Region-pinned. Forge picks one of these per installation from the
+    # customer's own Atlassian data residency setting, so this app never
+    # decides which region a tenant's numbers are computed in — the half of
+    # residency that would otherwise have to be built. docs/adr/0012.
+    #
+    # Both hostnames are live and both were verified end to end on 2026-08-25.
+    # These are the values `gcloud run services describe` reports as
+    # `status.url`; Cloud Run also publishes a
+    # `calculator-<project-number>.<region>.run.app` form for each, and either
+    # would work. Changing which is used later is a major version change and a
+    # reinstall for every tenant, so it is chosen once, here.
+    baseUrl:
+      default: https://calculator-jtfw7qf4ea-uc.a.run.app
+      US: https://calculator-jtfw7qf4ea-uc.a.run.app
+      EU: https://calculator-jtfw7qf4ea-ey.a.run.app
     operations:
       - compute
 

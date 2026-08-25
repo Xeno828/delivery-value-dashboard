@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.23.0
+
+**The forecast is wired to the hosted calculator, and `remotes[0].baseUrl` names a real deployment for the first time.** Region-pinned — `europe-west3` for tenants pinned to the EU, `us-central1` otherwise — and Forge chooses between them per installation from the customer's own residency setting, so this app never decides where a tenant's numbers are computed. `forge lint` reports 0 errors and 0 warnings and one `MAJOR_VERSION_RULE` approval, which is exactly what converting a `baseUrl` format is supposed to raise.
+
+**The resolver asks which contexts to sample rather than working them out, and that is the whole design.** A forecast samples a team's history and takes only its outstanding work from the selected sprint; which contexts are that team is `team_slice`, and it has been got wrong twice — 19 days reported as 77, and a team forecast 2.5 times too fast. Both returned a plausible date rather than failing.
+
+That left a circle: the resolver must fetch the slice's issues before it can ask for a forecast over them, and the slice is the calculator's decision. `/v1/slice` breaks it. It takes the contexts and a context id, needs **no issues at all**, and returns the ids to fetch. One round trip against a service that answers in well under a second, in exchange for there being no second copy of the rule.
+
+**The alternative was tempting and is the reason the test exists.** The resolver could have fetched the selected board and assumed that was the team. On Forge `team` is the board name, so it would be right almost always — and on the day two boards shared a name it would forecast over a narrower history than its own `sampled_from` line reported, with nothing on the page looking wrong. Almost always is what makes that dangerous.
+
+Three assertions hold the shape: the route names exactly the contexts the forecast then counts, the resolver contains no team comparison of its own, and it stamps `contextId` on every issue it gathers. That last one matters more than it reads — `issueFrom` deliberately does not set one, because over the bridge the page re-tags them itself, and an issue reaching `selection.forecast_for` untagged is silently dropped from the sample. Reverting either of the last two fails its test.
+
+**Sequencing still refuses, and now says the true reason.** It used to blame an unconfigured calculator, which stops being true the moment the forecast answers. `intake.sequence` compares orderings of a board's recorded *asks*, and a Jira site has no way to record one: no issue type means "ask", no field carries a value basis. That is a product question nobody has asked, not a plumbing gap, and the sentence says so.
+
+**Still unproven, and it is the last thing.** No real Forge token has been through the verifier. The app has to be deployed with `--approve MAJOR_VERSION_RULE` and reinstalled — a `baseUrl` format change is a major version upgrade and Jira does not widen an existing installation on its own — and only then does a genuine token reach the service and a tenant appear in a log line.
+
 ## 1.22.0
 
 **The slice moved to where both callers can reach it, and that is the whole change.** `team_slice` and `forecast_for` lived in `scripts/serve_live.py`. `service/Dockerfile` copies `agent/tools/` and `service/app.py` and nothing else, so the hosted calculator could not reach them — and the only other way to give a Forge tenant a forecast was to write the slice a second time in JavaScript. Of everything here, that is the last code that should have had two implementations: `serve_live.py` says so in its own docstring, and the reason is that its failures are all plausible dates rather than errors. Reading the wrong context turned a 19-day forecast into 77 (1.8.0). Counting a flow board's three overlapping windows as three contexts forecast a team 2.5 times too fast (1.16.13). Passing a window's end through as a target answered "0% by today" for a board that set no deadline (1.16.13 again). None of them failed.

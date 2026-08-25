@@ -113,6 +113,7 @@ gunicorn -w 4 -b 0.0.0.0:8080 'service.app:wsgi_app'
 | `POST /v1/facts` | `metrics.facts` |
 | `POST /v1/forecast` | `forecast.build` over a slice the caller chose |
 | `POST /v1/forecast-context` | `selection.forecast_for` — this service chooses the slice |
+| `POST /v1/slice` | `selection.slice_for` — which contexts a forecast would sample. Metadata only; send no issues |
 | `POST /v1/ask` | `intake.forecast_ask` |
 | `POST /v1/sequence` | `intake.sequence` |
 

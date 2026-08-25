@@ -50,12 +50,15 @@ def team_slice(contexts, ctx):
             "board %s/%s" % (ctx.get("projectKey"), ctx.get("boardId")))
 
 
-def forecast_for(contexts, issues, byContext, cid, items=None, target=None, org_cfg=None):
-    """Run the real forecaster for one context. Returns None for an unknown id.
+def resolve_context(contexts, cid):
+    """The context a forecast is *for*, and the sprints a rollup stands for.
 
-    The slice is the thing to get right, and getting it wrong produces a
-    credible wrong number rather than an error — see CHANGELOG 1.8.0, where
-    reading the wrong context turned a 19-day forecast into 77.
+    Returns `(ctx, roll_members)`, or `(None, None)` for an id this dataset does
+    not describe. Split out so that asking "which contexts would this sample"
+    and actually forecasting resolve the id the same way — a caller that has to
+    fetch the slice's issues before it can ask for a forecast needs the first
+    question answered on its own, and answering it twice is how the two would
+    come to disagree about what a rollup means.
     """
     ctx = next((c for c in contexts if c["id"] == cid), None)
     roll_members = None
@@ -74,6 +77,37 @@ def forecast_for(contexts, issues, byContext, cid, items=None, target=None, org_
         latest = max(roll_members, key=lambda c: str(c.get("endDate") or ""))
         ctx = dict(latest)
         ctx["sprintName"] = "All %d sprints" % len(roll_members)
+    return ctx, roll_members
+
+
+def slice_for(contexts, cid):
+    """Which contexts a forecast for `cid` would sample, and how it chose them.
+
+    `(members, label)`, or `(None, None)` for an unknown id. This exists for one
+    caller: a Forge resolver, which must fetch the issues of every context in
+    the slice *before* it can ask for a forecast over them, and which must not
+    decide the slice itself. Asking here costs one round trip and keeps the rule
+    in the one place it has ever been safe to have it.
+
+    A caller that sends issues for fewer contexts than this names will get a
+    forecast over a narrower sample than `sampled_from` reports — which is the
+    silent-narrowing fault this repository keeps paying for, and the reason this
+    route exists rather than the resolver guessing.
+    """
+    ctx, _ = resolve_context(contexts, cid)
+    if ctx is None:
+        return None, None
+    return team_slice(contexts, ctx)
+
+
+def forecast_for(contexts, issues, byContext, cid, items=None, target=None, org_cfg=None):
+    """Run the real forecaster for one context. Returns None for an unknown id.
+
+    The slice is the thing to get right, and getting it wrong produces a
+    credible wrong number rather than an error — see CHANGELOG 1.8.0, where
+    reading the wrong context turned a 19-day forecast into 77.
+    """
+    ctx, roll_members = resolve_context(contexts, cid)
     if ctx is None:
         return None
     members, slice_label = team_slice(contexts, ctx)

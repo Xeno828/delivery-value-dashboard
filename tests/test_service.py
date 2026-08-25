@@ -179,6 +179,7 @@ def test_service_computes_nothing():
     cid = full["contexts"][0]["id"]
     status, out = call("POST", "/v1/forecast-context",
                        {"dataset": json.loads(json.dumps(ctx_ds)), "contextId": cid})
+    out_ctx = out
     direct = SEL.forecast_for(json.loads(json.dumps(full["contexts"])),
                               json.loads(json.dumps(project(team))), {}, cid,
                               org_cfg=full.get("orgConfig", {}))
@@ -188,6 +189,39 @@ def test_service_computes_nothing():
     check("it reports which slice it sampled",
           bool(((out.get("result") or {}).get("sampled_from") or {}).get("slice")),
           (out.get("result") or {}).get("sampled_from"))
+
+    # ---------- /v1/slice must name exactly what the forecast samples ---------
+    #
+    # The Forge resolver has to fetch the issues of every context in the slice
+    # before it can ask for a forecast over them, and it must not decide the
+    # slice itself. So it asks — and the only thing that makes that safe is this
+    # route naming the same contexts the forecast then filters to. If it named
+    # fewer, the resolver would send fewer issues and the forecast would run
+    # over a narrower sample than `sampled_from` reports, which is the silent
+    # narrowing this repository keeps paying for.
+    status, sl = call("POST", "/v1/slice",
+                      {"dataset": {"contexts": json.loads(json.dumps(full["contexts"]))},
+                       "contextId": cid})
+    check("the slice endpoint answers", status == 200, sl.get("error"))
+    members, label = SEL.slice_for(json.loads(json.dumps(full["contexts"])), cid)
+    check("and agrees with selection.slice_for called directly",
+          (sl.get("result") or {}).get("contextIds") == [c["id"] for c in members]
+          and (sl.get("result") or {}).get("slice") == label,
+          sl.get("result"))
+    check("the slice it names is the slice the forecast counted",
+          len((sl.get("result") or {}).get("contextIds") or [])
+          == ((out_ctx.get("result") or {}).get("sampled_from") or {}).get("contexts"),
+          {"slice": (sl.get("result") or {}).get("contextIds"),
+           "sampled": ((out_ctx.get("result") or {}).get("sampled_from") or {})})
+
+    # It needs no issues, and saying so matters: a caller that sent a board's
+    # issues here would be shipping data to a route that has no use for it.
+    status, _ = call("POST", "/v1/slice", {"dataset": {}, "contextId": cid})
+    check("the slice endpoint refuses without contexts", status == 400)
+    status, _ = call("POST", "/v1/slice",
+                     {"dataset": {"contexts": json.loads(json.dumps(full["contexts"]))},
+                      "contextId": "no-such-context"})
+    check("an unknown context has no slice, and is a 404", status == 404)
 
     # An unknown context is a 404 and not a zero. The request was well formed
     # and named something this dataset does not describe, and a forecast for a
@@ -555,6 +589,30 @@ def test_forge_manifest_matches_the_code():
     # says so. Asserted as a biconditional, because both directions are a bug —
     # a real baseUrl with the refusal still in place is a forecast tile that
     # stays dark for no reason anybody can see.
+    # The forecast resolver must ASK for the slice, not choose one.
+    #
+    # `team_slice` decides which contexts a forecast samples, and it is the last
+    # logic here that should exist twice: its failures are all plausible dates
+    # rather than errors. The resolver therefore calls /v1/slice, fetches
+    # exactly the contexts it names, and sends them to /v1/forecast-context.
+    # A resolver that filtered by team itself would be the second
+    # implementation, and it would be invisible — the numbers would still look
+    # like numbers.
+    idx_js = (ROOT / "forge" / "src" / "index.js").read_text()
+    for route in ("/v1/slice", "/v1/forecast-context"):
+        check("the resolver calls %s" % route, route in idx_js)
+    check("the resolver never reads a team label of its own",
+          ".team" not in idx_js and "team ===" not in idx_js,
+          "a team comparison in the resolver is a second team_slice")
+
+    # An issue reaching the calculator without a contextId is dropped from the
+    # sample by selection.forecast_for, silently — the forecast would then run
+    # over less history than `sampled_from` reports. issueFrom deliberately does
+    # not set one (the page re-tags), so the resolver must.
+    check("the resolver stamps contextId on the issues it gathers",
+          "contextId: entry.id" in idx_js,
+          "untagged issues are silently excluded from the slice")
+
     idx = (ROOT / "forge" / "src" / "index.js").read_text()
     placeholder = ".invalid" in man
     refuses = "NO_CALCULATOR" in idx

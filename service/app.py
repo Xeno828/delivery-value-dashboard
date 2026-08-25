@@ -530,6 +530,36 @@ def route_forecast(body):
                     window_days=window)
 
 
+def route_slice(body):
+    """Which contexts a forecast for this one would sample.
+
+    The caller that needs this is a Forge resolver. It has to fetch the issues
+    of every context in the slice before it can ask for a forecast over them,
+    and it must not decide the slice itself — that decision is `team_slice`,
+    which is the logic whose every failure is a plausible date rather than an
+    error, and which exists in exactly one place for that reason.
+
+    So the resolver asks. It sends the contexts it knows about, with no issues
+    at all — this route needs none — and gets back the ids to fetch. One round
+    trip against a service that answers in well under a second, in exchange for
+    there being no second copy of the rule and no way to forecast from a
+    narrower sample than the answer claims.
+    """
+    ds = body.get("dataset")
+    contexts = ds.get("contexts") if isinstance(ds, dict) else None
+    if not isinstance(contexts, list) or not contexts:
+        raise Refused('send {"dataset": {"contexts": [...]}} — this route chooses '
+                      'the slice and needs the contexts to choose from. No issues '
+                      'are needed and none should be sent.')
+    cid = body.get("contextId")
+    if not isinstance(cid, str) or not cid.strip():
+        raise Refused('send "contextId" — which context the slice is for')
+    members, label = SEL.slice_for(contexts, cid.strip())
+    if members is None:
+        raise Refused("unknown context %r — no slice was chosen" % cid.strip(), 404)
+    return {"contextIds": [c["id"] for c in members if c.get("id")], "slice": label}
+
+
 def route_forecast_context(body):
     """A forecast for one context, with this service choosing the slice.
 
@@ -602,6 +632,7 @@ ROUTES = {
     "/v1/facts": route_facts,
     "/v1/forecast": route_forecast,
     "/v1/forecast-context": route_forecast_context,
+    "/v1/slice": route_slice,
     "/v1/ask": route_ask,
     "/v1/sequence": route_sequence,
 }

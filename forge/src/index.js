@@ -499,19 +499,17 @@ const answering = (fn) => async (req) => {
  * The project comes from Forge's own context rather than from the page, so the
  * page sends nothing and cannot ask about a project it is not displayed in.
  */
-resolver.define('contexts', answering(async ({ context }) => {
-  const projectKey = context?.extension?.project?.key;
-  if (!projectKey) {
-    return {
-      status: 400,
-      body: {
-        error: 'This module was not opened on a Jira project, so there is no project '
-             + `to read boards from (module ${context?.moduleKey ?? 'unknown'}). `
-             + 'Nothing was queried.',
-      },
-    };
-  }
-
+/**
+ * Every context this project offers, and what had to be left out.
+ *
+ * Extracted from the `contexts` resolver because the forecast needs the same
+ * list: a forecast samples a team's whole history, so it has to know every
+ * context that history is spread across before it can ask for one. Building it
+ * twice would be two answers to "what boards does this project have", and the
+ * picker and the forecast disagreeing about that is the kind of difference
+ * nothing on the page would show.
+ */
+const projectContexts = async (projectKey) => {
   const boards = await pagedValues(
     (startAt) => route`/rest/agile/1.0/board?projectKeyOrId=${projectKey}&startAt=${startAt}&maxResults=50`,
     `boards in project ${projectKey}`,
@@ -541,6 +539,27 @@ resolver.define('contexts', answering(async ({ context }) => {
       contexts.push(contextEntry(board, sprint, projectKey));
     }
   }
+  return { boards, contexts, flowBoards, sprintBoardsWithNoSprints };
+};
+
+/** The project this module is open on, or a body saying why there is none. */
+const moduleProjectKey = (context) => context?.extension?.project?.key ?? null;
+
+const NO_PROJECT = (context) => ({
+  status: 400,
+  body: {
+    error: 'This module was not opened on a Jira project, so there is no project '
+         + `to read boards from (module ${context?.moduleKey ?? 'unknown'}). `
+         + 'Nothing was queried.',
+  },
+});
+
+resolver.define('contexts', answering(async ({ context }) => {
+  const projectKey = moduleProjectKey(context);
+  if (!projectKey) return NO_PROJECT(context);
+
+  const { boards, contexts, flowBoards, sprintBoardsWithNoSprints } =
+    await projectContexts(projectKey);
 
   // A project with boards but no sprints on any of them is a real state and an
   // invisible one: the picker comes up empty and reads as a broken app. Say it
@@ -581,6 +600,40 @@ resolver.define('contexts', answering(async ({ context }) => {
     body: contextsBody(label, contexts, org.config),
   };
 }));
+
+/**
+ * One context's issues, in the shape the page and the calculator both read.
+ *
+ * Extracted so the forecast can gather several contexts' worth. It stamps
+ * `contextId`, which `issueFrom` deliberately does not: over the bridge the
+ * page re-tags these itself in `loadContext()` and a value from Jira would only
+ * invite the two to disagree. The calculator has no page to re-tag anything,
+ * and `selection.forecast_for` filters the team's history by exactly this
+ * field — an issue reaching it untagged is an issue silently dropped from the
+ * sample, which is the narrowing this whole route is arranged to prevent.
+ */
+const issuesForEntry = async (entry, spField, siteUrl) => {
+  const parsed = parseContextId(entry.id);
+  const raw = entry.kind === 'window'
+    ? await fetchWindowIssues(parsed.boardId, entry, spField)
+    : await fetchSprintIssues(parsed.boardId, parsed.sprintId, spField);
+  return raw.map((r) => ({
+    ...issueFrom(r, {
+      // Undefined for a window, which is the honest value: `addedMidSprint` is
+      // "the sprint field changed after the sprint began", and a board with no
+      // sprints has no such moment. It goes out false — and unlike the false the
+      // resolver used to send for a *sprint*, this one is not a claim that
+      // nothing was added. The tile that reads it refuses on a flow board rather
+      // than scoring it, which is where that has to be honoured.
+      sprintStart: entry.kind === 'window' ? null : entry.startDate,
+      storyPointField: spField,
+      // Only so an issue key is a link. Absent, the page leaves it as text
+      // rather than guessing a host.
+      siteUrl,
+    }),
+    contextId: entry.id,
+  }));
+};
 
 /**
  * One sprint's issues.
@@ -674,22 +727,7 @@ resolver.define('context', answering(async ({ payload, context }) => {
   }
 
   const spField = await storyPointFieldFor();
-  const raw = entry.kind === 'window'
-    ? await fetchWindowIssues(parsed.boardId, entry, spField)
-    : await fetchSprintIssues(parsed.boardId, parsed.sprintId, spField);
-  const issues = raw.map((r) => issueFrom(r, {
-    // Undefined for a window, which is the honest value: `addedMidSprint` is
-    // "the sprint field changed after the sprint began", and a board with no
-    // sprints has no such moment. It goes out false — and unlike the false the
-    // resolver used to send for a *sprint*, this one is not a claim that
-    // nothing was added. The tile that reads it refuses on a flow board rather
-    // than scoring it, which is where that has to be honoured.
-    sprintStart: entry.kind === 'window' ? null : entry.startDate,
-    storyPointField: spField,
-    // Only so an issue key is a link. Absent, the page leaves it as text
-    // rather than guessing a host.
-    siteUrl: context?.siteUrl,
-  }));
+  const issues = await issuesForEntry(entry, spField, context?.siteUrl);
 
   return {
     status: 200,
@@ -698,39 +736,111 @@ resolver.define('context', answering(async ({ payload, context }) => {
 }));
 
 /**
- * The forecast and the sequencing, over the bridge.
+ * The forecast, over the bridge.
  *
- * Both are computed by the hosted calculator, and no calculator is hosted —
- * `remotes[0].baseUrl` in the manifest still points at `.invalid` and no
- * environment has been provisioned. The honest answer is the tool's own
- * refusal shape saying exactly that, not a number and not an error: the rest
- * of the page is the tenant's real data and works.
+ * Three calls, in this order, and the order is the point.
  *
- * Delete these two the moment `CALCULATOR_URL` names a real deployment, and
- * route them through `compute()` — the projection and re-attachment are
- * already written and tested.
+ * A forecast samples a *team's* history and takes only its outstanding work
+ * from the sprint the reader selected. Which contexts make up that team is
+ * `team_slice`, in `agent/tools/selection.py`, and it is the last logic in this
+ * repository that should exist twice: every one of its failures is a plausible
+ * date rather than an error. Reading the wrong context turned a 19-day forecast
+ * into 77; counting a flow board's overlapping windows three times forecast a
+ * team 2.5x too fast. Neither failed. Both returned a number.
+ *
+ * So this resolver does not decide the slice. It asks `/v1/slice` which
+ * contexts to gather, fetches exactly those, and sends them to
+ * `/v1/forecast-context`, which slices them with the same function the live
+ * server uses. The extra round trip buys the guarantee that the issues sent are
+ * the issues the answer claims to have sampled — send fewer and the forecast
+ * runs over a narrower history than `sampled_from` reports, with nothing on
+ * screen to say so.
  */
-const NO_CALCULATOR =
-  'The forecast is computed by a hosted calculator, and this installation has not '
-  + 'been pointed at one. Nothing was simulated. Everything else on this page is '
-  + "this site's own data.";
+const noCalculator = (sentence) => ({
+  sprint_completion: { available: false, reason: sentence },
+  capacity_to_target: { available: false, reason: sentence },
+  next_commitment: { available: false, reason: sentence },
+  asked: {}, sampled_from: {}, inputs: {},
+});
 
-resolver.define('forecast', () => ({
-  status: 200,
-  body: {
-    sprint_completion: { available: false, reason: NO_CALCULATOR },
-    capacity_to_target: { available: false, reason: NO_CALCULATOR },
-    next_commitment: { available: false, reason: NO_CALCULATOR },
-    asked: {}, sampled_from: {}, inputs: {},
-  },
+resolver.define('forecast', answering(async ({ payload, context }) => {
+  const asked = payload?.id;
+  const projectKey = moduleProjectKey(context);
+  if (!projectKey) return NO_PROJECT(context);
+  if (!parseContextId(asked)) {
+    return { status: 404, body: notFound(asked, 'that is not a project/board/period id') };
+  }
+
+  const { contexts } = await projectContexts(projectKey);
+  if (!contexts.length) {
+    return { status: 404, body: notFound(asked, `project ${projectKey} has nothing to report on`) };
+  }
+
+  // Which contexts this forecast samples. Metadata only — this route needs no
+  // issues and none are sent, so asking costs one small round trip rather than
+  // a board's worth of data going out twice.
+  const slice = await callCalculator('/v1/slice', { dataset: { contexts }, contextId: asked });
+  if (slice.available === false) return { status: 200, body: noCalculator(slice.sentence) };
+  const wanted = new Set(slice.result?.contextIds ?? []);
+  if (!wanted.size) {
+    return { status: 404, body: notFound(asked, 'this site does not offer that context') };
+  }
+
+  const spField = await storyPointFieldFor();
+  const byKey = new Map();
+  const issues = [];
+  for (const entry of contexts.filter((c) => wanted.has(c.id))) {
+    for (const issue of await issuesForEntry(entry, spField, context?.siteUrl)) {
+      byKey.set(issue.key, issue);
+      issues.push(issue);
+    }
+  }
+
+  const projected = issues.map(projectIssue);
+  assertNoFreeText(projected);
+
+  const answer = await callCalculator('/v1/forecast-context', {
+    dataset: {
+      issues: projected,
+      // Every context, not just the sampled ones. The calculator resolves the
+      // id against this list and a rollup id names sprints by their board, so
+      // handing it only the slice would make it re-derive a slice from a list
+      // that had already been narrowed by one.
+      contexts,
+      orgConfig: (await orgConfigFor(projectKey)).config,
+    },
+    contextId: asked,
+    ...(payload?.items == null ? {} : { items: payload.items }),
+    ...(payload?.date == null ? {} : { target: payload.date }),
+  });
+  if (answer.available === false) return { status: 200, body: noCalculator(answer.sentence) };
+
+  return { status: 200, body: reattach(answer.result, byKey) };
 }));
 
+/**
+ * Sequencing, which is not blocked on a calculator.
+ *
+ * `intake.sequence` compares orderings of a board's outstanding *asks*, and an
+ * ask is a document somebody writes — a request with a size, a value basis and
+ * a team. Over loopback they are files in `data/asks/`. A Jira site has no such
+ * thing: there is no issue type that means "ask", no field that carries a value
+ * basis, and nothing this app could read that would be one rather than resemble
+ * one.
+ *
+ * So this is not the calculator being unreachable, and saying so would be
+ * wrong the moment the forecast above starts answering. Where a customer's asks
+ * come from inside Jira is a product question that has not been asked, and
+ * until it is, this refuses and says which of the two it is.
+ */
 resolver.define('sequence', () => ({
   status: 200,
   body: {
     available: false,
-    sentence: 'Ask sequencing is computed by a hosted calculator, and this installation '
-            + 'has not been pointed at one. Nothing was sequenced.',
+    sentence: 'Sequencing compares orderings of the asks recorded for a board, and '
+            + 'this app has no way to read an ask from Jira — there is no issue type '
+            + 'that means one and no field that carries a value basis. Nothing was '
+            + 'sequenced, and nothing about the forecast on this page depends on it.',
   },
 }));
 
