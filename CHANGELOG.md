@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.23.1
+
+**A real Atlassian token has been through the verifier, and it was accepted.** App version 4.0.0, installed on a dev site, one page load:
+
+```
+POST /v1/slice            -> 200   0 issues  126ms  tenant=ari:cloud:ecosystem::installation/6cc978ae-…
+POST /v1/forecast-context -> 200  36 issues    4ms  tenant=ari:cloud:ecosystem::installation/6cc978ae-…
+```
+
+That closes the last of the four conditions `docs/forge-deployment.md` §2 has carried since it was written. The mechanics were proved against a signer the suite controls; a token Atlassian actually minted has now been accepted, and attributed to the installation ARI that `forge install list` reports for that installation. Both halves of the design met for the first time — `invokeRemote` attached the token, `operations: [compute]` resolved the remote, and the **nested** `app.installationId` claim read correctly, which is the fault found in 1.19.0 shown fixed in production rather than in a test.
+
+**Three details in those two lines are the design working, not noise.** `/v1/slice` carries **0 issues** because that route deliberately takes none — the resolver asks which contexts to sample before fetching anything. It took **126 ms** against the second call's **4 ms**: the first real token missed the JWKS cache and fetched Atlassian's keys, the second hit it. And both went to `us-central1`, because this site is not EU-pinned and `default` and `US` name the same service.
+
+**What it did not prove is the numbers, and the timing says so.** A 20,000-trial Monte Carlo does not finish in 4 ms. The same shape simulates in 74 ms locally and refuses in 0.1 ms, so 4 ms is the refusal path plus HTTP — almost certainly *"too little completion history to sample from"*, which is exactly what a dev site with nothing finished on it should say, and is [ADR 0007](docs/adr/0007-refuse-rather-than-widen.md) working. The pipe is proved end to end. A figure travelling down it is not, and only a board with real completed work will settle that.
+
+Recording the distinction rather than declaring victory, because *"the forecast returned 200"* and *"the forecast returned a forecast"* are different claims and this one is the weaker.
+
 ## 1.23.0
 
 **The forecast is wired to the hosted calculator, and `remotes[0].baseUrl` names a real deployment for the first time.** Region-pinned — `europe-west3` for tenants pinned to the EU, `us-central1` otherwise — and Forge chooses between them per installation from the customer's own residency setting, so this app never decides where a tenant's numbers are computed. `forge lint` reports 0 errors and 0 warnings and one `MAJOR_VERSION_RULE` approval, which is exactly what converting a `baseUrl` format is supposed to raise.

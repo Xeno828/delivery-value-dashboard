@@ -249,7 +249,20 @@ An unknown `SERVICE_AUTH`, and a `forge-token` mode with any of its four values 
 
 ### Done when
 
-`SERVICE_AUTH=forge-token` starts, **a real Forge remote call succeeds against it**, a hand-made token fails, and the tenant identity appears in the log line. The first, third and fourth are done; the second is what the four values above are for and is the outstanding item. Keep the shared-secret mode — it is what makes the service testable without a Forge installation.
+`SERVICE_AUTH=forge-token` starts, **a real Forge remote call succeeds against it**, a hand-made token fails, and the tenant identity appears in the log line.
+
+**All four, on 2026-08-25.** App version 4.0.0 on a dev site, and the calculator's access log:
+
+```
+POST /v1/slice            -> 200   0 issues  126ms  tenant=ari:cloud:ecosystem::installation/6cc978ae-…
+POST /v1/forecast-context -> 200  36 issues    4ms  tenant=ari:cloud:ecosystem::installation/6cc978ae-…
+```
+
+The tenant is the installation ARI, and it matches what `forge install list` reports for that installation exactly. That is the claim this section has been unable to make since it was written: the mechanics were proved against a signer the suite controls, and now a token Atlassian actually minted has been accepted and attributed.
+
+Three details in those two lines are worth reading rather than skipping. `/v1/slice` carries **0 issues**, because that route deliberately takes none — the resolver asks which contexts to sample before it fetches anything. It took **126 ms** against the second call's **4 ms**, which is the JWKS cache: the first real token missed and fetched Atlassian's keys, the second hit. And both went to `us-central1`, because this site is not pinned to the EU — the `default` and `US` base URLs are the same service.
+
+Keep the shared-secret mode — it is what makes the service testable without a Forge installation.
 
 ---
 
