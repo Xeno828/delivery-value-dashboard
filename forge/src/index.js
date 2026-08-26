@@ -22,6 +22,7 @@
 import Resolver from '@forge/resolver';
 import api, { route, invokeRemote } from '@forge/api';
 import { chat } from '@forge/llm';
+import { kvs } from '@forge/kvs';
 
 import {
   CONFIG_PROPERTY_KEY, contextEntry, contextsBody, contextBody, contextId,
@@ -29,9 +30,9 @@ import {
   recentSprints, statusesFromJira, validateOrgConfig,
   WINDOW_DAYS, windowEntry, windowMembershipJql, contextsLabel,
 } from './jira.js';
-import {
-  MODEL, briefMessages, deliveryBlockers, proseFrom,
-} from './brief.js';
+import { deliveryBlockers } from './brief.js';
+import { boardsIn, notifyPayload, problemsIn } from './recipients.js';
+import { briefsForBoard } from './compose.js';
 
 const resolver = new Resolver();
 
@@ -973,50 +974,64 @@ resolver.define('facts', ({ payload }) => compute('/v1/facts', payload ?? {}));
    --------------------------------------------------------------------- */
 
 /**
- * Where the recipients come from, which is nowhere yet.
+ * Where a board's recipients live: the app's own key-value store.
  *
- * Returning `[]` rather than throwing: this is a configuration that has not
- * been designed, not a failure. It is the same unanswered question that leaves
- * `sequence` refusing — where a customer records something the product needs
- * and Jira has no field for — and whatever answers one should answer both.
- */
-const recipientsFor = async () => [];
-
-/**
- * Which boards a scheduled run reports on, which is also nowhere yet — and of
- * the three, this is the one that makes the rest unwritable rather than merely
- * pointless. The panel knows its board because a person opened it in a project;
- * `moduleProjectKey` reads that off the module context. A trigger has neither.
- */
-const scopeFor = async () => [];
-
-/**
- * The transport that would carry the file. Also nowhere yet: Forge has no SMTP
- * and no second remote is declared. Named as a function so the shape of "how
- * would this be sent" is visible rather than implied by its absence.
- */
-const mailTransport = () => null;
-
-/**
- * One audience's section, written by the model and assembled in code.
+ * Not a Jira project property, which is where `orgConfig` lives and would have
+ * been the obvious home — saving to one needs write access into the customer's
+ * project, and `storage:app` grants no access to Jira data at all. ADR 0014.
  *
- * Exported for the tests, which run it with a stub `chat` — the composition and
- * the guard are what can be wrong here, and neither needs Atlassian to be
- * reachable to be checked.
+ * A read that fails returns null rather than throwing, because a store that is
+ * briefly unavailable and a store with nothing in it should both end in the
+ * run saying what is missing, not in an unretried trigger failure whose reason
+ * is only in a stack trace.
  */
-export const composeSection = async ({ audience, heading, template, figures,
-                                       refusal, ask = chat }) => {
-  if (refusal) return { heading, template, values: figures, prose: '', refusal };
+export const RECIPIENTS_KEY = 'recipients';
 
-  const response = await ask({
-    model: MODEL,
-    messages: briefMessages({ audience, figures, refused: [] }),
-  });
-  const got = proseFrom(response);
-  // A model that returned nothing usable is not softened into a section with
-  // an empty paragraph; it is handed to composeBrief as prose that will fail
-  // its guard, and the brief does not go.
-  return { heading, template, values: figures, prose: got.prose ?? '' };
+const recipientConfig = async () => {
+  try {
+    return (await kvs.get(RECIPIENTS_KEY)) ?? null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Send one audience's brief, through the same machinery Jira uses to tell
+ * somebody their issue was commented on.
+ *
+ * `asApp()` and not `asUser()`, and here that is correct rather than a
+ * compromise: a scheduled run has no user to be, and the authority being
+ * exercised is this app's own `send:notification:jira`. What stops it being a
+ * way to tell anyone anything is `restrict` inside `notifyPayload` — Jira drops
+ * recipients who may not browse the anchor issue, which is the app's claim
+ * being checked by the platform rather than trusted.
+ *
+ * A 204 is success and carries no body. Anything else is returned rather than
+ * thrown: one audience failing should not take the other with it, and a
+ * scheduled trigger is not retried, so a thrown error is a reason nobody reads.
+ *
+ * Nothing about the message is logged — not the subject, not the recipients,
+ * not a count of them. The subject carries a board name and the recipients are
+ * account ids, and an app log holding either is a copy of something the
+ * customer did not put there.
+ */
+const sendBrief = async ({ anchorIssue, to, subject, textBody, htmlBody }) => {
+  const res = await api.asApp().requestJira(
+    route`/rest/api/3/issue/${anchorIssue}/notify`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(notifyPayload({ subject, textBody, htmlBody, to })),
+    },
+  );
+  if (res.status === 204) return { sent: true };
+  return {
+    sent: false,
+    // Jira's own status, so a 403 reads as the app lacking permission on that
+    // issue rather than as a bug here, and a 404 as an anchor that has been
+    // deleted since somebody configured it.
+    reason: `Jira refused the notification for ${anchorIssue} with ${res.status}.`,
+  };
 };
 
 /**
@@ -1031,27 +1046,52 @@ export const composeSection = async ({ audience, heading, template, figures,
  * the same rule the calculator's access log follows, and for the same reason.
  */
 export const weeklyBrief = async () => {
-  const blockers = deliveryBlockers({
-    scope: await scopeFor(),
-    recipients: await recipientsFor(),
-    transport: mailTransport(),
-  });
+  const config = await recipientConfig();
 
-  if (blockers.length) {
-    console.log(`weekly brief not sent: ${blockers.join(' ')}`);
-    return { sent: false, reasons: blockers };
+  /* Checked before a single Jira call, because a trigger fires with nobody
+     watching and must be cheap when it can do nothing. This used to be three
+     blockers; ADR 0014 answered two of them. The config supplies the boards to
+     walk *and* who each one goes to, because its keys are board ids — so
+     "which board" and "who" were always one question wearing two hats. */
+  const problems = problemsIn(config);
+  if (problems.length) {
+    console.log(`weekly brief not sent: ${problems.join(' ')}`);
+    return { sent: false, reasons: problems };
   }
 
-  /* Unreachable until both blockers above are answered, and deliberately left
-     unwritten rather than written blind. What goes here is a read of the
-     tenant's boards, a call to the calculator for figures, `composeSection`
-     per audience, `composeBrief`, and a handoff to the transport — every piece
-     of which exists and is tested except the two that do not exist at all.
-     Writing it against an imagined recipient shape and an imagined transport
-     would produce code that compiles, ships, and is wrong in ways no test
-     could catch, because there would be nothing real to check it against. */
-  console.log('weekly brief not sent: delivery is not implemented');
-  return { sent: false, reasons: ['delivery is not implemented'] };
+  /* The last blocker, and it is a decision rather than a gap.
+     ---------------------------------------------------------------------
+     Composing a brief means reading the board, and every read in this file is
+     `api.asUser()`. A scheduled run has no user to be, so those reads would
+     have to become `asApp()` — and ADR 0013 declined exactly that, on the
+     grounds that reading as the user is *why* a panel viewer can only ever see
+     issues they could already see in Jira. That is roadmap item 5 holding for
+     free, and `asApp()` spends it.
+
+     ADR 0014 changed the position part-way and not all the way. `restrict`
+     means Jira drops recipients who may not browse the anchor issue, so the
+     app's claim about who may receive the brief is now checked by the platform
+     instead of trusted. What it does not check is what the brief *says*: the
+     anchor's BROWSE permission gates delivery, not the issues named inside.
+     A board whose issues share one permission scheme — most of them — is
+     covered by that. One using issue-level security is not.
+
+     So this stops here deliberately, with the send written and proven and the
+     read not taken. Turning it on is one line and a record saying why; writing
+     it quietly would be spending a security property in a commit about email
+     formatting. */
+  console.log(
+    'weekly brief not sent: composing it means reading the board with no user, '
+    + 'which ADR 0013 declined and ADR 0014 only partly answers. The send is '
+    + 'wired and the recipients are configured; the read is a decision nobody '
+    + 'has taken.');
+  return {
+    sent: false,
+    reasons: ['reading a board without a user is a decision ADR 0013 declined'],
+    // Named so the log line and this agree, and so a future caller has the
+    // list rather than re-deriving it from the config it already read.
+    boards: boardsIn(config),
+  };
 };
 
 export const handler = resolver.getDefinitions();

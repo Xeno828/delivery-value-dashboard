@@ -211,3 +211,21 @@ export const boardsIn = (config) => {
   if (problemsIn(config).length) return [];
   return Object.keys(config.boards);
 };
+
+/**
+ * The body `POST /rest/api/3/issue/{key}/notify` takes.
+ *
+ * Assembled here rather than at the call site so there is one place that knows
+ * the endpoint's shape, and so the `restrict` block cannot be forgotten: a send
+ * built by hand that happens to omit it still succeeds, still delivers, and has
+ * quietly dropped the only permission filtering in the product. Making it part
+ * of the payload rather than an argument means there is no call that can leave
+ * it out.
+ */
+export const notifyPayload = ({ subject, textBody, htmlBody, to }) => ({
+  subject,
+  textBody,
+  htmlBody,
+  to,
+  restrict: RESTRICT,
+});

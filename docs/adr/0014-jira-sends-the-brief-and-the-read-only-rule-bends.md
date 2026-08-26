@@ -110,3 +110,35 @@ Which board a scheduled run reports on is still unanswered, and it is still the
 blocker that makes the rest unwritable. The recipient config resolves *per
 board*, so the two are related but not the same: this record says who a board's
 brief goes to, not which boards a weekly run walks.
+
+## Added when the send was built: one decision is still not taken
+
+The send works and is proved. What is not written is the read in front of it,
+and that is deliberate rather than unfinished.
+
+Composing a brief means reading the board, and every read in `forge/src/index.js`
+is `api.asUser()`. A scheduled run has no user to be, so those reads have to
+become `asApp()` — which is exactly what ADR 0013's addendum declined, on the
+grounds that reading as the user is *why* a panel viewer can only ever see
+issues they could already see in Jira.
+
+**This record moves that position part-way and not all the way.** `restrict`
+means Jira now drops recipients who may not browse the anchor issue, so the
+app's claim about who may *receive* a brief is checked by the platform rather
+than trusted. What is still not checked is what the brief *says*: the anchor's
+BROWSE permission gates delivery, not the issues named inside the message. A
+board whose issues share one permission scheme — most of them — is covered by
+that. A board using issue-level security is not.
+
+So the trigger stops before the read, with three sentences saying so, and the
+whole path after it — compose, render, payload, send — is written and tested
+against stubs in `forge/src/compose.js`. Turning it on is one line and a record
+saying why. Writing it quietly would have spent a security property inside a
+commit about email formatting, which is how properties get spent.
+
+**`forge/src/compose.js` exists for that reason and is worth keeping that way.**
+`index.js` imports the Forge SDK and cannot be loaded outside Atlassian's
+runtime, so anything left in it is provable only by deploying and watching a
+tenant. The code that decides what reaches somebody's inbox is not code to find
+out about that way, so the model and the send are injected and the tests supply
+stubs for both.

@@ -228,6 +228,11 @@ export const composeBrief = ({ audience, sections }) => {
     sent: true,
     audience,
     refusedSections: built.filter((s) => s.refused).map((s) => s.heading),
+    /* The sections as built, not only the joined text. `mailbody.js` renders
+       structure — a refusal is set apart from prose rather than run together
+       with it — and reconstructing that by re-parsing the string below would be
+       a second reading of something already known here. */
+    sections: built.map(({ heading, text, refused }) => ({ heading, text, refused })),
     text: built.map((s) => `## ${s.heading}\n\n${s.text}`).join('\n\n'),
   };
 };

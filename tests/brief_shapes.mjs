@@ -17,8 +17,10 @@ import {
   proseProblems, section, slotsIn,
 } from '../forge/src/brief.js';
 import {
-  AUDIENCES, RESTRICT, boardsIn, problemsIn, sendsFor,
+  AUDIENCES, RESTRICT, boardsIn, notifyPayload, problemsIn, sendsFor,
 } from '../forge/src/recipients.js';
+import { emailBody, esc, safeUrl } from '../forge/src/mailbody.js';
+import { briefsForBoard } from '../forge/src/compose.js';
 
 const stdin = await new Promise((resolve) => {
   let buf = '';
@@ -71,6 +73,76 @@ const refusedSection = section({
   refusal,
 });
 
+/* A board name an attacker controls. Issue text is writable by anyone who can
+   raise a ticket, and this is the first surface in the product that renders it
+   somewhere this repository does not control. */
+const HOSTILE = '</p><script>alert(1)</script><p onmouseover="x">';
+/* A heading is issue-derived too — a section can be named after a context. */
+const HOSTILE_HEADING = 'Delivery <img src=x onerror="alert(1)">';
+
+const MAIL_CONFIG = { boards: { 2: {
+  anchorIssue: 'SFT-1',
+  exec: { users: ['5b10a2844c20165700ede21g'] },
+  team: { groups: ['storefront'] },
+} } };
+
+const answers = (content) => async () => ({
+  choices: [{ finish_reason: 'stop', message: { content } }],
+});
+
+const REFUSAL_SENTENCE = 'No forecast: too little completion history to sample '
+  + 'from (2 observations, 6 needed). A wider confidence interval would not fix '
+  + 'this — the data is absent, not noisy.';
+
+const figures = () => [
+  { heading: 'Delivery', template: 'Throughput was {{t}} of {{c}} committed.',
+    figures: { t: 9, c: 12 } },
+  { heading: 'Forecast', template: 'unused', figures: {}, refusal: REFUSAL_SENTENCE },
+];
+
+const runBoard = async (opts) => {
+  const captured = [];
+  const out = await briefsForBoard({
+    config: MAIL_CONFIG, boardId: 2, boardName: HOSTILE, periodName: 'Sprint 24',
+    asOf: '2026-08-26', calendar: '5-day working week, 14-day sprints',
+    boardUrl: 'https://example.atlassian.net/jira/software/boards/2',
+    figuresFor: figures,
+    send: async (p) => { captured.push(p); return { sent: true }; },
+    ...opts,
+  });
+  return { out, captured };
+};
+
+const usable = await runBoard({ ask: answers('Delivery slowed against the previous sprint.') });
+/* Prose carrying a figure fails brief.js's guard. The assertion that matters is
+   not that composeBrief refuses — that is already covered — but that nothing
+   reaches the send when it does. */
+const guarded = await runBoard({ ask: answers('Throughput fell to 4 items.') });
+const badConfig = await (async () => {
+  const captured = [];
+  const out = await briefsForBoard({
+    config: { boards: { 2: { anchorIssue: 'SFT-1', exec: { users: ['a@b.com'] } } } },
+    boardId: 2, figuresFor: figures, ask: answers('Fine.'),
+    send: async (p) => { captured.push(p); return { sent: true }; },
+  });
+  return { out, captured };
+})();
+/* Jira refusing one audience must not take the other with it. */
+const jiraRefuses = await (async () => {
+  const seen = [];
+  const out = await briefsForBoard({
+    config: MAIL_CONFIG, boardId: 2, boardName: 'B', figuresFor: figures,
+    ask: answers('Delivery slowed.'),
+    send: async (p) => {
+      seen.push(p.subject);
+      return seen.length === 1
+        ? { sent: false, reason: 'Jira refused the notification for SFT-1 with 403.' }
+        : { sent: true };
+    },
+  });
+  return { out, attempts: seen.length };
+})();
+
 console.log(JSON.stringify({
   numberWords: NUMBER_WORDS,
   proseRule: PROSE_RULE,
@@ -98,6 +170,59 @@ console.log(JSON.stringify({
     empty: proseFrom({ choices: [{ finish_reason: 'stop', message: { content: '   ' } }] }),
     noChoices: proseFrom({ choices: [] }),
     rubbish: proseFrom(null),
+  },
+
+  /* The brief as an email, which is a new output surface for issue text. */
+  mail: {
+    /* Character for character what src/app.js uses. A second escaper handling
+       four of the five characters is the shape this bug arrives in. */
+    escSample: esc(HOSTILE),
+    escAll: esc(`&<>"'`),
+    safeUrl: {
+      https: safeUrl('https://example.atlassian.net/x'),
+      javascript: safeUrl('javascript:alert(1)'),
+      data: safeUrl('data:text/html,<script>alert(1)</script>'),
+      empty: safeUrl(''),
+    },
+    /* A refusal must not be styled as prose: it is a statement that was
+       answered, not a paragraph that happened to be short. */
+    body: emailBody({
+      audience: 'exec', boardName: HOSTILE, periodName: 'Sprint 24',
+      asOf: '2026-08-26', calendar: '5-day week',
+      boardUrl: 'javascript:alert(1)',
+      sections: [
+        /* Hostile text in the *body*, not only the board name. A section's text
+           is prose plus substituted figures, and a figure can carry issue text:
+           `reattach` puts summaries back on item_risk rows before anything is
+           rendered. This is the path that matters and it is the one a fixture
+           full of polite sentences never exercises. */
+        { heading: HOSTILE_HEADING,
+          text: `Delivery slowed.\n\nBlocked: ${HOSTILE}`, refused: false },
+        { heading: 'Forecast', text: REFUSAL_SENTENCE, refused: true },
+      ],
+    }),
+    payload: notifyPayload({ subject: 's', textBody: 't', htmlBody: 'h',
+                            to: { users: [{ accountId: 'x' }] } }),
+    /* A subject is a mail header and a header ends at a newline. Escaping does
+       nothing about that — it is a different bug from the HTML below. */
+    headerInjection: emailBody({
+      audience: 'exec', boardName: 'Storefront\r\nBcc: attacker@evil.example',
+      periodName: 'Sprint 24', sections: [],
+    }).subject,
+    longSubject: emailBody({
+      audience: 'team', boardName: 'B'.repeat(400), sections: [],
+    }).subject,
+  },
+
+  /* Compose, render and send, with the model and the send stubbed. */
+  pipeline: {
+    usable: { out: usable.out, subjects: usable.captured.map((p) => p.subject),
+              anchors: usable.captured.map((p) => p.anchorIssue),
+              html: usable.captured[0]?.htmlBody ?? '',
+              text: usable.captured[0]?.textBody ?? '' },
+    guarded: { out: guarded.out, sends: guarded.captured.length },
+    badConfig: { out: badConfig.out, sends: badConfig.captured.length },
+    jiraRefuses: { out: jiraRefuses.out, attempts: jiraRefuses.attempts },
   },
 
   /* Who a board's brief goes to. The good config exercises both audiences,

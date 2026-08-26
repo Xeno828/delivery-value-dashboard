@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.27.0
+
+**The brief is an email now, and the send is written and proved against stubs.** `mailbody.js` renders one audience's brief as `subject`, `textBody` and `htmlBody`; `compose.js` takes figures to a sent message; `index.js` posts it to `/rest/api/3/issue/{key}/notify` as the app. Static HTML with inline styles and no `<style>` block — mail clients strip those and the ones that do not disagree about which — and a plain-text part beside it, so a client that refuses HTML gets the brief rather than an empty message.
+
+**This is the first place issue text leaves for a page this repository does not control**, and it needed two different defences because escaping only answers one of them.
+
+The first is the familiar one. A Jira summary is writable by anyone who can raise a ticket, a board name by anyone who can make a board, and the stored XSS in 1.4.0 came from two call sites interpolating `i.key` and `i.summary` directly. Every string passes through one `esc()` at the point of output — character for character the one in `src/app.js`, with a test holding the two together, because a second escaper covering four of the five characters is the shape this bug arrives in. URLs go through `safeUrl()`, so a `javascript:` board link is dropped rather than rendered.
+
+**The second was found by writing the test and is a different bug entirely.** The subject line is a mail *header*, and a header ends at a newline. A board name carrying `\r\n` would have closed the Subject and begun whatever came after it — header injection, which escaping does nothing about: `&#10;` is harmless in a body and irrelevant in a header. Subjects are now flattened, stripped of C0 controls and capped at 200 characters with an ellipsis, because a truncated subject reads as a complete one. Jira very likely strips this too; that is not a reason to pass it on.
+
+**Mutation testing earned its place here.** Removing the escape from the section body passed every assertion in the file. The fixture put hostile text in the board name and polite sentences everywhere else, so the path that actually carries issue text — a section's prose plus substituted figures, and `reattach` puts summaries back on `item_risk` rows before any of it is rendered — was never exercised. The fixture now carries markup in the body and the heading, and removing that escape fails two checks.
+
+**Nothing reaches an inbox that the guards would have stopped.** Prose carrying a figure fails `brief.js` and sends **nothing** — not a shortened brief, not the sections that passed. A recipient config that does not validate sends nothing. A refused section is carried verbatim and set apart visually, because a refusal is a statement that was answered rather than a paragraph that happened to be short. And Jira refusing one audience does not take the other with it: they are separate messages to separate people, and at a weekly cadence the second would otherwise wait a week for somebody else's problem.
+
+`restrict` is built inside `notifyPayload` rather than passed to it, so no call site can leave it out. A send assembled by hand that happens to omit it still succeeds, still delivers, and has quietly dropped the only permission filtering in the product.
+
+**One decision was deliberately not taken, and the trigger stops in front of it.** Composing a brief means reading the board, every read in `index.js` is `api.asUser()`, and a scheduled run has no user to be. Making those `asApp()` is what [ADR 0013](docs/adr/0013-the-brief-is-written-inside-the-tenant.md) declined — reading as the user is why a panel viewer can only see issues they could already see in Jira. `restrict` moves that part-way: who *receives* is now checked by Jira. What is still unchecked is what the brief *says*, since the anchor's BROWSE gates delivery and not the issues named inside. Most boards share one permission scheme and are covered; one using issue-level security is not.
+
+So the handler refuses with that sentence, and everything after the read is written, exercised and waiting. Turning it on is one line and a record saying why — writing it quietly would have spent a security property inside a commit about email formatting.
+
+**`forge/src/compose.js` is a new file and the reason is testability, not tidiness.** `index.js` imports the Forge SDK and cannot be loaded outside Atlassian's runtime, so anything left in it is provable only by deploying and watching a tenant. The model and the send are injected there and the tests stub both, which is how the code that decides what reaches somebody's inbox gets exercised without one.
+
+Also fixed: the assertion that the trigger's body makes no `asUser()` call was matching the comment that *explains* why it does not. Comments are stripped before the search now, and a real call still fails it.
+
 ## 1.26.0
 
 **Jira sends the brief, so item 3 crosses no boundary at all.** ADR 0013 closed one of item 3's two crossings by writing the brief with Forge LLMs; it left the other open and said so, because mailing a file means a mail provider and Forge has no SMTP. It does not have to. `POST /rest/api/3/issue/{issueIdOrKey}/notify` sends through the same machinery Jira already uses to tell someone their issue was commented on, and the brief never leaves Atlassian. [ADR 0014](docs/adr/0014-jira-sends-the-brief-and-the-read-only-rule-bends.md).

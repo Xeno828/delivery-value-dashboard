@@ -2099,9 +2099,16 @@ def test_the_weekly_brief_is_wired_to_its_own_function():
     # keep it, because reading as the user is what makes a viewer unable to see
     # an issue they could not see in Jira.
     after = src.split("export const %s" % exported, 1)[-1]
+    # Comments stripped first. The trigger's body *discusses* asUser() at
+    # length — why reading as the user is what makes permission mirroring hold,
+    # and why asApp() is not a free repair — and a naive substring search reads
+    # that explanation as the thing it warns against.
+    code = re.sub(r"/\*.*?\*/", "", after, flags=re.S)
+    code = re.sub(r"//[^\n]*", "", code)
     check("the trigger's own body makes no asUser() call",
-          "asUser()" not in after, after[:120])
-    check("the panel's reads are still asUser()", "asUser()" in src)
+          "asUser()" not in code, code[:160])
+    check("the panel's reads are still asUser()",
+          "asUser()" in re.sub(r"/\*.*?\*/", "", src, flags=re.S))
 
 
 def test_the_llm_module_matches_the_model_the_code_asks_for():
@@ -2328,6 +2335,154 @@ def test_a_boards_recipients_are_validated_before_anyone_is_told():
           r["restrict"] == {"permissions": [{"key": "BROWSE"}]}, r["restrict"])
 
 
+def test_the_brief_reaches_an_inbox_without_carrying_a_payload():
+    """The email body is a new output surface for issue text.
+
+    Every issue-derived string in this product went to a page this repository
+    controls, until this one. A brief lands in a mail client rendered by
+    software nobody here chose, and a Jira summary is writable by anyone who can
+    raise a ticket — the stored XSS in 1.4.0 came from two call sites
+    interpolating `i.key` and `i.summary` directly.
+
+    Two distinct bugs are checked, because escaping only answers one of them:
+    markup in the HTML body, and a newline in the *subject*, which is a mail
+    header and ends where the newline is. ADR 0014.
+    """
+    node = subprocess.run(["node", str(ROOT / "tests" / "brief_shapes.mjs")],
+                          input=json.dumps({"refusal": "R"}),
+                          capture_output=True, text=True, cwd=str(ROOT))
+    if node.returncode != 0:
+        check("the brief shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    m = json.loads(node.stdout)["mail"]
+
+    # The same five characters src/app.js escapes, character for character. A
+    # second escaper covering four of the five is the shape this bug arrives in.
+    app_js = (ROOT / "src" / "app.js").read_text()
+    check("the email escaper matches the page's, character for character",
+          m["escAll"] == "&amp;&lt;&gt;&quot;&#39;", m["escAll"])
+    check("and the page still escapes those five",
+          all(e in app_js for e in ("&amp;", "&lt;", "&gt;", "&quot;", "&#39;")))
+
+    html = m["body"]["htmlBody"]
+    check("hostile markup does not survive into the HTML body",
+          "<script>" not in html and "onmouseover=\"x\"" not in html,
+          html[:120])
+    check("the board name is still present, escaped rather than dropped",
+          "&lt;script&gt;" in html, html[:160])
+
+    # The path a polite fixture never exercises. A section's text is prose plus
+    # substituted figures, and a figure can carry issue text — `reattach` puts
+    # summaries back on item_risk rows before any of this is rendered. Removing
+    # the escape here passed every other assertion in this file.
+    body_only = html.split("Blocked:", 1)[-1] if "Blocked:" in html else ""
+    check("hostile text inside a section body is escaped",
+          body_only and "<script>" not in body_only
+          and 'onmouseover="x"' not in body_only, body_only[:120])
+    check("and a hostile section heading is escaped too",
+          'onerror="alert(1)"' not in html and "&lt;img" in html,
+          html[:200])
+
+    # A tracker URL arrives from the same data as everything else.
+    check("only http(s) URLs survive",
+          m["safeUrl"]["https"] and not m["safeUrl"]["javascript"]
+          and not m["safeUrl"]["data"] and not m["safeUrl"]["empty"],
+          m["safeUrl"])
+    check("a javascript: board link is dropped, not rendered",
+          "javascript:" not in html)
+
+    # A refusal is a statement that was answered, not a paragraph that happened
+    # to be short, and it must not be styled as prose.
+    check("a refusal is set apart from the prose around it",
+          "border-left" in html and "absent, not noisy" in html)
+
+    # The plain-text part is text. `&amp;` in it is a bug, not a precaution.
+    text = m["body"]["textBody"]
+    check("the plain-text part is not HTML-escaped",
+          "&amp;" not in text and "&lt;" not in text, text[:120])
+    check("the plain-text part still carries the refusal verbatim",
+          "absent, not noisy" in text)
+
+    # Header injection. Escaping does nothing about this one.
+    subject = m["headerInjection"]
+    check("a newline in a board name cannot break out of the subject header",
+          "\n" not in subject and "\r" not in subject, repr(subject))
+    check("the injected header text is flattened, not silently dropped",
+          "Bcc:" in subject, subject)
+    check("an over-long subject is capped visibly rather than silently",
+          len(m["longSubject"]) <= 200 and m["longSubject"].endswith("\u2026"),
+          (len(m["longSubject"]), m["longSubject"][-3:]))
+
+    # Built in one place so no call site can leave the restriction out.
+    check("every notification payload carries the BROWSE restriction",
+          m["payload"].get("restrict") == {"permissions": [{"key": "BROWSE"}]},
+          m["payload"])
+    check("and carries the four fields the endpoint reads",
+          set(m["payload"]) == {"subject", "textBody", "htmlBody", "to", "restrict"},
+          sorted(m["payload"]))
+
+
+def test_nothing_is_sent_that_the_guards_would_have_stopped():
+    """Compose, render, send — with the model and the send stubbed.
+
+    `forge/src/compose.js` exists so this path can be run at all: `index.js`
+    imports the Forge SDK and cannot be loaded outside Atlassian's runtime, so
+    anything left in it is provable only by deploying and watching. The code
+    that decides what reaches an inbox is not code to find out about that way.
+    """
+    node = subprocess.run(["node", str(ROOT / "tests" / "brief_shapes.mjs")],
+                          input=json.dumps({"refusal": "R"}),
+                          capture_output=True, text=True, cwd=str(ROOT))
+    if node.returncode != 0:
+        check("the brief shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    p = json.loads(node.stdout)["pipeline"]
+
+    ok = p["usable"]
+    check("each configured audience gets its own message",
+          [r["audience"] for r in ok["out"]["results"]] == ["exec", "team"],
+          ok["out"])
+    check("both were sent", all(r["sent"] for r in ok["out"]["results"]),
+          ok["out"])
+    check("the subjects name the audience",
+          ok["subjects"][0].startswith("Executive")
+          and ok["subjects"][1].startswith("Team"), ok["subjects"])
+    check("every send is against the configured anchor issue",
+          ok["anchors"] == ["SFT-1", "SFT-1"], ok["anchors"])
+    check("the refused section is carried and named, not dropped",
+          all(r["refusedSections"] == ["Forecast"] for r in ok["out"]["results"]),
+          ok["out"])
+    check("the refusal reaches the HTML body verbatim",
+          "absent, not noisy" in ok["html"], ok["html"][-120:])
+
+    # The one that matters most. brief.js refusing prose that carries a figure
+    # is already covered; this asserts nothing reaches an inbox when it does.
+    check("prose that fails the guard sends nothing at all",
+          p["guarded"]["sends"] == 0, p["guarded"])
+    check("and says which section stopped it",
+          any("Delivery" in " ".join(r.get("reasons", []))
+              for r in p["guarded"]["out"]["results"]),
+          p["guarded"]["out"])
+
+    check("a config that does not validate sends nothing",
+          p["badConfig"]["sends"] == 0 and "reasons" in p["badConfig"]["out"],
+          p["badConfig"]["out"])
+
+    # One audience failing must not take the other with it: they are separate
+    # messages to separate people, and a weekly cadence means the second
+    # audience would wait a week for someone else's problem.
+    jr = p["jiraRefuses"]
+    check("Jira refusing one audience still attempts the other",
+          jr["attempts"] == 2, jr)
+    check("and the failure is reported with Jira's own status",
+          jr["out"]["results"][0]["sent"] is False
+          and "403" in " ".join(jr["out"]["results"][0]["reasons"])
+          and jr["out"]["results"][1]["sent"] is True,
+          jr["out"])
+
+
 if __name__ == "__main__":
     import os
     os.environ["SERVICE_SHARED_SECRET"] = SECRET
@@ -2375,6 +2530,9 @@ if __name__ == "__main__":
     test_a_scheduled_run_that_cannot_deliver_says_so_before_doing_work()
     print("who a boards brief goes to")
     test_a_boards_recipients_are_validated_before_anyone_is_told()
+    print("the brief as an email")
+    test_the_brief_reaches_an_inbox_without_carrying_a_payload()
+    test_nothing_is_sent_that_the_guards_would_have_stopped()
     print("the deploy trigger")
     test_the_deploy_trigger_covers_everything_the_image_ships()
     print("the container image")
