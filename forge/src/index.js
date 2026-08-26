@@ -952,10 +952,11 @@ resolver.define('facts', ({ payload }) => compute('/v1/facts', payload ?? {}));
    A separate export rather than another `resolver.define`, because a scheduled
    trigger is not a resolver call. Forge invokes the function directly with an
    event; `resolver.getDefinitions()` returns a dispatcher expecting
-   `{ call: { functionKey } }` and would not recognise one. The manifest pointed
-   its trigger at `resolver` from the day it was declared, which would have
-   failed on the first fire — declared-but-never-run is exactly the state that
-   hides this.
+   `{ call: { functionKey } }` and does not recognise one. The manifest pointed
+   its trigger at `resolver` from the day it was declared, and it threw on both
+   of the two fires it has ever had — `TypeError: ... reading 'functionKey'`,
+   2026-08-24. A scheduled trigger is not retried and its failure appears
+   nowhere a person looks, which is what hid it for three versions.
 
    Two things about the runtime shape it in ways that are not obvious:
 

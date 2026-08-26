@@ -63,10 +63,14 @@ modules:
     #
     # This trigger pointed at `resolver` from the day it was declared. A
     # scheduled trigger invokes a function directly with an event; the resolver
-    # handler is a dispatcher expecting `{ call: { functionKey } }` and would
-    # not have recognised one, so the first fire would have failed. Nothing
-    # caught it because a trigger that is declared and never runs looks exactly
-    # like one that works. tests/test_service.py now holds the two apart.
+    # handler is a dispatcher expecting `{ call: { functionKey } }` and does not
+    # recognise one. It fired twice on 2026-08-24 and threw both times —
+    # `TypeError: Cannot read properties of undefined (reading 'functionKey')`.
+    # Nothing surfaced it: a scheduled trigger is not retried and its failure
+    # appears nowhere a person looks. tests/test_service.py holds the two apart.
+    #
+    # It has not fired at all since, across three versions and a reinstall, and
+    # why is not established — docs/forge-deployment.md has both candidates.
     - key: weekly-brief-fn
       handler: index.weeklyBrief
       # Longer than the default because this one reads a board, calls the

@@ -360,18 +360,44 @@ Watch it with:
 cd forge && forge logs -e development -f weekly-brief-fn -s 40m -g
 ```
 
-The trigger's first fire is roughly five minutes after a deploy, then weekly.
+**Do not trust a cadence for it.** Atlassian documents the first fire as roughly
+five minutes after a deploy and then on the interval. Neither half held here: it
+fired twice under version 2 about two and a half hours apart against
+`interval: week`, and it has not fired at all since version 3 — through three
+deploys, an upgrade and a reinstall. Watch the log rather than predicting the
+clock.
 
-### The trap this module walked into once
+### The trap this module walked into, and the log line that proves it
 
 `weekly-brief` pointed at the `resolver` function from the day it was declared.
 A scheduled trigger invokes its function **directly with an event**;
 `resolver.getDefinitions()` returns a dispatcher that expects
-`{ call: { functionKey } }`, so the first fire would have failed — a week after a
-deploy, inside a tenant, with nobody watching. A declared trigger that never runs
-looks exactly like one that works, which is why nothing caught it for three
-versions. `tests/test_service.py` now asserts the trigger's function is not the
-resolver's.
+`{ call: { functionKey } }` and does not recognise one:
+
+```
+ERROR 2026-08-24T15:04:28.071Z  TypeError: Cannot read properties of undefined (reading 'functionKey')
+    at Object.handler (@forge/resolver/out/index.js:31:33)
+```
+
+Twice, on 2026-08-24, and never surfaced: a scheduled trigger is not retried and
+its failure appears nowhere a person looks. `tests/test_service.py` now asserts
+the trigger's function is not the resolver's.
+
+### A scheduled trigger that stops is worse than one that fails
+
+The same two log lines are the *only* two in seven days. Both are under major
+version 2. Since version 3 there have been **zero invocations in over thirty-one
+hours**, across three versions and a reinstall.
+
+Whether Forge disables a trigger after consecutive failures, or the version 3
+scope change left it unable to run, is **not established** — both fit and
+nothing available here separates them. What matters operationally is the shape:
+a trigger that fails writes a line, and a trigger that stops writes nothing, so
+silence and a long interval look identical. If you are relying on one, assert
+its liveness from something it produces rather than from the absence of errors.
+
+It also means a fix can be deployed into a trigger that will never run it, with
+every other signal — lint, deploy, install list, eligibility — reporting healthy.
 
 ### And the one that is not fixed, because it is item 5
 
@@ -386,7 +412,9 @@ permission mirroring holding for free. See ADR 0013 and `docs/roadmap.md` — it
 
 A brief is composed from a real board and delivered to a real recipient. None of
 those three things exists yet, and the handler names all three every time it
-fires.
+fires — which, as above, it has not yet been observed doing since the rewiring.
+The nearer milestone is one `weekly brief not sent: …` line in `forge logs`,
+which would prove the trigger reaches the handler at all.
 
 ---
 

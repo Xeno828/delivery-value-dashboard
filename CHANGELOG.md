@@ -10,13 +10,31 @@
 
 Worth knowing because the upgrade prints *"The scopes or egress URLs in the manifest are different from the scopes in your most recent deployment"* immediately before succeeding — on a run where no scope had changed and the deploy was two minutes old. Read as the failure that section describes, it would send you into a reinstall for nothing. `forge install list` is the only thing that answers the question.
 
-**The trigger has not been observed firing, and that is stated rather than assumed.** There is no CLI command that invokes a scheduled trigger, so the first fire cannot be forced; Atlassian documents it as roughly five minutes after a deploy and weekly after that. Nothing has appeared in `forge logs -f weekly-brief-fn` yet. What is proved is that the app deploys, lints, installs and reports the module — not that the handler has run. Those are different claims and this is the weaker one, exactly as 1.23.1 recorded for the forecast.
+**The trigger did fire, twice, and failed both times — so the bug fixed in 1.25.0 is observed rather than predicted.** Seven days of `forge logs` hold exactly two entries, both on 2026-08-24, both this:
+
+```
+ERROR 2026-08-24T15:04:28.071Z  TypeError: Cannot read properties of undefined (reading 'functionKey')
+    at Object.handler (@forge/resolver/out/index.js:31:33)
+ERROR 2026-08-24T17:33:57.336Z  TypeError: Cannot read properties of undefined (reading 'functionKey')
+```
+
+That is the scheduled event reaching `resolver.getDefinitions()`, which reads `call.functionKey` off a payload that has no `call`. 1.25.0 reasoned it out of the platform documentation; this is the same failure with a timestamp on it.
+
+**And then it stopped firing, which is the more useful finding.** Both fires happened under major version 2 (deployed 12:23Z, 4 scopes). Since version 3 — deployed 08-24T18:37Z, and the first with 7 scopes — there have been **zero invocations in over thirty-one hours**, spanning versions 3, 4 and 5, including four hours on version 4 before any of this work started and seven on version 5 after it. Under version 2 the cadence was roughly one fire every two and a half hours, which is itself not the weekly interval the manifest asks for.
+
+Two explanations fit and nothing here separates them: Forge disabling a trigger after consecutive failures, or the version 3 scope change leaving it in a state where it does not run — the same scope change `docs/forge-deployment.md` already warns silently fails to widen an existing installation. **Recorded as unexplained rather than resolved**, because a plausible reason written down as a fact is exactly the failure this repository treats as its worst.
+
+**The hazard is worth naming on its own.** A scheduled trigger that stops firing reports nothing at all. The two failures at least reached a log; thirty-one hours of silence is indistinguishable from an interval that has not elapsed, and if the platform does disable on failure then a fix deployed afterwards never gets the chance to prove itself while the app reports healthy throughout.
+
+**So the fix is deployed and still unexercised.** Version 5 carries `Functions: 2` and `llm: 1` and the installation is on it, which is structural confirmation that the rewiring shipped — not that the handler has run. Those are different claims and this is the weaker one, exactly as 1.23.1 recorded for the forecast. The app was uninstalled and installed fresh on 2026-08-26 at 06:10Z to try to re-arm it; **the new installation ARI is not the one 1.23.1 quoted**, so the calculator's access log will name a different tenant from here on.
 
 When it does fire it will refuse, with the three sentences it is written to refuse with, before making a single Jira call.
 
 ## 1.25.0
 
-**The `llm` module is declared and the weekly brief has a handler — and wiring it found that the trigger could never have fired.** `weekly-brief` had pointed at the `resolver` function since the day it was declared. Forge invokes a scheduled trigger's function directly with an event; `resolver.getDefinitions()` returns a dispatcher expecting `{ call: { functionKey } }` and would not have recognised one, so the first fire would have failed inside a tenant, on a timer, a week after a deploy nobody was still watching. Nothing caught it because a trigger that is declared and never runs looks exactly like one that works. It has its own function now — `weekly-brief-fn`, `index.weeklyBrief` — and a test holds the two apart: the trigger's function must not be the resolver's, and the export it names must exist.
+**The `llm` module is declared and the weekly brief has a handler — and wiring it found that the trigger had been failing on every fire.** `weekly-brief` had pointed at the `resolver` function since the day it was declared. Forge invokes a scheduled trigger's function directly with an event; `resolver.getDefinitions()` returns a dispatcher expecting `{ call: { functionKey } }` and does not recognise one. It has its own function now — `weekly-brief-fn`, `index.weeklyBrief` — and a test holds the two apart: the trigger's function must not be the resolver's, and the export it names must exist.
+
+This was written as a prediction from the platform documentation. 1.25.1 records the log lines that show it happening, which are better evidence and change one word of it: not *would have failed*, **did fail**.
 
 `forge lint` reports 0 errors, 0 warnings and one `MAJOR_VERSION_RULE` approval reading *"Change due to usage of core:llm module"*, which is the reinstall cost [ADR 0013](docs/adr/0013-the-brief-is-written-inside-the-tenant.md) predicted, stated by the platform rather than by us.
 
