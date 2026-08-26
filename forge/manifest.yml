@@ -210,6 +210,26 @@ permissions:
     # four routes in src/index.js, none of which takes a query from the page.
     - read:sprint:jira-software
     - read:jql:jira
+    # ---- not read-only, and each one is here with a reason -------------
+    #
+    # Until 1.26.0 every scope in this file began with `read:` and a test
+    # asserted it. These two do not, so the test became an allow-list in which a
+    # non-read scope must appear with its justification. The rule was never
+    # "read: is a nice prefix" — it was that adding reach is a deliberate edit
+    # somebody has to argue for. ADR 0014.
+    #
+    # The send itself. There is no read-only way to send mail, and this is what
+    # keeps the brief inside Atlassian rather than handing issue titles to a
+    # mail provider. It grants no read or write of issue data, and it cannot
+    # address anyone outside this site: the notify endpoint takes Jira
+    # accountIds and groups, and has no field for an email address.
+    - send:notification:jira
+    # The app's own key-value store, which is where a board's recipient list
+    # lives. It grants no access to any Jira data at all — it is this app's own
+    # shelf. The alternative was a Jira project property, which would have meant
+    # write access into the customer's project to save a setting; ADR 0014 has
+    # why that trade goes the other way.
+    - storage:app
 
 app:
   runtime:

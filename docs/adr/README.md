@@ -1,6 +1,6 @@
 # Decision records
 
-Thirteen decisions that explain why the product is shaped the way it is. Each one exists because the alternative was tried, argued for, or nearly shipped — none of them is a statement of general principle.
+Fourteen decisions that explain why the product is shaped the way it is. Each one exists because the alternative was tried, argued for, or nearly shipped — none of them is a statement of general principle.
 
 Read these before proposing a change that a constraint in `CLAUDE.md` appears to block. The constraint is the rule; the record is the reason, and the reason is what tells you whether your case is the exception.
 
@@ -19,6 +19,7 @@ Read these before proposing a change that a constraint in `CLAUDE.md` appears to
 | [0011](0011-a-kanban-context-is-a-window-not-a-clock.md) | A board without sprints gets a window, and a window is not a clock | A pace measured against a boundary nobody committed to |
 | [0012](0012-the-calculator-is-reached-by-invokeremote.md) | Forge reaches the calculator by `invokeRemote`, region-pinned | A shared secret over a URL the app builds itself |
 | [0013](0013-the-brief-is-written-inside-the-tenant.md) | The scheduled brief is written by Forge LLMs in the tenant; only the file leaves | An API key, a third party, and every issue title going through it weekly |
+| [0014](0014-jira-sends-the-brief-and-the-read-only-rule-bends.md) | Jira sends the brief; non-read scopes are allow-listed with reasons | A mail provider, recipients as email addresses, and a rule kept by memory |
 
 ## Writing a new one
 

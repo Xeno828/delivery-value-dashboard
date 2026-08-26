@@ -52,6 +52,20 @@ SECRET = secrets.token_hex(16)
 AUTH = {"Authorization": "Bearer " + SECRET}
 
 
+# The only scopes in this app that do not begin with `read:`, and the reason
+# each is tolerable. ADR 0014 has the argument; this is the enforcement.
+#
+# `send:notification:jira` — the send. No read or write of issue data, and the
+#   notify endpoint has no field for an address outside the site.
+# `storage:app`            — the app's own key-value store, where a board's
+#   recipient list lives. No access to Jira data at all.
+#
+# Adding to this set is a deliberate act with a record behind it. Anything not
+# in it fails, which is stricter than the `startswith("read:")` it replaced:
+# that would have waved through every future read scope unexamined.
+NON_READ_ALLOWED = {"send:notification:jira", "storage:app"}
+
+
 def check(name, ok, detail=""):
     print(("  PASS  " if ok else "  FAIL  ") + name + (("  — " + str(detail)) if detail else ""))
     if not ok:
@@ -464,10 +478,30 @@ def test_forge_manifest_matches_the_code():
     scope_strs = sorted(set(re.findall(r"^\s+- ([a-z]+:[\w:-]+)$", man, re.M)))
     check("scopes are found in both vocabularies", len(scope_strs) >= 2, scope_strs)
 
-    # The check that actually matters, and the one a reviewer will look for.
-    check("every scope is read-only",
-          all(s.startswith("read:") for s in scope_strs),
-          [s for s in scope_strs if not s.startswith("read:")] or scope_strs)
+    # This was `all(s.startswith("read:"))` until 1.26.0, and the rule it stood
+    # for was never the prefix — it was that reach is added deliberately, by
+    # somebody who wrote down why. Two scopes now need to be non-read (ADR 0014),
+    # so the assertion moved to the allow-list below, where a non-read scope has
+    # to be named *and* carry a justification. Weaker as a slogan, identical in
+    # what it actually stops, and it fails on a scope nobody argued for — which
+    # `startswith` did not: `read:` is also the prefix of every read scope
+    # Atlassian will ever add.
+    non_read = [s for s in scope_strs if not s.startswith("read:")]
+    check("every non-read scope is one of the two ADR 0014 permitted",
+          set(non_read) <= NON_READ_ALLOWED,
+          sorted(set(non_read) - NON_READ_ALLOWED) or non_read)
+
+    # A reason in the manifest, beside the scope, not only in the record. A
+    # scope somebody adds by copying the line above it is exactly what this
+    # catches: the comment block has to mention it by name.
+    for scope in sorted(NON_READ_ALLOWED):
+        if scope not in scope_strs:
+            continue
+        before = man.split("- %s" % scope)[0]
+        commented = [ln for ln in before.rsplit("\n\n", 1)[-1].split("\n")
+                     if ln.strip().startswith("#")]
+        check("%s carries a written reason in the manifest" % scope,
+              len(commented) >= 2, len(commented))
 
     # An allow-list rather than parity with jira_auth.SCOPES: Forge wants
     # granular scopes and the 3LO client uses classic ones, so the two lists are
@@ -490,7 +524,7 @@ def test_forge_manifest_matches_the_code():
         "read:project:jira",
         "read:sprint:jira-software",
         "read:jql:jira",
-    }
+    } | NON_READ_ALLOWED
     check("no scope outside the reviewed allow-list",
           set(scope_strs) <= ALLOWED, sorted(set(scope_strs) - ALLOWED) or "none")
 
@@ -2206,6 +2240,94 @@ def test_a_scheduled_run_that_cannot_deliver_says_so_before_doing_work():
           body[:160])
 
 
+def test_a_boards_recipients_are_validated_before_anyone_is_told():
+    """A recipient list decides who is told what is on a board.
+
+    The failures that matter are not crashes. They are a brief reaching someone
+    it should not, and a brief reaching nobody while the board looks configured
+    — and at a weekly cadence the second one goes unnoticed for a month. Every
+    case below is a way an administrator gets this wrong, and they arrive one at
+    a time, so each is reported rather than the first stopping the rest.
+
+    ADR 0014.
+    """
+    node = subprocess.run(["node", str(ROOT / "tests" / "brief_shapes.mjs")],
+                          input=json.dumps({"refusal": "R"}),
+                          capture_output=True, text=True, cwd=str(ROOT))
+    if node.returncode != 0:
+        check("the brief shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    r = json.loads(node.stdout)["recipients"]
+
+    check("a well-formed config has no problems", r["goodProblems"] == [],
+          r["goodProblems"])
+    check("both audiences item 3 describes are offered",
+          r["audiences"] == ["exec", "team"], r["audiences"])
+
+    # The notify endpoint's own shape, built in one place so no caller
+    # assembles `users` from parts and gets it wrong where only a tenant sees.
+    sends = r["sends"]["sends"]
+    check("a board resolves to one send per configured audience",
+          [x["audience"] for x in sends] == ["exec", "team"], sends)
+    check("users are wrapped as accountId objects",
+          sends[0]["to"]["users"] == [{"accountId": "5b10a2844c20165700ede21g"}],
+          sends[0]["to"])
+    check("groups are wrapped as name objects",
+          sends[0]["to"]["groups"] == [{"name": "leadership"}], sends[0]["to"])
+    check("the anchor issue travels with each send",
+          all(x["anchorIssue"] == "SFT-1" for x in sends), sends)
+    # An audience with only groups must not carry an empty `users` key — the
+    # endpoint reads presence, not length.
+    check("an audience with no users omits the key entirely",
+          "users" not in r["groupsOnly"]["sends"][0]["to"],
+          r["groupsOnly"]["sends"][0]["to"])
+
+    # Every way this is got wrong, each caught on its own.
+    for name in ("email", "displayName", "emptyAudience", "noAudience",
+                 "noAnchor", "badAnchor", "notAnObject"):
+        check("a config with %s is refused" % name, len(r["each"][name]) >= 1,
+              r["each"][name])
+
+    # The one that would be most tempting to be helpful about. An address
+    # cannot be delivered by this endpoint at all, and resolving it would mean
+    # this app claiming the person at that address is that Jira user.
+    check("an email address says why it cannot work rather than being resolved",
+          "no field for an address" in " ".join(r["each"]["email"]),
+          r["each"]["email"])
+    check("an audience that sends to nobody says so in those terms",
+          "indistinguishable" in " ".join(r["each"]["emptyAudience"]),
+          r["each"]["emptyAudience"])
+
+    # One broken audience refuses the whole board, including the audience that
+    # was fine: the entry was written by one person in one sitting, and sending
+    # half of what they asked for while saying nothing is the failure here.
+    check("one broken audience refuses the whole board",
+          "problems" in r["partiallyBroken"] and "sends" not in r["partiallyBroken"],
+          list(r["partiallyBroken"]))
+
+    check("an unconfigured board is named, not silently skipped",
+          "problems" in r["unconfigured"]
+          and "99" in " ".join(r["unconfigured"]["problems"]),
+          r["unconfigured"])
+    for name in ("empty", "notAnObject", "noBoardsKey"):
+        check("a %s config is refused" % name, len(r[name]) >= 1, r[name])
+
+    # A config that does not validate offers no boards at all, rather than the
+    # ones that happened to parse — a partly-walked run is a partly-informed
+    # reader who cannot tell.
+    check("a config that does not validate offers no boards to walk",
+          r["boardsFromBroken"] == [], r["boardsFromBroken"])
+    check("a config that does validate offers every board",
+          r["boards"] == ["2", "7"], r["boards"])
+
+    # Constant, not configurable. This is the only permission filtering in the
+    # product that is enforced rather than promised, and the first thing that
+    # would be switched off by someone whose brief did not arrive.
+    check("every send is restricted to those who may BROWSE the anchor",
+          r["restrict"] == {"permissions": [{"key": "BROWSE"}]}, r["restrict"])
+
+
 if __name__ == "__main__":
     import os
     os.environ["SERVICE_SHARED_SECRET"] = SECRET
@@ -2251,6 +2373,8 @@ if __name__ == "__main__":
     test_the_llm_module_matches_the_model_the_code_asks_for()
     test_the_brief_prompt_can_produce_an_answer_its_own_guard_accepts()
     test_a_scheduled_run_that_cannot_deliver_says_so_before_doing_work()
+    print("who a boards brief goes to")
+    test_a_boards_recipients_are_validated_before_anyone_is_told()
     print("the deploy trigger")
     test_the_deploy_trigger_covers_everything_the_image_ships()
     print("the container image")

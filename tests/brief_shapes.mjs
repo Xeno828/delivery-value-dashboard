@@ -16,6 +16,9 @@ import {
   briefMessages, composeBrief, deliveryBlockers, fillSlots, proseFrom,
   proseProblems, section, slotsIn,
 } from '../forge/src/brief.js';
+import {
+  AUDIENCES, RESTRICT, boardsIn, problemsIn, sendsFor,
+} from '../forge/src/recipients.js';
 
 const stdin = await new Promise((resolve) => {
   let buf = '';
@@ -96,6 +99,56 @@ console.log(JSON.stringify({
     noChoices: proseFrom({ choices: [] }),
     rubbish: proseFrom(null),
   },
+
+  /* Who a board's brief goes to. The good config exercises both audiences,
+     both recipient kinds and two of Atlassian's account id shapes; the bad one
+     is every way an administrator gets this wrong, and each has to be caught
+     separately because they will arrive one at a time, a week apart. */
+  recipients: (() => {
+    const good = { boards: {
+      2: { anchorIssue: 'SFT-1',
+           exec: { users: ['5b10a2844c20165700ede21g'], groups: ['leadership'] },
+           team: { users: ['712020:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'] } },
+      7: { anchorIssue: 'OPS-42', team: { groups: ['ops-team'] } },
+    } };
+    const bad = {
+      /* An address cannot be delivered by this endpoint at all, and looking it
+         up would mean claiming the person at that address is that Jira user. */
+      email:        { anchorIssue: 'SFT-1', exec: { users: ['josh@example.com'] } },
+      displayName:  { anchorIssue: 'SFT-1', exec: { users: ['Josh Bruen'] } },
+      /* Sends to nobody, which looks exactly like a send that worked. */
+      emptyAudience:{ anchorIssue: 'SFT-1', exec: { users: [], groups: [] } },
+      /* Listed, therefore looks covered, and silent. */
+      noAudience:   { anchorIssue: 'SFT-1' },
+      noAnchor:     { exec: { users: ['5b10a2844c20165700ede21g'] } },
+      badAnchor:    { anchorIssue: 'not-a-key', exec: { users: ['5b10a2844c20165700ede21g'] } },
+      notAnObject:  'leadership@example.com',
+    };
+    return {
+      audiences: AUDIENCES,
+      restrict: RESTRICT,
+      goodProblems: problemsIn(good),
+      boards: boardsIn(good),
+      sends: sendsFor(good, 2),
+      groupsOnly: sendsFor(good, 7),
+      unconfigured: sendsFor(good, 99),
+      /* One broken audience refuses the whole board, including the audience
+         that was fine — the entry was written by one person in one sitting. */
+      partiallyBroken: sendsFor({ boards: { 2: {
+        anchorIssue: 'SFT-1',
+        exec: { users: ['5b10a2844c20165700ede21g'] },
+        team: { users: ['josh@example.com'] },
+      } } }, 2),
+      each: Object.fromEntries(Object.entries(bad).map(
+        ([name, entry]) => [name, problemsIn({ boards: { 9: entry } })])),
+      empty: problemsIn({ boards: {} }),
+      notAnObject: problemsIn(null),
+      noBoardsKey: problemsIn({}),
+      /* A config that does not validate offers no boards to walk, rather than
+         offering the ones that happened to parse. */
+      boardsFromBroken: boardsIn({ boards: { 9: bad.email } }),
+    };
+  })(),
 
   /* Why a scheduled run is not sending. All three are real today. */
   blockers: {
