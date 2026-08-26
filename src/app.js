@@ -121,6 +121,12 @@ const S = {
   unit: "items",
   /** Selected context id — one project+board+sprint, or a "roll:" rollup. */
   ctx: null,
+  /** The recipient configuration as the transport last reported it.
+   *  `undefined` means not asked yet, `null` means there is no transport —
+   *  an emailed copy — and those are different states with different tiles. */
+  recipients: undefined,
+  recipientsSaved: false,
+  recipientsProblems: [],
   view: null,
   /** Tile ids currently on screen. Set at boot from the URL or from a saved
    *  copy's data-tiles attribute; never from storage, which would not
@@ -2427,6 +2433,200 @@ function fetchSequence(id) {
  *  an ask that misses its date in every ordering is not a prioritisation
  *  problem, and saying so stops a meeting re-arranging a list that cannot be
  *  re-arranged into success. */
+/* ------------------------------------------------- who receives the brief
+   The only tile on this page that changes anything, and the only one whose
+   state does not come from the dataset. Everything else here renders numbers
+   that arrived in the file; this reads and writes a configuration that lives
+   wherever the transport keeps it — the app's own store on Forge, a local file
+   over loopback — and this page does not learn which. ADR 0009, ADR 0014.
+
+   Three things it must get right, in the order they bite:
+
+   **An emailed copy has no transport at all**, and must say so rather than
+   render an empty form somebody fills in and cannot save. That is the same
+   rule as the Monte Carlo tile.
+
+   **A viewer who is not a project administrator sees the configuration and
+   cannot change it.** Not hidden: a misconfigured board and an unconfigured
+   one look identical when the answer is blank, and the person most likely to
+   notice a wrong recipient is whoever is reading the panel.
+
+   **Nothing here validates.** The tile sends what was typed and renders what
+   came back. A third opinion about whether a config is usable — after
+   `recipients.js` and `serve_live.recipient_problems`, which one test already
+   holds together — is the failure this repository keeps paying for.
+   --------------------------------------------------------------------- */
+
+/** The board the tile is about: the one the selected context belongs to. */
+function briefBoard() {
+  const c = S.view && S.view.ctx;
+  return c ? { id: c.boardId || "", name: c.boardName || c.team || "" } : { id: "", name: "" };
+}
+
+/** Fetch once per page load. Refetched after a save, because the answer
+ *  includes whether this reader may still edit. */
+function fetchRecipients() {
+  if (!LIVE) { S.recipients = null; return; }
+  S.recipients = undefined;
+  LIVE.get("recipients").then(r => {
+    S.recipients = r.ok && r.body ? r.body : { available: false,
+      why: "The server did not answer about recipients (" + (r.status || 0) + ")." };
+    render();
+  }).catch(() => { S.recipients = null; render(); });
+}
+
+/** Comma-separated, empties dropped. What a person types into a list field. */
+function briefList(v) {
+  return String(v || "").split(",").map(x => x.trim()).filter(Boolean);
+}
+
+function briefAudienceFields(audience, who) {
+  const u = (who && who.users || []).join(", ");
+  const g = (who && who.groups || []).join(", ");
+  const l = audience === "exec" ? "Executive" : "Team";
+  return '<fieldset class="br-set"><legend>' + l + '</legend>' +
+    '<label class="br-lab" for="br-' + audience + '-u">Account IDs</label>' +
+    '<input class="br-in" id="br-' + audience + '-u" type="text" value="' + esc(u) +
+      '" placeholder="5b10a2844c20165700ede21g, 712020:…" ' +
+      'aria-describedby="br-' + audience + '-hint">' +
+    '<div class="cap" id="br-' + audience + '-hint">Jira account IDs, comma separated. ' +
+      'Not email addresses &mdash; Jira&rsquo;s notification API has no field for one.</div>' +
+    '<label class="br-lab" for="br-' + audience + '-g">Groups</label>' +
+    '<input class="br-in" id="br-' + audience + '-g" type="text" value="' + esc(g) +
+      '" placeholder="leadership, ops-team">' +
+    "</fieldset>";
+}
+
+function renderBrief(el) {
+  // No transport: an emailed copy. Say so, rather than offering a form that
+  // cannot be saved.
+  if (!LIVE) {
+    el.innerHTML = '<div class="fc-offline"><b>Not available in a saved copy.</b>' +
+      '<div class="note">Who receives this board&rsquo;s brief is configured in the app, ' +
+      "against the site the data came from. This file has no connection to it.</div></div>";
+    return;
+  }
+  const r = S.recipients;
+  if (r === undefined) {
+    el.innerHTML = '<div class="note">Reading the recipient list&hellip;</div>';
+    fetchRecipients();
+    return;
+  }
+  if (r === null || !r.available) {
+    el.innerHTML = '<div class="fc-refusal"><b>No recipient list.</b> ' +
+      esc((r && r.why) || "The server did not answer.") + "</div>";
+    return;
+  }
+
+  const board = briefBoard();
+  if (!board.id) {
+    el.innerHTML = '<div class="fc-refusal"><b>No board selected.</b> ' +
+      "Recipients are configured per board, and nothing on this page names one yet." +
+      "</div>";
+    return;
+  }
+
+  const boards = (r.config && r.config.boards) || {};
+  const entry = boards[board.id] || {};
+  const others = Object.keys(boards).filter(id => id !== board.id);
+
+  let html = '<div class="fc-lead">Configuring <b>' + esc(board.name || board.id) +
+    "</b>. Each board has its own recipients; " +
+    (others.length ? "<b>" + others.length + "</b> other board" +
+      (others.length === 1 ? " is" : "s are") + " configured here too."
+      : "no other board is configured yet.") + "</div>";
+
+  // The stored config's own problems, verbatim from whichever validator
+  // answered. Shown whether or not this reader can fix them.
+  if ((r.problems || []).length) {
+    html += '<div class="fc-refusal"><b>The stored configuration cannot be used.</b><ul>' +
+      r.problems.map(p => "<li>" + esc(p) + "</li>").join("") + "</ul></div>";
+  }
+  if (S.recipientsSaved) {
+    html += '<div class="br-ok" role="status">Saved. The next brief for this board goes ' +
+      "to these recipients.</div>";
+  }
+  if ((S.recipientsProblems || []).length) {
+    html += '<div class="fc-refusal" role="alert"><b>Not saved.</b><ul>' +
+      S.recipientsProblems.map(p => "<li>" + esc(p) + "</li>").join("") + "</ul></div>";
+  }
+
+  if (!r.canEdit) {
+    const ex = entry.exec || {}, tm = entry.team || {};
+    const line = (label, who) => "<tr><th>" + label + "</th><td>" +
+      (((who.users || []).concat(who.groups || [])).map(esc).join(", ") || "&mdash;") +
+      "</td></tr>";
+    html += '<div class="tv-wrap"><table class="tv"><tbody>' +
+      "<tr><th>Anchor issue</th><td>" + (esc(entry.anchorIssue) || "&mdash;") + "</td></tr>" +
+      line("Executive", ex) + line("Team", tm) + "</tbody></table></div>" +
+      '<div class="note">' + esc(r.why || "You cannot change this.") + "</div>";
+    el.innerHTML = html;
+    return;
+  }
+
+  html += '<form id="br-form" novalidate>' +
+    '<label class="br-lab" for="br-anchor">Anchor issue</label>' +
+    '<input class="br-in" id="br-anchor" type="text" value="' + esc(entry.anchorIssue || "") +
+      '" placeholder="SFT-1" aria-describedby="br-anchor-hint">' +
+    '<div class="cap" id="br-anchor-hint">Jira sends a notification <i>about</i> an issue &mdash; ' +
+      "there is no site-wide send. Whoever may browse this issue may receive the brief, " +
+      "so choose one whose audience is the audience.</div>" +
+    briefAudienceFields("exec", entry.exec) +
+    briefAudienceFields("team", entry.team) +
+    '<div class="br-actions"><button type="submit" class="btn" id="br-save">Save recipients</button>' +
+    '<button type="button" class="btn btn-quiet" id="br-clear">Remove this board</button></div>' +
+    "</form>";
+  el.innerHTML = html;
+
+  const form = el.querySelector("#br-form");
+  const val = id => (el.querySelector(id) || {}).value || "";
+  const submit = next => {
+    S.recipientsSaved = false;
+    S.recipientsProblems = [];
+    LIVE.put("saveRecipients", { config: next }).then(res => {
+      const b = res.body || {};
+      S.recipientsSaved = b.saved === true;
+      S.recipientsProblems = b.saved ? [] : (b.problems ||
+        [(b.why) || "The server refused the save (" + (res.status || 0) + ")."]);
+      // Refetched rather than assumed: the answer carries whether this reader
+      // may still edit, and a save is exactly when that is worth re-asking.
+      fetchRecipients();
+    }).catch(() => {
+      S.recipientsProblems = ["The server could not be reached, so nothing was saved."];
+      render();
+    });
+  };
+
+  form.addEventListener("submit", e => {
+    e.preventDefault();
+    const next = { boards: Object.assign({}, boards) };
+    const one = {};
+    const anchor = val("#br-anchor").trim();
+    if (anchor) one.anchorIssue = anchor;
+    ["exec", "team"].forEach(a => {
+      const users = briefList(val("#br-" + a + "-u"));
+      const groups = briefList(val("#br-" + a + "-g"));
+      // An audience nobody was named for is left out entirely rather than
+      // written as an empty one. The validators refuse an empty audience,
+      // deliberately — it sends to nobody and looks like it worked — and
+      // submitting one because a field was blank would refuse every save.
+      if (users.length || groups.length) {
+        one[a] = {};
+        if (users.length) one[a].users = users;
+        if (groups.length) one[a].groups = groups;
+      }
+    });
+    next.boards[board.id] = one;
+    submit(next);
+  });
+
+  el.querySelector("#br-clear").addEventListener("click", () => {
+    const next = { boards: Object.assign({}, boards) };
+    delete next.boards[board.id];
+    submit(next);
+  });
+}
+
 function renderSequence(el, ctrl) {
   const id = S.ctx, sq = S.sequences[id];
   if (sq === undefined) {
@@ -2767,7 +2967,8 @@ const TILES = [
   { id: "c-load",  label: "Team load" },
   { id: "c-value", label: "Business value delivered" },
   { id: "c-rel",   label: "Releases & milestones" },
-  { id: "c-risk",  label: "Risks and what to do about them" }
+  { id: "c-risk",  label: "Risks and what to do about them" },
+  { id: "c-brief", label: "Who receives this board's brief" }
 ];
 const TILE_IDS = TILES.map(t => t.id);
 
@@ -3185,7 +3386,8 @@ function saveView() {
   ["#exec-verdict", "#exec-basis", "#exec-list", "#kpis", "#ctxbar", "#f-chips", "#foot",
    "#burn-chart", "#burn-table", "#dist-chart", "#dist-table", "#flowtime-chart", "#flowtime-table",
    "#age-chart", "#age-table", "#pred-chart", "#pred-table",
-   "#dora-body", "#load-body", "#value-body", "#rel-body", "#risk-body", "#p-body", "#view-pop"
+   "#dora-body", "#load-body", "#value-body", "#rel-body", "#risk-body", "#brief-body",
+   "#p-body", "#view-pop"
   ].forEach(sel => { const el = root.querySelector(sel); if (el) el.innerHTML = ""; });
 
   const name = presetOf(S.shown);
@@ -3212,6 +3414,9 @@ function render() {
   renderBurn(m); renderDist(m, items); renderFlowTime(m, items); renderAge(m);
   renderCycle(m); renderWip(m); renderThr(m); renderCfd(m);
   renderPred(m); renderForecast(); renderDora(m); renderLoad(); renderValue(m); renderRel(m); renderRisk(m, items);
+  // Last, and not from `m`: this tile renders a configuration rather than a
+  // measurement, and nothing on it is derived from the dataset on screen.
+  if ($("#brief-body")) renderBrief($("#brief-body"));
   applyTiles();
   /* The grid used to be faded to 0.45 opacity over an empty context, as the
      only signal that its zeros meant nothing. The tiles now say so in words,
@@ -3269,8 +3474,19 @@ const ROUTES = {
   sequence: p => "api/sequence?id=" + encodeURIComponent(p.id),
   forecast: p => "api/forecast?id=" + encodeURIComponent(p.id) +
     (p.items != null ? "&items=" + encodeURIComponent(p.items) : "") +
-    (p.date ? "&date=" + encodeURIComponent(p.date) : "")
+    (p.date ? "&date=" + encodeURIComponent(p.date) : ""),
+  recipients: () => "api/recipients",
+  saveRecipients: () => "api/recipients"
 };
+
+/* `saveRecipients` is the one route that changes something, and the only place
+   this page asks a transport to do anything but read.
+
+   It is a POST over loopback because a GET that mutates is a GET a browser, a
+   proxy or a prefetch will make on its own. The bridge has no verb — invoke()
+   names a route and the resolver decides — so the asymmetry lives in the two
+   adapters below and not in the caller: `LIVE.put` looks the same to the tile
+   whichever transport answered it. ADR 0009. */
 
 /** The transport, chosen once at load. `get` resolves to {ok, status, body}
  *  whichever it is; it rejects only when the host itself failed, which is the
@@ -3287,6 +3503,13 @@ const LIVE = (function () {
       get: (route, params) => Promise.resolve(b.invoke(route, params || {}))
         .then(r => ({ ok: ((r && r.status) || 0) < 400,
                       status: (r && r.status) || 0,
+                      body: r ? r.body : null })),
+      // Identical over the bridge: a resolver is named, not a verb. The two
+      // being the same function here is the point — a caller cannot depend on
+      // a difference that only one transport has.
+      put: (route, params) => Promise.resolve(b.invoke(route, params || {}))
+        .then(r => ({ ok: ((r && r.status) || 0) < 400,
+                      status: (r && r.status) || 0,
                       body: r ? r.body : null }))
     };
   }
@@ -3300,7 +3523,14 @@ const LIVE = (function () {
         .then(r => r.json().then(body => ({ ok: r.ok, status: r.status, body: body }))
           // A body that is not JSON is not an answer. Keep the status: 404
           // and 400 mean different things to the callers below.
-          .catch(() => ({ ok: false, status: r.status, body: null })))
+          .catch(() => ({ ok: false, status: r.status, body: null }))),
+      put: (route, params) => fetch(ROUTES[route]({}), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params || {}),
+        cache: "no-store"
+      }).then(r => r.json().then(body => ({ ok: r.ok, status: r.status, body: body }))
+        .catch(() => ({ ok: false, status: r.status, body: null })))
     };
   }
   return null;

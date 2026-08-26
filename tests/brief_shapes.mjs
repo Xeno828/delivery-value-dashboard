@@ -22,6 +22,14 @@ import {
 import { emailBody, esc, safeUrl } from '../forge/src/mailbody.js';
 import { briefsForBoard } from '../forge/src/compose.js';
 
+/* One set of recipient cases, judged here and by scripts/serve_live.py. Two
+   implementations of a rule is what this repository most reliably regrets; the
+   mirror is tolerated only because this file and that one are held together by
+   `test_the_two_recipient_validators_agree`. */
+import { readFileSync } from 'node:fs';
+const RECIPIENT_CASES = JSON.parse(
+  readFileSync(new URL('./fixtures/recipient-configs.json', import.meta.url)));
+
 const stdin = await new Promise((resolve) => {
   let buf = '';
   process.stdin.setEncoding('utf8');
@@ -272,6 +280,10 @@ console.log(JSON.stringify({
       /* A config that does not validate offers no boards to walk, rather than
          offering the ones that happened to parse. */
       boardsFromBroken: boardsIn({ boards: { 9: bad.email } }),
+      /* The shared set. Python runs the identical list and the two verdicts
+         have to match, case for case. */
+      verdicts: RECIPIENT_CASES.map(
+        (c) => [c.name, problemsIn(c.config).length === 0]),
     };
   })(),
 

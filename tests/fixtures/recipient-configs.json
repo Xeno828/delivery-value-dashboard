@@ -1,0 +1,93 @@
+[
+  { "name": "one board, one audience, one user",
+    "usable": true,
+    "config": { "boards": { "2": { "anchorIssue": "SFT-1",
+      "exec": { "users": ["5b10a2844c20165700ede21g"] } } } } },
+
+  { "name": "both audiences, users and groups, two account id shapes",
+    "usable": true,
+    "config": { "boards": {
+      "2": { "anchorIssue": "SFT-1",
+             "exec": { "users": ["5b10a2844c20165700ede21g"], "groups": ["leadership"] },
+             "team": { "users": ["712020:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"] } },
+      "7": { "anchorIssue": "OPS-42", "team": { "groups": ["ops-team"] } } } } },
+
+  { "name": "groups only, no users key at all",
+    "usable": true,
+    "config": { "boards": { "7": { "anchorIssue": "OPS-42",
+      "team": { "groups": ["ops"] } } } } },
+
+  { "name": "an email address, which this endpoint cannot deliver to",
+    "usable": false,
+    "config": { "boards": { "2": { "anchorIssue": "SFT-1",
+      "exec": { "users": ["josh@example.com"] } } } } },
+
+  { "name": "a display name, which two people can share",
+    "usable": false,
+    "config": { "boards": { "2": { "anchorIssue": "SFT-1",
+      "exec": { "users": ["Josh Bruen"] } } } } },
+
+  { "name": "an audience that would send to nobody",
+    "usable": false,
+    "config": { "boards": { "2": { "anchorIssue": "SFT-1",
+      "exec": { "users": [], "groups": [] } } } } },
+
+  { "name": "a board listed with no audience, which reads as covered",
+    "usable": false,
+    "config": { "boards": { "2": { "anchorIssue": "SFT-1" } } } },
+
+  { "name": "no anchor issue, so there is nothing to notify about",
+    "usable": false,
+    "config": { "boards": { "2": {
+      "exec": { "users": ["5b10a2844c20165700ede21g"] } } } } },
+
+  { "name": "an anchor that is not an issue key",
+    "usable": false,
+    "config": { "boards": { "2": { "anchorIssue": "board-2",
+      "exec": { "users": ["5b10a2844c20165700ede21g"] } } } } },
+
+  { "name": "an anchor with a lowercase project key",
+    "usable": false,
+    "config": { "boards": { "2": { "anchorIssue": "sft-1",
+      "exec": { "users": ["5b10a2844c20165700ede21g"] } } } } },
+
+  { "name": "an entry that is a string rather than an object",
+    "usable": false,
+    "config": { "boards": { "2": "leadership@example.com" } } },
+
+  { "name": "an audience that is a list rather than an object",
+    "usable": false,
+    "config": { "boards": { "2": { "anchorIssue": "SFT-1", "exec": ["a"] } } } },
+
+  { "name": "a group that is an empty string",
+    "usable": false,
+    "config": { "boards": { "2": { "anchorIssue": "SFT-1",
+      "exec": { "groups": ["   "] } } } } },
+
+  { "name": "a user that is a number",
+    "usable": false,
+    "config": { "boards": { "2": { "anchorIssue": "SFT-1",
+      "exec": { "users": [12345] } } } } },
+
+  { "name": "one good board and one broken one",
+    "usable": false,
+    "config": { "boards": {
+      "2": { "anchorIssue": "SFT-1", "exec": { "users": ["5b10a2844c20165700ede21g"] } },
+      "9": { "anchorIssue": "SFT-2", "exec": { "users": ["nope@example.com"] } } } } },
+
+  { "name": "no boards at all",
+    "usable": false,
+    "config": { "boards": {} } },
+
+  { "name": "no boards key",
+    "usable": false,
+    "config": {} },
+
+  { "name": "not an object",
+    "usable": false,
+    "config": "recipients" },
+
+  { "name": "null",
+    "usable": false,
+    "config": null }
+]

@@ -33,6 +33,7 @@ import {
 import { deliveryBlockers } from './brief.js';
 import { boardsIn, notifyPayload, problemsIn } from './recipients.js';
 import { briefsForBoard } from './compose.js';
+import { ADMIN_PERMISSION, editability } from './permissions.js';
 
 const resolver = new Resolver();
 
@@ -946,6 +947,83 @@ resolver.define('probeBoardIssues', async ({ payload }) => {
    compute('/v1/forecast', …) and compute('/v1/sequence', …) with that
    mapping, and nothing else here changes. */
 resolver.define('facts', ({ payload }) => compute('/v1/facts', payload ?? {}));
+
+/* ------------------------------------------------------------------------
+   Who receives this board's brief — the config the panel edits.
+
+   Two routes, and the asymmetry between them is the design. Reading is open to
+   anyone who can open the panel; writing is a project administrator only,
+   because a recipient list decides who is told what is on a board.
+
+   The gate is Jira's own answer, asked as the person looking at the page —
+   `asUser()`, so a viewer who is not an administrator is refused by Jira rather
+   than by a group membership this app guessed at. It is asked again on the
+   write and not carried over from the read: the read happened when the page
+   loaded, and permissions change.
+   --------------------------------------------------------------------- */
+
+/** May this user administer this project? Jira's answer, not ours. */
+const editabilityFor = async (projectKey) => {
+  const res = await api.asUser().requestJira(
+    route`/rest/api/3/mypermissions?projectKey=${projectKey}&permissions=${ADMIN_PERMISSION}`);
+  if (!res.ok) {
+    // Fail closed and say so. A permission check that cannot be made is not a
+    // permission granted, and "Jira did not answer" is a different sentence
+    // from "you are not an administrator" — the reader can act on one of them.
+    return {
+      canEdit: false,
+      why: `Jira did not answer whether you may administer this project (${res.status}), `
+         + 'so the recipient list is shown but cannot be changed here.',
+    };
+  }
+  return editability(await res.json());
+};
+
+resolver.define('recipients', answering(async ({ context }) => {
+  const projectKey = moduleProjectKey(context);
+  if (!projectKey) return NO_PROJECT(context);
+
+  const config = await recipientConfig();
+  const rights = await editabilityFor(projectKey);
+
+  return {
+    status: 200,
+    body: {
+      available: true,
+      // The stored config, whatever state it is in. A config with problems is
+      // still shown — an administrator fixing it needs to see what is there,
+      // and a reader needs to be able to tell "wrong" from "unset".
+      config: config ?? { boards: {} },
+      problems: config ? problemsIn(config) : [],
+      ...rights,
+    },
+  };
+}));
+
+resolver.define('saveRecipients', answering(async ({ payload, context }) => {
+  const projectKey = moduleProjectKey(context);
+  if (!projectKey) return NO_PROJECT(context);
+
+  // Asked again rather than trusted from the read. The page cannot be the
+  // authority on whether the page may do this, and the read that said it could
+  // happened whenever the tab was opened.
+  const rights = await editabilityFor(projectKey);
+  if (!rights.canEdit) {
+    return { status: 403, body: { available: false, saved: false, ...rights } };
+  }
+
+  const config = payload?.config;
+  const problems = problemsIn(config);
+  if (problems.length) {
+    // Refused whole. Storing a config with a broken board and reporting the
+    // problem separately would leave the store holding something no run can
+    // use, which is worse than the previous contents.
+    return { status: 400, body: { available: true, saved: false, problems, ...rights } };
+  }
+
+  await kvs.set(RECIPIENTS_KEY, config);
+  return { status: 200, body: { available: true, saved: true, config, problems: [], ...rights } };
+}));
 
 /* ------------------------------------------------------------------------
    The weekly brief — roadmap item 3.

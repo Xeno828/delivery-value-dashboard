@@ -744,8 +744,32 @@ def transports(b):
         asked = set(page.evaluate("() => window.__stubCalls || []"))
         check("the bridge was asked for both context routes",
               {"contexts", "context"} <= asked, sorted(asked))
+        # Derived from src/app.js rather than listed here. A hardcoded set is a
+        # copy that has to be remembered, and the thing worth asserting is not
+        # "these four names" but "the page invents nothing" — which stays true
+        # as routes are added and stops being checked the moment the list here
+        # drifts from the one over there.
+        app_js = (ROOT / "src" / "app.js").read_text()
+        block = re.search(r"^const ROUTES = \{(.*?)^\};", app_js, re.S | re.M)
+        declared = set(re.findall(r"^\s{2}([a-zA-Z]\w*):", block.group(1), re.M)) if block else set()
+        check("the page declares its routes in one place", len(declared) >= 4, sorted(declared))
         check("and for no route the loopback transport does not have",
-              asked <= {"contexts", "context", "forecast", "sequence"}, sorted(asked))
+              asked <= declared, sorted(asked - declared) or sorted(asked))
+
+        # The other half of the same contract: every route the page can ask for
+        # has to be answered by the loopback server too, or live mode works on
+        # Forge and silently does nothing locally — which is exactly the
+        # divergence ADR 0009 exists to stop, arriving from the other side.
+        live_py = (ROOT / "scripts" / "serve_live.py").read_text()
+        paths = set(re.findall(r'"(api/[\w-]+)"', live_py))
+        missing = []
+        for name in sorted(declared):
+            m = re.search(r"^\s{2}%s: [^\n]*?\"(api/[\w-]+)" % re.escape(name),
+                          block.group(1), re.M)
+            if m and m.group(1) not in paths:
+                missing.append((name, m.group(1)))
+        check("every route the page can ask for is served over loopback too",
+              not missing, missing)
         page.close()
 
         # ---------- a file with no data of its own ----------

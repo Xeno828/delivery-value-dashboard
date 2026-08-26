@@ -406,3 +406,41 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
    below the list. */
 .vp-row.vp-off label { font-style: italic; }
 .vp-row.vp-off input { cursor: default; }
+
+/* ---------------------------------------------- who receives the brief
+   The only form on the page. Fields are full-width because the values are
+   long — an account id is 24 characters or a colon-separated UUID — and a
+   truncated one cannot be checked by eye against Jira.
+
+   Tokens are this stylesheet's own: `--border`, `--surface-1`, `--muted`,
+   `--text-secondary`. The first version of this used `--line` and `--surface`,
+   which do not exist here, so every input fell back to `currentColor` and drew
+   a pure white border on a transparent field in dark mode. Nothing failed —
+   white on near-black passes contrast comfortably — and it looked like a
+   deliberate high-contrast choice rather than a typo. Check a new token exists
+   before using it; a missing custom property is not an error, it is a silent
+   fallback.
+
+   `--link` and `--accent-bg` rather than any of `--s1`…`--s8`: the series
+   colours are validated for colour-vision deficiency independently and a
+   contrast fix here must never reach one. */
+.br-set { border: 1px solid var(--border); border-radius: 8px; margin: 12px 0 0; padding: 10px 12px; }
+.br-set legend { padding: 0 6px; font-weight: 600; font-size: .82rem; color: var(--text-secondary); }
+.br-lab { display: block; margin: 8px 0 4px; font-size: .82rem; font-weight: 600; color: var(--text-secondary); }
+.br-in {
+  width: 100%; box-sizing: border-box; padding: 7px 9px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface-1); color: var(--text-primary);
+  font: inherit; font-size: .86rem;
+}
+.br-in::placeholder { color: var(--muted); }
+.br-in:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; border-color: var(--link); }
+.br-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+/* A save that worked is stated rather than implied by the form going quiet.
+   The same treatment a refusal gets, in the affirmative — this page never
+   leaves a reader to infer that something happened. */
+.br-ok {
+  margin: 10px 0; padding: 9px 11px; border-radius: 6px;
+  border-left: 3px solid var(--good-ink); background: var(--good-wash);
+  color: var(--text-primary); font-size: .86rem;
+}

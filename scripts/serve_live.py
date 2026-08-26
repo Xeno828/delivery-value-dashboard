@@ -30,6 +30,7 @@ import datetime
 import json
 import os
 import pathlib
+import re
 import sys
 import threading
 import urllib.parse
@@ -431,6 +432,121 @@ class JiraBackend:
         return self._fc[key]
 
 
+# ------------------------------------------------------- recipient config
+# Who a board's brief goes to. On Forge this lives in the app's own key-value
+# store; over loopback there is no such thing, so it lives in a file beside the
+# dataset — git-ignored, because account ids identify people even though they
+# are not contact details.
+#
+# The point of implementing it here at all is that the page must not learn which
+# transport it has (ADR 0009). A route the Forge resolver answers and this one
+# refuses would be a page that behaves differently depending on how it was
+# reached, and the config tile would be untestable in the browser suite, which
+# is the only place its editing actually runs.
+#
+# There is no permission model over loopback and `canEdit` is therefore true.
+# That is not a gap being waved through: this server binds to 127.0.0.1 and
+# serves the person who started it, so "is this user a project administrator"
+# has no meaning here. The Forge side asks Jira. See ADR 0014.
+RECIPIENTS_FILE = pathlib.Path("data/recipients.local.json")
+
+# A config bigger than this is refused rather than stored. Stated because a cap
+# that truncates silently reads as one that accepted everything.
+MAX_CONFIG_BYTES = 64 * 1024
+
+# The two shapes an account id has actually come in, loosely. Deliberately not
+# tight: Atlassian has shipped at least three, and a pattern tuned to today's
+# rejects tomorrow's in a tenant with a valid config.
+_ACCOUNT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:._-]{6,126}[A-Za-z0-9]$")
+_ISSUE_KEY = re.compile(r"^[A-Z][A-Z0-9]{1,9}-[1-9][0-9]{0,9}$")
+_AUDIENCES = ("exec", "team")
+
+
+def recipient_problems(config):
+    """A mirror of `problemsIn` in forge/src/recipients.js, in Python.
+
+    A second implementation of a rule is the thing this repository most
+    reliably regrets, and this is one — so it is the *same* kind of mirror as
+    `orgconfig.validate` and `validateOrgConfig`, held to the same standard:
+    `tests/fixtures/recipient-configs.json` is one set of cases, and
+    `tests/test_service.py` runs both implementations over all of it and fails
+    if they ever disagree about whether a config is usable.
+
+    The browser cannot call JavaScript in `forge/src/`, and this server cannot
+    call Node without becoming a Python program that needs Node. The alternative
+    was for loopback to refuse the route, which would leave the editing half of
+    the config tile exercised by nothing — it only ever runs in a browser, and
+    the browser suite runs against this server.
+
+    Change one, change both. The wording of a sentence may differ; whether a
+    config is usable may not.
+    """
+    if not isinstance(config, dict):
+        return ["the recipient config is not an object, so no board is configured."]
+    boards = config.get("boards")
+    if not isinstance(boards, dict):
+        return ["the recipient config has no boards object, so no board is configured."]
+    if not boards:
+        return ["no board has recipients configured, so there is nobody to send to."]
+
+    out = []
+    for board_id, entry in boards.items():
+        at = "board %s" % board_id
+        if not isinstance(entry, dict):
+            out.append("%s: the entry is not an object, so nothing is configured for it." % at)
+            continue
+
+        anchor = entry.get("anchorIssue")
+        if not isinstance(anchor, str) or not _ISSUE_KEY.match(anchor):
+            out.append("%s: anchorIssue is %s, which is not an issue key like ABC-123."
+                       % (at, json.dumps(anchor)))
+
+        named = [a for a in _AUDIENCES if a in entry]
+        if not named:
+            out.append("%s: neither exec nor team is configured, so this board has an "
+                       "entry that sends nothing." % at)
+
+        for audience in named:
+            where = "%s, %s" % (at, audience)
+            who = entry.get(audience)
+            if not isinstance(who, dict):
+                out.append("%s: expected an object with users and/or groups." % where)
+                continue
+            users = who.get("users") if isinstance(who.get("users"), list) else []
+            groups = who.get("groups") if isinstance(who.get("groups"), list) else []
+            for u in users:
+                if not isinstance(u, str):
+                    out.append("%s: %s is not an account id." % (where, json.dumps(u)))
+                elif "@" in u:
+                    out.append("%s: %r is an email address. Jira's notify endpoint takes "
+                               "account ids and groups and has no field for an address."
+                               % (where, u))
+                elif not _ACCOUNT_ID.match(u):
+                    out.append("%s: %r is not an account id." % (where, u))
+            for g in groups:
+                if not isinstance(g, str) or not g.strip():
+                    out.append("%s: %s is not a group name." % (where, json.dumps(g)))
+            if not users and not groups:
+                out.append("%s: no users and no groups, so this audience sends to nobody."
+                           % where)
+    return out
+
+
+def read_recipients():
+    try:
+        return json.loads(RECIPIENTS_FILE.read_text())
+    except (OSError, ValueError):
+        # Missing and unreadable both end as "nothing configured". A caller that
+        # needs to tell those apart does not exist, and inventing an error state
+        # for a file nobody has created yet is noise on first run.
+        return None
+
+
+def write_recipients(config):
+    RECIPIENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    RECIPIENTS_FILE.write_text(json.dumps(config, indent=2) + "\n")
+
+
 # ---------------------------------------------------------------- handler
 class Handler(SimpleHTTPRequestHandler):
     backend = None
@@ -481,6 +597,14 @@ class Handler(SimpleHTTPRequestHandler):
             if got is None:
                 return self._json({"error": "unknown context %r" % cid}, 404)
             return self._json(got)
+        if path in ("api/recipients", "dist/api/recipients"):
+            config = read_recipients()
+            return self._json({
+                "available": True,
+                "config": config if config is not None else {"boards": {}},
+                "problems": recipient_problems(config) if config is not None else [],
+                "canEdit": True,
+            })
         if path in ("api/context", "dist/api/context"):
             cid = urllib.parse.parse_qs(u.query).get("id", [""])[0]
             got = self.backend.context(cid)
@@ -488,6 +612,46 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json({"error": "unknown context %r" % cid}, 404)
             return self._json(got)
         return SimpleHTTPRequestHandler.do_GET(self)
+
+    def do_POST(self):
+        """The one route that changes something.
+
+        A POST rather than a GET with parameters, because a GET that mutates is
+        a GET a browser, a proxy or a prefetch will make on its own. The bridge
+        transport has no verb — `invoke()` names a route — so this asymmetry
+        exists only on this side, and `src/app.js` does not see it.
+        """
+        u = urllib.parse.urlparse(self.path)
+        path = u.path.lstrip("/")
+        if path not in ("api/recipients", "dist/api/recipients"):
+            return self._json({"error": "no such route"}, 404)
+
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return self._json({"error": "bad Content-Length"}, 400)
+        if length > MAX_CONFIG_BYTES:
+            return self._json({"available": True, "saved": False, "canEdit": True,
+                               "problems": ["the configuration is larger than %d bytes, "
+                                            "so nothing was saved." % MAX_CONFIG_BYTES]}, 413)
+        try:
+            payload = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            return self._json({"available": True, "saved": False, "canEdit": True,
+                               "problems": ["that was not JSON, so nothing was saved."]}, 400)
+
+        config = (payload or {}).get("config")
+        problems = recipient_problems(config)
+        if problems:
+            # Refused whole. Storing a config with one broken board would leave
+            # the file holding something no run can use, which is worse than
+            # whatever it held before.
+            return self._json({"available": True, "saved": False,
+                               "canEdit": True, "problems": problems}, 400)
+
+        write_recipients(config)
+        return self._json({"available": True, "saved": True, "config": config,
+                           "problems": [], "canEdit": True})
 
     def log_message(self, fmt, *a):
         # Two callers, two shapes: log_request passes the request line as a

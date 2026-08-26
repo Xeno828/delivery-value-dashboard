@@ -9,6 +9,18 @@
         "serve"
       ],
       "port": 8000
+    },
+    {
+      "name": "serve-live",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "scripts/serve_live.py",
+        "--bundle",
+        "data/sample-bundle.json",
+        "--port",
+        "8011"
+      ],
+      "port": 8011
     }
   ]
 }

@@ -2483,6 +2483,83 @@ def test_nothing_is_sent_that_the_guards_would_have_stopped():
           jr["out"])
 
 
+def js_problems_for(config):
+    """`problemsIn` from forge/src/recipients.js, over one config."""
+    script = (
+        "import { problemsIn } from '../forge/src/recipients.js';"
+        "let b='';process.stdin.on('data',d=>b+=d);"
+        "process.stdin.on('end',()=>console.log(JSON.stringify(problemsIn(JSON.parse(b)))));"
+    )
+    r = subprocess.run(["node", "--input-type=module", "-e", script],
+                       input=json.dumps(config), capture_output=True, text=True,
+                       cwd=str(ROOT / "tests"))
+    return json.loads(r.stdout) if r.returncode == 0 else ["node failed: " + r.stderr[-120:]]
+
+
+def test_the_two_recipient_validators_agree():
+    """`recipients.js` and `serve_live.recipient_problems` are one rule, twice.
+
+    That is the thing this repository most reliably regrets, and it is here for
+    the reason `orgconfig.validate` and `validateOrgConfig` are: the browser
+    cannot call JavaScript in `forge/src/`, and the loopback server cannot call
+    Node without becoming a Python program that needs Node. The alternative was
+    for loopback to refuse the route, which would leave the editing half of the
+    config tile exercised by nothing — it runs only in a browser, and the
+    browser suite runs against that server.
+
+    So the mirror is tolerated on one condition, which is this test: one set of
+    cases, both implementations, and a disagreement about whether a config is
+    usable fails. The wording of a sentence may differ between them; the verdict
+    may not.
+    """
+    cases = json.loads((ROOT / "tests" / "fixtures" / "recipient-configs.json").read_text())
+    check("the shared recipient cases are present", len(cases) >= 15, len(cases))
+    check("and cover both verdicts",
+          any(c["usable"] for c in cases) and any(not c["usable"] for c in cases))
+
+    node = subprocess.run(["node", str(ROOT / "tests" / "brief_shapes.mjs")],
+                          input=json.dumps({"refusal": "R"}),
+                          capture_output=True, text=True, cwd=str(ROOT))
+    if node.returncode != 0:
+        check("the brief shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    js = dict(json.loads(node.stdout)["recipients"]["verdicts"])
+
+    disagreed, wrong = [], []
+    for case in cases:
+        py_ok = not LIVE.recipient_problems(case["config"])
+        js_ok = js.get(case["name"])
+        if js_ok is None:
+            disagreed.append((case["name"], "missing from the JavaScript run"))
+            continue
+        if py_ok != js_ok:
+            disagreed.append((case["name"], {"python": py_ok, "javascript": js_ok}))
+        # And both have to be *right*, not merely equal: two mirrors that are
+        # identically wrong agree perfectly.
+        if py_ok != case["usable"]:
+            wrong.append((case["name"], {"expected": case["usable"], "got": py_ok}))
+
+    check("the two validators agree on every case", not disagreed, disagreed)
+    check("and both match what the fixture says each case is", not wrong, wrong)
+
+    # Verdicts are the contract; wording is not, and this test is written that
+    # way on purpose. One consequence is worth pinning separately: the address
+    # rule is *redundant* for the verdict — `@` is not in the account-id
+    # character class, so an address is refused either way — and it exists
+    # solely so the sentence explains itself. Deleting it therefore changes no
+    # verdict and breaks nothing above, which is exactly how a good message
+    # rots. An administrator who pasted an address needs to be told that this
+    # endpoint has no field for one, not that their id looks wrong.
+    address = {"boards": {"2": {"anchorIssue": "SFT-1",
+                                "exec": {"users": ["josh@example.com"]}}}}
+    said = " ".join(LIVE.recipient_problems(address)).lower()
+    check("the loopback validator names the address as an address",
+          "email address" in said, said[:120])
+    js_said = " ".join(js_problems_for(address)).lower()
+    check("and so does the Forge one", "email address" in js_said, js_said[:120])
+
+
 if __name__ == "__main__":
     import os
     os.environ["SERVICE_SHARED_SECRET"] = SECRET
@@ -2530,6 +2607,8 @@ if __name__ == "__main__":
     test_a_scheduled_run_that_cannot_deliver_says_so_before_doing_work()
     print("who a boards brief goes to")
     test_a_boards_recipients_are_validated_before_anyone_is_told()
+    print("one rule, two validators")
+    test_the_two_recipient_validators_agree()
     print("the brief as an email")
     test_the_brief_reaches_an_inbox_without_carrying_a_payload()
     test_nothing_is_sent_that_the_guards_would_have_stopped()

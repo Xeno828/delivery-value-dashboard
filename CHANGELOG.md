@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.28.0
+
+**Each board now has its own recipients, set from the dashboard by a project administrator.** A new tile — *Who receives this board's brief* — reads the configuration over whichever transport the page has, and writes it back through the one route in the product that changes anything. One board can go to leadership and another to its own team, which is what item 3 always described and nothing could express.
+
+**The gate is Jira's answer, not ours, and it fails closed.** `permissions.js` asks `/rest/api/3/mypermissions` for `ADMINISTER_PROJECTS` and accepts `havePermission === true` and nothing else — not truthy, exactly true. A shape change or a proxy that stringifies a body would otherwise make `"false"` a yes and turn every viewer into an administrator. It is asked again on the write rather than carried from the read, because the read happened whenever the tab was opened and permissions change. A check Jira could not answer is a refusal that says so, which is a different sentence from *you are not an administrator* and the reader can act on one of them.
+
+**A viewer who cannot edit sees the configuration anyway.** Hiding it would make a misconfigured board and an unconfigured one identical, and the person most likely to notice a wrong recipient is whoever is reading the panel — not the administrator who set it and moved on.
+
+**The tile validates nothing.** It sends what was typed and renders what came back. A third opinion about whether a config is usable, after the two that already exist, is precisely the failure this repository keeps paying for.
+
+**Which brings up the two that exist.** `serve_live.py` needed the same validation in Python, and that is a second implementation of one rule — the thing this repository most reliably regrets. It is here on the same terms as `orgconfig.validate` and `validateOrgConfig`: `tests/fixtures/recipient-configs.json` is one set of nineteen cases, both implementations judge all of them, and a disagreement fails. The alternative was for loopback to refuse the route, which would leave the editing half of the tile exercised by nothing — it runs only in a browser, and the browser suite runs against that server.
+
+The agreement test compares **verdicts**, not wording, and one consequence needed pinning separately. The rule that names an email address as an email address is *redundant* for the verdict — `@` is not in the account-id character class, so an address is refused either way — and exists solely so the sentence explains itself. Deleting it changes no verdict and would have broken nothing, which is exactly how a good message rots. Both implementations are now held to saying it.
+
+**A GET that mutates is a GET a browser will make on its own**, so saving is a POST over loopback. The bridge has no verb — `invoke()` names a route — so the asymmetry lives in the two adapters and not in the caller: `LIVE.put` looks identical to the tile whichever transport answered. ADR 0009 intact.
+
+**The route-parity test was hardcoding the answer and now derives it.** It listed four route names and asserted the page asked for nothing else; a fifth route meant editing the list. It reads `ROUTES` out of `src/app.js` instead, and gained the other half of the contract it was only ever checking one side of: every route the page can ask for must also be served by `serve_live.py`, or live mode works on Forge and silently does nothing locally — the same divergence ADR 0009 exists to stop, arriving from the other side.
+
+**Found by looking at it rather than by a test.** The tile's first stylesheet used `--line` and `--surface`, which do not exist here. A missing custom property is not an error — it is a silent fallback — so every input drew a **pure white** border on a transparent field. Nothing failed, because white on near-black passes contrast comfortably, and it read as a deliberate high-contrast choice rather than a typo. The tokens are this stylesheet's own now (`--border`, `--surface-1`, `--text-secondary`), and the comment says to check a token exists before using it.
+
+Verified end to end over loopback: an email address is refused with the sentence that explains why, a valid configuration saves, and the values survive a reload — read, write and read again, through the same contract Forge answers.
+
+**Still not done, and it is the same one line as before.** Composing a brief means reading the board with no user, which ADR 0013 declined and `restrict` only partly answers. The trigger still refuses, and now it refuses with recipients configured and a send that works.
+
 ## 1.27.0
 
 **The brief is an email now, and the send is written and proved against stubs.** `mailbody.js` renders one audience's brief as `subject`, `textBody` and `htmlBody`; `compose.js` takes figures to a sent message; `index.js` posts it to `/rest/api/3/issue/{key}/notify` as the app. Static HTML with inline styles and no `<style>` block — mail clients strip those and the ones that do not disagree about which — and a plain-text part beside it, so a client that refuses HTML gets the brief rather than an empty message.
