@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.29.4
+
+**`view.emitReadyEvent()` changed nothing** — 1040px at 4s, at 10s once a sprint had loaded, and at 16s, with zero give on the host page. Third host-side candidate eliminated, after a resize method that does not exist and a layout that only moved the chrome. Reverted; the app is on 6.8.0 with nothing experimental in it.
+
+**And then the more important thing, which undermines two entries above.** Every *"it does not scroll"* result in 1.29.1 through 1.29.3 came from synthetic input, and at least one demonstrably went to the wrong document: wheel events aimed at the frame scrolled the **host** page by 78px — Jira's nav collapsing — which is direct evidence they were handled by the top document and never reached the frame at all. Synthetic key events were no better, and the automation cannot read a cross-origin frame's `scrollTop` to check.
+
+So the state of knowledge is narrower than any of those entries implied:
+
+| | |
+|---|---|
+| The frame is 1040px and does not grow | **Measured**, from the parent document |
+| The app's document is 1498px empty, `overflow: visible`, all 17 tiles present | **Measured**, standalone at the same-origin CDN URL |
+| A real reader cannot scroll inside the frame | **Not established** |
+
+**It is entirely possible there is no bug at all** and the dashboard scrolls normally under a real mouse, in which case 1.29.1's "most of the dashboard is unreachable" is wrong and the whole thread of diagnosis was chasing an artefact of how it was being tested. Settling it takes five seconds and a hand on a mouse; it cannot be settled from here.
+
+**A fix was written for the case where it is real, and reverted unproven.** If the host does suppress document scrolling, an element scroller is not the document, so the page can have its own — `html.in-forge .wrap { height: 100%; overflow-y: auto }`, the class set by the bridge adapter because `require('@forge/bridge')` resolving is the only reliable evidence of being inside a frame. It changes shipped behaviour and nothing available here can confirm it helps, so it is not in the tree.
+
+**The rule this leaves behind is worth more than the bug.** Four diagnoses were offered across four entries and three were wrong, all of them downstream of one unexamined assumption: that synthetic input against an embedded frame does what a hand does. It does not, and a negative result from it is not evidence. `docs/forge-deployment.md` says so where the next person will look.
+
 ## 1.29.3
 
 **1.29.2 was wrong, and this measures the thing both previous entries argued about.** The frame's own document was loaded standalone from the exact CDN URL the iframe uses — where it is same-origin and readable:

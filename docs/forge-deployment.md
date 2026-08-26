@@ -501,19 +501,41 @@ aimed at the middle of the page toggled a control at the top of it. **Do not
 trust a negative result from synthetic input against an embedded frame without
 checking that the coordinate space is what you think it is.**
 
-**Where that leaves the cause.** Atlassian documents automatic resizing for
-Custom UI, where the frame grows to the content and the outer page scrolls. It
-is the *host* that does this, not the SDK — `iframe-resizer` ships inside
-`@forge/bridge` but only for the ADF renderer, nothing that sizes the app's own
-frame. So the host is not measuring this app, and the inner scrollbar is
-suppressed because the host expects to resize instead of scroll.
+**Where that leaves the cause — and a caveat that may undo all of it.**
+`view.emitReadyEvent()` was tried and changed nothing: 1040px at 4s, at 10s once
+a sprint had loaded, and at 16s, with zero give on the host page. That is the
+third host-side candidate eliminated, after a resize method that does not exist
+and a layout that only moved the chrome.
 
-**The untested candidate is `view.emitReadyEvent()`**, which does exist on
-`view` and is plausibly what tells the host the app is ready to be measured. It
-has not been tried. It is written here rather than shipped because two
-confident fixes have already been wrong — a resize method that does not exist,
-and a layout that changed nothing — and a third guess deployed on the same
-reasoning would deserve the same fate.
+**But every "it does not scroll" result here came from synthetic input, and at
+least one of them demonstrably went to the wrong document.** Wheel events aimed
+at the frame scrolled the *host* page by 78px — Jira's nav collapsing — which is
+direct evidence they were handled by the top document and never reached the
+frame. Synthetic key events were no better. A cross-origin frame cannot be
+inspected or driven reliably this way, and the automation offers no way to read
+its `scrollTop`.
+
+So the honest state of knowledge is:
+
+| | |
+|---|---|
+| The frame is 1040px and does not grow | **Measured**, from the parent document |
+| The app's document is 1498px empty, `overflow: visible`, all 17 tiles present | **Measured**, standalone at the same-origin CDN URL |
+| A real user cannot scroll inside the frame | **Not established.** Every negative came from synthetic input |
+
+**It is entirely possible there is no bug for a real reader** and the dashboard
+scrolls normally with a mouse. Deciding that takes five seconds and a hand:
+open the app on a project, put the cursor over the tiles and scroll. If the
+lower tiles come into view, this section is wrong and should be deleted.
+
+**One fix was written for the case where it is real and was reverted unproven.**
+If the host suppresses document scrolling, an element scroller is not the
+document — so the page can have its own, `html.in-forge .wrap { height: 100%;
+overflow-y: auto }`, with the class set by the bridge adapter because
+`require('@forge/bridge')` resolving is the only reliable evidence of being
+inside a frame. It changes shipped behaviour and nothing here can confirm it
+helps, so it is not in the tree. `git log` has it if the check above says the
+bug is real.
 
 **How to reproduce it in thirty seconds**, from the browser console on the
 project page:
