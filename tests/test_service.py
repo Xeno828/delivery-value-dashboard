@@ -2800,6 +2800,91 @@ def test_every_jira_read_states_whose_authority_it_uses():
                     code))
 
 
+def test_a_name_can_be_looked_up_without_the_directory_leaking():
+    """Nobody knows their colleagues' account ids, and the config needs one.
+
+    So the picker searches by name and stores the id. That is *not* the thing
+    ADR 0014 refuses — the app is not deciding which Jira user an email address
+    belongs to; a person types a name, Jira returns matches, and an
+    administrator picks one. The identity claim is made by the human looking at
+    the list, which is who should make it.
+
+    What this guards is the projection. `GET /rest/api/3/user/search` returns
+    `emailAddress`, `avatarUrls`, `timeZone` and `locale` among others, and the
+    recipient config must hold none of them.
+    """
+    node = subprocess.run(["node", str(ROOT / "tests" / "brief_shapes.mjs")],
+                          input=json.dumps({"refusal": "R"}),
+                          capture_output=True, text=True, cwd=str(ROOT))
+    if node.returncode != 0:
+        check("the brief shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    p = json.loads(node.stdout)["people"]
+
+    # An allow-list of two fields, because a deny-list is one Atlassian release
+    # away from leaking whatever they add next.
+    fields = {k for person in p["mixed"]["people"] for k in person}
+    check("a match carries an account id and a display name and nothing else",
+          fields == {"accountId", "displayName"}, sorted(fields))
+    for leaked in ("example.com", "avatarUrls", "timeZone", "locale", "emailAddress"):
+        check("no %s survives the projection" % leaked,
+              leaked not in p["serialised"], p["serialised"][:160])
+
+    # Real, active humans only.
+    names = [x["displayName"] for x in p["mixed"]["people"]]
+    check("a deactivated account is not offered", "Old Colleague" not in names, names)
+    check("an app user is not offered — including this app's own",
+          "Shipping Forecast" not in names, names)
+    check("a customer account is not offered", "A Customer" not in names, names)
+    check("and a nameless account is not offered", all(n.strip() for n in names), names)
+    check("the person who does match is offered", names == ["Mitch Davis"], names)
+
+    # No silent caps: a picker showing the first ten of sixteen invites picking
+    # the wrong Mitch.
+    check("the list is capped",
+          len(p["overflowing"]["people"]) == p["max"], p["overflowing"])
+    # The count is read off the list, not computed beside it. Written as its
+    # own arithmetic it agreed with the list only while the two expressions
+    # matched — removing the cap left it claiming ten while sixteen came back.
+    check("and the count it reports is the length of the list it returned",
+          p["overflowing"]["shown"] == len(p["overflowing"]["people"])
+          and p["mixed"]["shown"] == len(p["mixed"]["people"]),
+          {"overflow": p["overflowing"]["shown"], "mixed": p["mixed"]["shown"]})
+    check("and says how many it did not show",
+          str(p["overflowing"]["matched"]) in p["overflowNote"]
+          and str(p["max"]) in p["overflowNote"], p["overflowNote"])
+    check("and does not offer a page that does not exist",
+          "no second page" in p["overflowNote"], p["overflowNote"])
+
+    # The note earns its place by distinguishing states a count cannot.
+    check("no matches at all reads differently from no usable matches",
+          p["nothing"] != p["allInactive"], [p["nothing"], p["allInactive"]])
+    check("all-inactive says why nobody is offered",
+          "goes nowhere" in p["allInactive"], p["allInactive"])
+    check("one match does not say '1 matches'", p["one"] == "One match.", p["one"])
+
+    # Jira answering with something that is not a list is a refusal, not a crash.
+    check("a response that is not a list is refused",
+          "problems" in p["notAList"], p["notAList"])
+
+    # Both transports answer the route, and loopback answers honestly rather
+    # than inventing ids that would be stored and never work.
+    live = (ROOT / "scripts" / "serve_live.py").read_text()
+    check("the loopback server answers the same route",
+          "api/users" in live, "no api/users route")
+    check("and says there is no directory rather than returning nobody",
+          "no directory" in live or "user directory" in live, "")
+
+    # The search is made as the reader, so it returns the people that reader is
+    # allowed to see. Searching as the app would offer a directory their own
+    # account cannot browse.
+    src = (ROOT / "forge" / "src" / "index.js").read_text()
+    block = src.split("resolver.define('searchUsers'", 1)[-1].split("}));", 1)[0]
+    check("the name search runs as the reader, not as the app",
+          "asUser()" in block and "jira(" not in block, block[:200])
+
+
 if __name__ == "__main__":
     import os
     os.environ["SERVICE_SHARED_SECRET"] = SECRET
@@ -2847,6 +2932,8 @@ if __name__ == "__main__":
     test_the_llm_module_matches_the_model_the_code_asks_for()
     test_the_brief_prompt_can_produce_an_answer_its_own_guard_accepts()
     test_a_scheduled_run_that_cannot_deliver_says_so_before_doing_work()
+    print("finding a person by name")
+    test_a_name_can_be_looked_up_without_the_directory_leaking()
     print("who a boards brief goes to")
     test_a_boards_recipients_are_validated_before_anyone_is_told()
     print("one rule, two validators")

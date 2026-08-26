@@ -171,3 +171,37 @@ line turned a fourth round of guessing into an answer.
 is a precondition a buyer can check before installing, and the kind of thing that
 otherwise surfaces as *"the app does not work"* a week after purchase. It goes
 next to the egress declaration Marketplace review already reads.
+
+## Added when it met an administrator: a name, not an account id
+
+The config holds account ids and that is right — an id is not a contact detail,
+and the notify endpoint accepts nothing else. It is also unusable. Nobody knows
+their colleagues' account ids, and asking somebody to paste
+`712020:5ad8ac88-1688-4ea3-8d36-c5dab1e2e284` is asking them to get it wrong
+somewhere a brief then silently goes nowhere.
+
+So the picker searches by name and stores the id. **That is not the thing this
+record refuses**, and the two are close enough to be worth separating:
+
+| | |
+|---|---|
+| **Refused** | The app takes an email address and decides which Jira account it belongs to. An identity claim the app has no standing to make |
+| **This** | A person types a name, Jira returns the accounts it matches, and an administrator picks one. The identity claim is made by a human looking at a list |
+
+The search runs **as the reader**, not as the app, so it offers the people that
+reader is already allowed to see in any user-picker on the site — Jira's "Browse
+users and groups" permission decides, not this app. Searching as the app would
+hand an administrator a directory their own account cannot browse.
+
+**What needed guarding is the projection, not the search.**
+`GET /rest/api/3/user/search` returns `emailAddress`, `avatarUrls`, `timeZone`
+and `locale` alongside the id and the name. The recipient config must hold none
+of them, so `people.js` builds each match from an **allow-list of two fields**.
+A deny-list would have been one Atlassian release away from leaking whatever
+they add next — the same reasoning, and the same two fields, as the calculator's
+`clean_dataset`.
+
+Deactivated accounts, app users and customer accounts are not offered. A brief
+addressed to a deactivated colleague goes nowhere, which is the failure an empty
+audience is already refused for; and without the filter this app's own account
+would appear in the list of people who could receive its own brief.

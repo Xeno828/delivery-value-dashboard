@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.31.0
+
+**The recipient picker takes a name, not an account id.** The config still holds account ids — the notify endpoint accepts nothing else, and an id is not a contact detail — but nobody knows their colleagues' ids, and asking an administrator to paste `712020:5ad8ac88-…` is asking them to get it wrong somewhere a brief then silently goes nowhere. `searchUsers` looks a name up and the picker stores the id.
+
+**That is not the thing [ADR 0014](docs/adr/0014-jira-sends-the-brief-and-the-read-only-rule-bends.md) refuses, and the difference is worth stating** because they look alike. Refused: the app takes an email address and decides which Jira account it belongs to — an identity claim it has no standing to make. This: a person types a name, Jira returns matches, and an administrator picks one. The claim is made by a human looking at a list, which is who should make it.
+
+The search runs **as the reader**, so it offers the people that reader can already see in any user-picker on the site; Jira's "Browse users and groups" permission decides, not this app. Searching as the app would hand an administrator a directory their own account cannot browse. A 403 says so in those words rather than leaving a search box that silently returns nothing — that permission is granted on the site and is not something the manifest can ask for.
+
+**What needed guarding is the projection.** `GET /rest/api/3/user/search` returns `emailAddress`, `avatarUrls`, `timeZone` and `locale` beside the id and the name. Each match is built from an **allow-list of two fields**: a deny-list is one Atlassian release away from leaking whatever they add next. Same reasoning and same shape as the calculator's `clean_dataset`. Deactivated accounts, app users and customer accounts are filtered out — a brief to a deactivated colleague goes nowhere, and without the filter this app's own account would be offered as a recipient of its own brief.
+
+**A count that described a list turned out not to be read from it.** `shown` was `Math.min(usable.length, MAX_MATCHES)` — the same fact expressed twice, agreeing with the list only while the two expressions matched. Removing the cap left it reporting ten while sixteen came back, and the mutation went undetected until the assertion was rewritten to compare the count against the list's own length. It is `people.length` now. A figure that describes a list is read off the list.
+
+Both transports answer the route. Over loopback there is no directory to search, so it says that plainly rather than returning nobody — a search box that answers "no matches" when it cannot search is worse than one that says it cannot.
+
+**Also: the dev site's outgoing mail is off, and this is where to look.** Jira admin → System → **Outgoing Mail** (`/secure/admin/OutgoingMailServers.jspa`) shows `DISABLED` with an **Enable Outgoing Mail** button. It was disabled on 18 August. Nothing in the app can change that and nothing should; it is the last thing between the brief and an inbox.
+
 ## 1.30.0
 
 **Item 3 runs end to end against a real tenant. The only thing between it and an inbox is a site setting.**

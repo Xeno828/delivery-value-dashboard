@@ -20,6 +20,7 @@ import {
   AUDIENCES, RESTRICT, boardsIn, notifyPayload, problemsIn, sendsFor,
 } from '../forge/src/recipients.js';
 import { emailBody, esc, safeUrl } from '../forge/src/mailbody.js';
+import { MAX_MATCHES, matchNote, peopleFrom } from '../forge/src/people.js';
 import { briefsForBoard, composeSection, sectionsFor } from '../forge/src/compose.js';
 
 /* One set of recipient cases, judged here and by scripts/serve_live.py. Two
@@ -208,6 +209,39 @@ console.log(JSON.stringify({
     truncatedList: TRUNCATED,
     declinedList: DECLINED,
   },
+
+  /* Finding a person by name, so nobody has to know an account id.
+     The raw search response carries `emailAddress`; the config must never hold
+     one, which is why this is a projection and not a map. */
+  people: (() => {
+    const raw = [
+      { accountId: '60ad2eb506bf0c006a432a17', displayName: 'Mitch Davis',
+        active: true, accountType: 'atlassian',
+        emailAddress: 'mitch@example.com', avatarUrls: { '48x48': 'https://x/y' },
+        timeZone: 'Europe/London', locale: 'en_GB' },
+      { accountId: 'dead1', displayName: 'Old Colleague', active: false, accountType: 'atlassian' },
+      { accountId: 'app1', displayName: 'Shipping Forecast', active: true, accountType: 'app' },
+      { accountId: 'cust1', displayName: 'A Customer', active: true, accountType: 'customer' },
+      { accountId: 'noname', displayName: '   ', active: true, accountType: 'atlassian' },
+    ];
+    const many = Array.from({ length: MAX_MATCHES + 6 }, (_, i) => ({
+      accountId: `id${i}`, displayName: `Person ${String.fromCharCode(65 + i)}`,
+      active: true, accountType: 'atlassian', emailAddress: `p${i}@example.com` }));
+    const one = peopleFrom([raw[0]]);
+    return {
+      max: MAX_MATCHES,
+      mixed: peopleFrom(raw),
+      mixedNote: matchNote(peopleFrom(raw)),
+      overflowing: peopleFrom(many),
+      overflowNote: matchNote(peopleFrom(many)),
+      allInactive: matchNote(peopleFrom([raw[1]])),
+      nothing: matchNote(peopleFrom([])),
+      one: matchNote(one),
+      notAList: peopleFrom({ values: [] }),
+      // Serialised whole, so a leaked field shows up wherever it hides.
+      serialised: JSON.stringify(peopleFrom(raw)),
+    };
+  })(),
 
   /* The brief as an email, which is a new output surface for issue text. */
   mail: {

@@ -597,6 +597,19 @@ class Handler(SimpleHTTPRequestHandler):
             if got is None:
                 return self._json({"error": "unknown context %r" % cid}, 404)
             return self._json(got)
+        if path in ("api/users", "dist/api/users"):
+            # The same body shape the Forge resolver returns, so the picker does
+            # not learn which transport it has (ADR 0009). Over loopback there
+            # is no directory to search — the dataset holds assignee display
+            # names and no account ids at all — so this answers honestly rather
+            # than inventing ids that would be stored and never work.
+            return self._json({
+                "available": False,
+                "people": [],
+                "note": "Looking a name up needs the site's user directory, and "
+                        "there is none over a local connection. Account ids can "
+                        "be entered directly; on Jira the name search works.",
+            })
         if path in ("api/recipients", "dist/api/recipients"):
             config = read_recipients()
             return self._json({

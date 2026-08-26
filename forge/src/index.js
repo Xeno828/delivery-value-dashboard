@@ -34,6 +34,7 @@ import { deliveryBlockers } from './brief.js';
 import { boardsIn, notifyPayload, problemsIn } from './recipients.js';
 import { briefsForBoard, sectionsFor } from './compose.js';
 import { ADMIN_PERMISSION, editability } from './permissions.js';
+import { MAX_MATCHES, matchNote, peopleFrom } from './people.js';
 
 const resolver = new Resolver();
 
@@ -1037,6 +1038,59 @@ resolver.define('recipients', answering(async ({ context }) => {
       ...rights,
     },
   };
+}));
+
+/**
+ * Find a person by name, so nobody has to know an account id.
+ *
+ * `asUser()`, and that is the point rather than a detail: the search returns
+ * the people *this reader* is allowed to see. Jira's own "Browse users and
+ * groups" permission decides that, and an app that searched as itself would
+ * offer an administrator a directory their own account cannot browse.
+ *
+ * No permission gate of ours in front of it. Searching is not changing, the
+ * result is what Jira already shows this person in any user-picker on the site,
+ * and gating it would mean a viewer cannot see who a misconfigured board is
+ * sending to — which is the thing they are best placed to notice.
+ */
+resolver.define('searchUsers', answering(async ({ payload }) => {
+  const query = String(payload?.query ?? '').trim();
+  if (query.length < 2) {
+    return { status: 200, body: { available: true, people: [],
+      note: 'Type at least two characters.' } };
+  }
+
+  const res = await api.asUser().requestJira(
+    // One more than shown, so "more matches than fit" is a fact rather than a
+    // guess. `peopleFrom` caps at MAX_MATCHES and reports what it dropped.
+    route`/rest/api/3/user/search?query=${query}&maxResults=${MAX_MATCHES + 1}`);
+
+  if (!res.ok) {
+    return {
+      status: 200,
+      body: {
+        available: false,
+        people: [],
+        // 403 here is almost always the reader lacking "Browse users and
+        // groups", which is a site permission and not something this app can
+        // ask for. Saying which is the difference between a fixable message
+        // and a broken search box.
+        note: res.status === 403
+          ? 'You do not have permission to browse users on this site, so names '
+            + 'cannot be looked up. A site administrator grants "Browse users '
+            + 'and groups". Account ids can still be entered directly.'
+          : `Jira returned ${res.status} looking up names.`,
+      },
+    };
+  }
+
+  const found = peopleFrom(await res.json());
+  if (found.problems) {
+    return { status: 200, body: { available: false, people: [],
+      note: found.problems.join(' ') } };
+  }
+  return { status: 200, body: { available: true, people: found.people,
+    note: matchNote(found) } };
 }));
 
 resolver.define('saveRecipients', answering(async ({ payload, context }) => {
