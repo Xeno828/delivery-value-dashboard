@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.29.0
+
+**The scheduled brief reads the board and sends it. Item 3 is built end to end.** The trigger walks the boards in the recipient config, resolves each one's project, pulls its current sprint or window, asks the calculator for the facts and the forecast, has the model write the prose, renders it and sends it through Jira. Every guard between those steps is the one already tested: prose carrying a figure sends nothing, an invalid config sends nothing, a refused forecast is carried verbatim, and one board failing does not take the rest with it.
+
+**This reverses [ADR 0013](docs/adr/0013-the-brief-is-written-inside-the-tenant.md), and the record says so rather than quietly disagreeing with itself.** That addendum declined `asApp()` for three versions on the grounds that reading as the user is why a panel viewer can only see issues they could already see in Jira — permission mirroring, roadmap item 5, holding for free.
+
+What changed is `restrict`. When the addendum was written, the app would have read a board with no user and mailed the result with nothing anywhere checking that the recipients could see any of it. Every notification now carries `restrict: {permissions: [{key: BROWSE}]}`, so **who may receive a brief is Jira's decision rather than this app's claim**.
+
+**What is still true is the residual risk, and it is stated in both records.** `restrict` filters against the anchor issue, not against the issues named inside the message. Most boards share one permission scheme and are covered. A board using issue-level security is not: a recipient who may browse the anchor and not some other issue is still told about the other. Item 5 is narrowed here, not closed.
+
+**The panel is untouched, and the authority is now something a read has to state.** `jira(as)` replaces nine `api.asUser()` call sites, defaulted to the user so a read added without thinking is added on the safe side; the scheduled path passes `'app'` at every hop rather than inheriting it. Two reads may never take it and a test names them: the permission check behind the recipient editor — which asks whether *this reader* may administer the project and would cheerfully answer yes to itself as the app — and the connection probe.
+
+**That test exists because threading the mode introduced the same bug twice in one sitting.** `jira(as)` was left inside `editabilityFor` and inside the `context` resolver, neither of which has an `as`. Both bundle cleanly, because a free variable is not a syntax error, and both are a `ReferenceError` the first time a tenant opens the page — a class this repository has been bitten by before, where the failure is invisible until it is in front of a customer. It is structural now: every `jira(as)` must sit inside a function that declares one, and the check walks each call back to its enclosing function to prove it.
+
+**`sectionsFor` chooses which figures each audience carries and does no arithmetic.** `facts` holds `items_done_pct` and it is deliberately unused: turning 0.6942 into "69%" is a calculation, and the moment this file does one, a figure in a brief is a figure no tool produced. Counts say the same thing and need none. The executive brief is shorter than the team's and carries the *same* numbers — two audiences reading different figures about one sprint is how a meeting becomes an argument about arithmetic.
+
+**Unproven in a tenant, and that is the honest state.** Everything here is exercised against stubs and fixtures; nothing has read a real board as the app, and no brief has arrived in anyone's inbox. The cheapest way to settle it is the one that worked before — set `interval: fiveMinute`, deploy, watch `forge logs`, restore `week` — and it now needs a board with recipients configured against a real anchor issue.
+
 ## 1.28.0
 
 **Each board now has its own recipients, set from the dashboard by a project administrator.** A new tile — *Who receives this board's brief* — reads the configuration over whichever transport the page has, and writes it back through the one route in the product that changes anything. One board can go to leadership and another to its own team, which is what item 3 always described and nothing could express.

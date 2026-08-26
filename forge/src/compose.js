@@ -83,3 +83,73 @@ export const briefsForBoard = async ({
   return { results };
 };
 
+
+/**
+ * Which figures each audience's brief carries, as sections.
+ *
+ * Values are passed through exactly as the tools reported them. **No
+ * arithmetic** — not a percentage, not a rounding, not a total. `facts` already
+ * holds `items_done_pct`, and this deliberately does not use it: turning 0.6942
+ * into "69%" is a calculation, and the moment this file does one, a figure in a
+ * brief is a figure no tool produced. Counts say the same thing and need none.
+ *
+ * The executive brief is shorter and that is the difference between the two,
+ * not a different set of numbers. Two audiences reading different figures about
+ * one sprint is how a meeting becomes an argument about arithmetic.
+ */
+export const sectionsFor = (audience, { facts, forecast }) => {
+  const d = facts?.delivery ?? {};
+  const sc = facts?.scope ?? {};
+  const fl = facts?.flow ?? {};
+  const rk = facts?.risk ?? {};
+
+  const delivery = {
+    heading: 'Delivery',
+    template: '{{done}} of {{total}} items finished.',
+    figures: { done: d.items_done, total: d.items_total },
+  };
+
+  const scope = {
+    heading: 'Scope',
+    template: '{{added}} items were added after planning.',
+    figures: { added: sc.added_items },
+  };
+
+  const flow = {
+    heading: 'How long work takes',
+    template: '85% of finished work took {{p85}} {{unit}} or less.',
+    figures: { p85: fl.cycle_p85, unit: fl.unit },
+  };
+
+  const blocked = {
+    heading: 'Blocked',
+    template: '{{n}} items are flagged as blocked, and the oldest open item has '
+            + 'been open {{oldest}} {{unit}}.',
+    figures: {
+      n: (rk.blocked ?? []).length,
+      oldest: rk.oldest_open?.days,
+      unit: rk.unit,
+    },
+  };
+
+  /* The forecast is the one section that is routinely absent, and its absence
+     is the product working rather than a gap. `forecast.sentence` is the tool's
+     own words and is carried untouched — ADR 0007, and `section()` will not let
+     the model near it. */
+  const outlook = forecast?.available === false || forecast?.sentence
+    ? { heading: 'Forecast', template: 'unused', figures: {},
+        refusal: forecast.sentence }
+    : {
+      heading: 'Forecast',
+      template: 'On the evidence so far, {{remaining}} items remain and the 85th '
+              + 'percentile lands on {{p85}}.',
+      figures: {
+        remaining: forecast?.remaining_items,
+        p85: forecast?.percentiles?.['85'] ?? forecast?.percentiles?.[85],
+      },
+    };
+
+  return audience === 'exec'
+    ? [delivery, outlook, blocked]
+    : [delivery, scope, flow, outlook, blocked];
+};

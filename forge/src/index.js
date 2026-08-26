@@ -32,7 +32,7 @@ import {
 } from './jira.js';
 import { deliveryBlockers } from './brief.js';
 import { boardsIn, notifyPayload, problemsIn } from './recipients.js';
-import { briefsForBoard } from './compose.js';
+import { briefsForBoard, sectionsFor } from './compose.js';
 import { ADMIN_PERMISSION, editability } from './permissions.js';
 
 const resolver = new Resolver();
@@ -147,17 +147,37 @@ const callCalculator = async (path, body) => {
   return parsed;
 };
 
+/**
+ * Which authority a Jira read is made with.
+ *
+ * `'user'` everywhere the panel is involved, and that is not a default chosen
+ * for tidiness: reading as the person looking at the page is **why** a viewer
+ * can only ever see issues they could already see in Jira. Jira enforces it on
+ * every request made on somebody's behalf, so permission mirroring — roadmap
+ * item 5 — holds for free on that path and would have to be built if it did
+ * not.
+ *
+ * `'app'` exists for the scheduled brief alone, which has no user to be. What
+ * it costs, what checks it, and why it was declined for two versions before
+ * being taken deliberately are in ADR 0013. In short: `restrict` means Jira
+ * decides who may *receive* a brief, and nothing checks what the brief *says*
+ * about issues a recipient cannot see.
+ *
+ * A parameter rather than ambient state, and defaulted to `'user'`, so a new
+ * read added without thinking about it is added on the safe side.
+ */
+const jira = (as) => (as === 'app' ? api.asApp() : api.asUser());
+
 /** Pull one board's issues, for the calculator path. */
-const fetchBoardIssues = async (boardId) => {
-  const spField = await storyPointFieldFor();
+const fetchBoardIssues = async (boardId, as) => {
+  const spField = await storyPointFieldFor(as);
   const id = String(boardId ?? '').replace(/[^0-9]/g, '');
   if (!id) throw new Error('no board id');
 
   const issues = [];
   let startAt = 0;
   for (;;) {
-    const res = await api
-      .asUser()
+    const res = await jira(as)
       .requestJira(
         route`/rest/agile/1.0/board/${id}/issue?startAt=${startAt}&maxResults=100`,
       );
@@ -188,8 +208,8 @@ const fetchBoardIssues = async (boardId) => {
   return issues;
 };
 
-const compute = async (path, { boardId, orgConfig, meta, extra }) => {
-  const local = await fetchBoardIssues(boardId);
+const compute = async (path, { boardId, orgConfig, meta, extra }, as) => {
+  const local = await fetchBoardIssues(boardId, as);
   const byKey = new Map(local.map((i) => [i.key, i]));
 
   const projected = local.map(projectIssue);
@@ -260,7 +280,7 @@ const bodyOf = async (res) => {
 };
 
 /** Every page of an Agile list endpoint (`{values, isLast, total}`). */
-const pagedValues = async (routeAt, what) => {
+const pagedValues = async (routeAt, what, as) => {
   const out = [];
   let startAt = 0;
   for (let page = 0; ; page += 1) {
@@ -270,7 +290,7 @@ const pagedValues = async (routeAt, what) => {
         'reported, because a list cut short here would read as a complete one.',
       );
     }
-    const res = await api.asUser().requestJira(routeAt(startAt));
+    const res = await jira(as).requestJira(routeAt(startAt));
     if (!res.ok) throw jiraError(what, res.status, await bodyOf(res));
     const body = await res.json();
     const values = body.values ?? [];
@@ -291,7 +311,7 @@ const issueFields = (storyPointField) => [
   ...(storyPointField ? [storyPointField] : []),
 ].join(',');
 
-const fetchSprintIssues = async (boardId, sprintId, storyPointField) => {
+const fetchSprintIssues = async (boardId, sprintId, storyPointField, as) => {
   // Named explicitly, and the story-point field is named by the id this site
   // actually uses rather than one guessed at. `*navigable` would also work and
   // would be worse: it pulls every custom field on every issue, including free
@@ -307,7 +327,7 @@ const fetchSprintIssues = async (boardId, sprintId, storyPointField) => {
         'read and none are reported — a sprint shown short is a burndown that is wrong.',
       );
     }
-    const res = await api.asUser().requestJira(
+    const res = await jira(as).requestJira(
       route`/rest/agile/1.0/board/${boardId}/sprint/${sprintId}/issue?startAt=${startAt}&maxResults=100&fields=${fields}&expand=changelog`,
     );
     if (!res.ok) {
@@ -338,7 +358,7 @@ const fetchSprintIssues = async (boardId, sprintId, storyPointField) => {
  * go on the wire, which is the field a flow board most needs. Kept so the two
  * fetches differ in their query and not in their shape.
  */
-const fetchWindowIssues = async (boardId, entry, storyPointField) => {
+const fetchWindowIssues = async (boardId, entry, storyPointField, as) => {
   const fields = issueFields(storyPointField);
   const jql = `${windowMembershipJql(entry.startDate, entry.endDate)} ORDER BY created ASC`;
 
@@ -352,7 +372,7 @@ const fetchWindowIssues = async (boardId, entry, storyPointField) => {
         + 'is wrong, and it would read as a complete one.',
       );
     }
-    const res = await api.asUser().requestJira(
+    const res = await jira(as).requestJira(
       route`/rest/agile/1.0/board/${boardId}/issue?startAt=${startAt}&maxResults=100&fields=${fields}&expand=changelog&jql=${jql}`,
     );
     if (!res.ok) {
@@ -384,9 +404,9 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
  * request would not change it.
  */
 let storyPointField;
-const storyPointFieldFor = async () => {
+const storyPointFieldFor = async (as) => {
   if (storyPointField !== undefined) return storyPointField;
-  const res = await api.asUser().requestJira(route`/rest/api/3/field`);
+  const res = await jira(as).requestJira(route`/rest/api/3/field`);
   if (!res.ok) throw jiraError('the field list', res.status, await bodyOf(res));
   storyPointField = findStoryPointField(await res.json());
   return storyPointField;
@@ -407,14 +427,14 @@ const storyPointFieldFor = async () => {
  * every forecast in the product with nothing saying so.
  */
 const orgConfigs = new Map();
-const orgConfigFor = async (projectKey) => {
+const orgConfigFor = async (projectKey, as) => {
   if (orgConfigs.has(projectKey)) return orgConfigs.get(projectKey);
 
-  const statusRes = await api.asUser().requestJira(route`/rest/api/3/status`);
+  const statusRes = await jira(as).requestJira(route`/rest/api/3/status`);
   if (!statusRes.ok) throw jiraError('the status list', statusRes.status, await bodyOf(statusRes));
   const fromJira = { statuses: statusesFromJira(await statusRes.json()) };
 
-  const propRes = await api.asUser().requestJira(
+  const propRes = await jira(as).requestJira(
     route`/rest/api/3/project/${projectKey}/properties/${CONFIG_PROPERTY_KEY}`,
   );
   let stated = {};
@@ -463,12 +483,12 @@ const orgConfigFor = async (projectKey) => {
  * explanation on it either. That is the shape this repository keeps paying
  * for, and it cost a deploy cycle here too.
  */
-const sprintsFor = async (board) => {
+const sprintsFor = async (board, as) => {
   try {
     return {
       sprints: await pagedValues(
         (startAt) => route`/rest/agile/1.0/board/${board.id}/sprint?state=active,closed&startAt=${startAt}&maxResults=50`,
-        `sprints on board ${board.id}`,
+        `sprints on board ${board.id}`, as,
       ),
     };
   } catch (err) {
@@ -515,10 +535,10 @@ const answering = (fn) => async (req) => {
  * picker and the forecast disagreeing about that is the kind of difference
  * nothing on the page would show.
  */
-const projectContexts = async (projectKey) => {
+const projectContexts = async (projectKey, as) => {
   const boards = await pagedValues(
     (startAt) => route`/rest/agile/1.0/board?projectKeyOrId=${projectKey}&startAt=${startAt}&maxResults=50`,
-    `boards in project ${projectKey}`,
+    `boards in project ${projectKey}`, as,
   );
 
   const contexts = [];
@@ -531,7 +551,7 @@ const projectContexts = async (projectKey) => {
   let flowBoards = 0;
   let sprintBoardsWithNoSprints = 0;
   for (const board of boards) {
-    const got = await sprintsFor(board);
+    const got = await sprintsFor(board, as);
     if (got.skipped) {
       flowBoards += 1;
       for (const days of WINDOW_DAYS) {
@@ -546,6 +566,22 @@ const projectContexts = async (projectKey) => {
     }
   }
   return { boards, contexts, flowBoards, sprintBoardsWithNoSprints };
+};
+
+/**
+ * The project a board belongs to, for a caller that has a board id and no page.
+ *
+ * The panel never needs this — it is opened *in* a project and reads the key
+ * off the module context. A scheduled run has neither, and the recipient config
+ * is keyed by board, so this is the one hop between them.
+ */
+const boardProject = async (boardId, as) => {
+  const id = String(boardId ?? '').replace(/[^0-9]/g, '');
+  if (!id) return null;
+  const res = await jira(as).requestJira(route`/rest/agile/1.0/board/${id}`);
+  if (!res.ok) return null;
+  const body = await res.json();
+  return body?.location?.projectKey ?? null;
 };
 
 /** The project this module is open on, or a body saying why there is none. */
@@ -618,11 +654,11 @@ resolver.define('contexts', answering(async ({ context }) => {
  * field — an issue reaching it untagged is an issue silently dropped from the
  * sample, which is the narrowing this whole route is arranged to prevent.
  */
-const issuesForEntry = async (entry, spField, siteUrl) => {
+const issuesForEntry = async (entry, spField, siteUrl, as) => {
   const parsed = parseContextId(entry.id);
   const raw = entry.kind === 'window'
-    ? await fetchWindowIssues(parsed.boardId, entry, spField)
-    : await fetchSprintIssues(parsed.boardId, parsed.sprintId, spField);
+    ? await fetchWindowIssues(parsed.boardId, entry, spField, as)
+    : await fetchSprintIssues(parsed.boardId, parsed.sprintId, spField, as);
   return raw.map((r) => ({
     ...issueFrom(r, {
       // Undefined for a window, which is the honest value: `addedMidSprint` is
@@ -964,6 +1000,9 @@ resolver.define('facts', ({ payload }) => compute('/v1/facts', payload ?? {}));
 
 /** May this user administer this project? Jira's answer, not ours. */
 const editabilityFor = async (projectKey) => {
+  // `api.asUser()` literally, never `jira(...)`. The question is whether *this
+  // reader* may administer this project, so asking it as the app would answer
+  // a different question and answer it yes. A test asserts this line.
   const res = await api.asUser().requestJira(
     route`/rest/api/3/mypermissions?projectKey=${projectKey}&permissions=${ADMIN_PERMISSION}`);
   if (!res.ok) {
@@ -1123,53 +1162,111 @@ const sendBrief = async ({ anchorIssue, to, subject, textBody, htmlBody }) => {
  * It logs the reasons and nothing else. No issue key, no title, no recipient —
  * the same rule the calculator's access log follows, and for the same reason.
  */
+/**
+ * Everything one board's brief needs from Jira and the calculator.
+ *
+ * Reads as the **app**, because a scheduled run has no user to be. That is the
+ * decision ADR 0013 declined twice and records as taken; the addendum there has
+ * what it costs and what `restrict` does and does not check. It is passed
+ * explicitly at every hop rather than defaulted, so the authority a read is
+ * made with is visible at the call site and not inherited from context.
+ */
+const boardFigures = async (boardId) => {
+  const projectKey = await boardProject(boardId, 'app');
+  if (!projectKey) return { problems: [`board ${boardId} is not on this site.`] };
+
+  const { contexts } = await projectContexts(projectKey, 'app');
+  const mine = contexts.filter((c) => String(c.boardId) === String(boardId));
+  if (!mine.length) {
+    return { problems: [`board ${boardId} has no sprint or window to report on.`] };
+  }
+  // The first is the most recent — `recentSprints` sorts, and windows are
+  // offered newest first. A brief is about now, not about the whole record.
+  const entry = mine[0];
+
+  const spField = await storyPointFieldFor('app');
+  const org = (await orgConfigFor(projectKey, 'app')).config;
+  const issues = await issuesForEntry(entry, spField, null, 'app');
+
+  const projected = issues.map(projectIssue);
+  assertNoFreeText(projected);
+  const dataset = { issues: projected, contexts, orgConfig: org, meta: {} };
+
+  const facts = await callCalculator('/v1/facts', { dataset });
+  if (facts.available === false) return { problems: [facts.sentence] };
+
+  // A refusal here is an answer, not a failure: `sectionsFor` carries the
+  // tool's sentence into the brief verbatim.
+  const forecast = await callCalculator('/v1/forecast-context', {
+    dataset, contextId: entry.id,
+  });
+
+  return {
+    entry,
+    facts: facts.result ?? facts,
+    forecast: forecast.available === false
+      ? { available: false, sentence: forecast.sentence }
+      : (forecast.result ?? forecast),
+  };
+};
+
+/**
+ * The scheduled trigger's function.
+ *
+ * Returns rather than throws: a scheduled trigger is not retried, and a thrown
+ * error is a reason only a stack trace carries.
+ *
+ * Logs board ids and outcomes and nothing else. No subject, no recipient, no
+ * issue key — the subject carries a board name and the recipients are account
+ * ids, and an app log holding either is a copy of something the customer did
+ * not put there.
+ */
 export const weeklyBrief = async () => {
   const config = await recipientConfig();
 
-  /* Checked before a single Jira call, because a trigger fires with nobody
-     watching and must be cheap when it can do nothing. This used to be three
-     blockers; ADR 0014 answered two of them. The config supplies the boards to
-     walk *and* who each one goes to, because its keys are board ids — so
-     "which board" and "who" were always one question wearing two hats. */
   const problems = problemsIn(config);
   if (problems.length) {
     console.log(`weekly brief not sent: ${problems.join(' ')}`);
     return { sent: false, reasons: problems };
   }
 
-  /* The last blocker, and it is a decision rather than a gap.
-     ---------------------------------------------------------------------
-     Composing a brief means reading the board, and every read in this file is
-     `api.asUser()`. A scheduled run has no user to be, so those reads would
-     have to become `asApp()` — and ADR 0013 declined exactly that, on the
-     grounds that reading as the user is *why* a panel viewer can only ever see
-     issues they could already see in Jira. That is roadmap item 5 holding for
-     free, and `asApp()` spends it.
+  const out = [];
+  for (const boardId of boardsIn(config)) {
+    let got;
+    try {
+      got = await boardFigures(boardId);
+    } catch (err) {
+      // One board failing must not take the rest with it. They are separate
+      // messages to separate people, and at a weekly cadence the others would
+      // wait a week for somebody else's problem.
+      out.push({ boardId, sent: false, reasons: [String(err?.message || err)] });
+      continue;
+    }
+    if (got.problems) {
+      out.push({ boardId, sent: false, reasons: got.problems });
+      continue;
+    }
 
-     ADR 0014 changed the position part-way and not all the way. `restrict`
-     means Jira drops recipients who may not browse the anchor issue, so the
-     app's claim about who may receive the brief is now checked by the platform
-     instead of trusted. What it does not check is what the brief *says*: the
-     anchor's BROWSE permission gates delivery, not the issues named inside.
-     A board whose issues share one permission scheme — most of them — is
-     covered by that. One using issue-level security is not.
+    const result = await briefsForBoard({
+      config,
+      boardId,
+      boardName: got.entry.boardName,
+      periodName: got.entry.sprintName || got.entry.label || '',
+      asOf: got.entry.asOfDate || todayISO(),
+      calendar: got.facts?.meta?.calendar,
+      figuresFor: (audience) => sectionsFor(audience, {
+        facts: got.facts, forecast: got.forecast,
+      }),
+      ask: chat,
+      send: sendBrief,
+    });
+    out.push({ boardId, ...result });
+  }
 
-     So this stops here deliberately, with the send written and proven and the
-     read not taken. Turning it on is one line and a record saying why; writing
-     it quietly would be spending a security property in a commit about email
-     formatting. */
-  console.log(
-    'weekly brief not sent: composing it means reading the board with no user, '
-    + 'which ADR 0013 declined and ADR 0014 only partly answers. The send is '
-    + 'wired and the recipients are configured; the read is a decision nobody '
-    + 'has taken.');
-  return {
-    sent: false,
-    reasons: ['reading a board without a user is a decision ADR 0013 declined'],
-    // Named so the log line and this agree, and so a future caller has the
-    // list rather than re-deriving it from the config it already read.
-    boards: boardsIn(config),
-  };
+  const sent = out.reduce(
+    (n, b) => n + (b.results || []).filter((r) => r.sent).length, 0);
+  console.log(`weekly brief: ${out.length} board(s), ${sent} message(s) sent`);
+  return { sent: sent > 0, boards: out };
 };
 
 export const handler = resolver.getDefinitions();

@@ -153,3 +153,43 @@ What follows from it, and is implemented:
 The three blockers are checked before any Jira call, so a weekly run that cannot
 deliver costs one invocation rather than a board of reads and a completion
 nobody receives.
+
+## Superseded in part: the app-level read was taken, deliberately
+
+The addendum above said the trigger does not reach for `asApp()`, and for three
+versions it did not. **It does now, and this records the reversal rather than
+quietly contradicting it**, because a decision that changes without a reason
+written down is one nobody can re-examine.
+
+**What changed between the two positions is `restrict`.** When the addendum was
+written, the app would have read a board with no user and mailed the result to a
+list, with nothing anywhere checking that the recipients could see any of it.
+[ADR 0014](0014-jira-sends-the-brief-and-the-read-only-rule-bends.md) put the
+send through Jira, and every notification now carries
+`restrict: {permissions: [{key: BROWSE}]}`. Jira drops recipients who cannot
+browse the anchor issue. Who may *receive* a brief is now the platform's
+decision rather than this app's claim.
+
+**What is still true, and is the residual risk.** `restrict` filters against the
+anchor issue, not against the issues named inside the message. A board whose
+issues share one permission scheme is covered by that, and most do. A board
+using issue-level security is not: a recipient who may browse the anchor and not
+some other issue will still be told about the other. That is roadmap item 5 and
+it remains open — this is a narrowing of the gap, not a closing of it.
+
+**The panel is untouched, and that is the half worth protecting.** Reading as
+the user is why a viewer can only ever see issues they could already see in
+Jira, and every read the panel makes still does. The authority is now an
+explicit parameter, defaulted to the user, so a read added without thinking is
+added on the safe side; the scheduled path passes `'app'` at each call rather
+than inheriting it from anything.
+
+Two reads may never take it and a test says so by name: the permission check
+behind the recipient editor, which asks whether *this reader* may administer the
+project and would answer yes to itself as the app, and the connection probe.
+
+That test exists because threading the mode through nine helpers introduced the
+same bug twice in one sitting — `jira(as)` left in a function with no `as`,
+which bundles cleanly, since a free variable is not a syntax error, and is a
+`ReferenceError` the first time a tenant opens the page. It is checked
+structurally now: every `jira(as)` must sit inside a function that declares one.

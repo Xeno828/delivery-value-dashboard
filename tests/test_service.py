@@ -2560,6 +2560,62 @@ def test_the_two_recipient_validators_agree():
     check("and so does the Forge one", "email address" in js_said, js_said[:120])
 
 
+def test_every_jira_read_states_whose_authority_it_uses():
+    """`jira(as)` is only safe if `as` is in scope where it is written.
+
+    Threading the mode through nine helpers introduced this bug twice in one
+    sitting: `jira(as)` was left inside `editabilityFor` and inside the
+    `context` resolver, neither of which has an `as`. Both bundle cleanly — a
+    free variable is not a syntax error — and both are a ReferenceError the
+    first time a tenant opens the page.
+
+    So the check is structural: every `jira(as)` must sit inside a function that
+    declares `as`, and the two reads whose authority is not negotiable must
+    still say `asUser()` in so many words.
+    """
+    src = (ROOT / "forge" / "src" / "index.js").read_text()
+    code = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    code = re.sub(r"//[^\n]*", "", code)
+
+    # Every function that declares `as` as its own parameter, by name.
+    declaring = set(re.findall(r"const (\w+) = async \([^)]*\bas\b[^)]*\)", code))
+    check("helpers thread the authority explicitly", len(declaring) >= 8,
+          sorted(declaring))
+
+    # Walk each `jira(` call back to the nearest enclosing `const NAME = async (`.
+    orphans = []
+    for m in re.finditer(r"\bjira\(as\)", code):
+        before = code[:m.start()]
+        owner = None
+        for fn in re.finditer(r"const (\w+) = async \(([^)]*)\)", before):
+            owner = fn
+        if owner is None or "as" not in [p.strip().split("=")[0].strip()
+                                         for p in owner.group(2).split(",")]:
+            orphans.append(owner.group(1) if owner else "top level")
+    check("every jira(as) sits in a function that declares `as`", not orphans,
+          orphans)
+
+    # The panel's own reads, which must never become the app's.
+    edit = code.split("const editabilityFor", 1)[-1].split("};", 1)[0]
+    check("the permission check asks as the user, in so many words",
+          "api.asUser()" in edit and "jira(" not in edit, edit[:140])
+    check("and the connection probe does too",
+          "asUser()" in code.split("probeBoardIssues", 1)[-1][:900])
+
+    # The trigger's own reads are the app's, stated at the call site rather
+    # than inherited. ADR 0013's addendum is the record for that.
+    trigger = code.split("const boardFigures", 1)[-1].split("export const weeklyBrief", 1)[0]
+    for helper in ("boardProject", "projectContexts", "storyPointFieldFor",
+                   "orgConfigFor", "issuesForEntry"):
+        check("%s is called with 'app' in the scheduled path" % helper,
+              re.search(r"%s\([^)]*'app'\)" % helper, trigger), trigger[:160])
+
+    # Default is the safe one, so a read added without thinking is a user read.
+    check("the default authority is the user's",
+          re.search(r"const jira = \(as\) => \(as === 'app' \? api\.asApp\(\) : api\.asUser\(\)\)",
+                    code))
+
+
 if __name__ == "__main__":
     import os
     os.environ["SERVICE_SHARED_SECRET"] = SECRET
@@ -2600,6 +2656,8 @@ if __name__ == "__main__":
     test_the_brief_never_states_a_figure()
     print("the Forge app's dependencies")
     test_forge_app_dependencies()
+    print("whose authority a read uses")
+    test_every_jira_read_states_whose_authority_it_uses()
     print("the weekly brief")
     test_the_weekly_brief_is_wired_to_its_own_function()
     test_the_llm_module_matches_the_model_the_code_asks_for()
