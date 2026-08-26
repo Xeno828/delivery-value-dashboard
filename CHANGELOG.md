@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.25.2
+
+**The handler runs, and it refuses exactly as written.** Proved by shortening the interval rather than waiting a week — `interval: fiveMinute`, deployed as 5.2.0, three fires five minutes apart to the second:
+
+```
+INFO 2026-08-26T07:44:17.475Z  weekly brief not sent: no board is configured for this
+installation to report on. A scheduled run has no user and no project context, so unlike
+the panel it cannot infer one from where it was opened. no recipients are configured for
+this installation. … no mail transport is declared, so there is nowhere to send it. …
+```
+
+`INFO`, not `ERROR`. That single word is the whole result: the same trigger that threw `TypeError: … reading 'functionKey'` twice on 2026-08-24 now reaches `index.weeklyBrief`, so the rewiring in 1.25.0 is confirmed in a tenant rather than argued from documentation. All three blockers came out, in the order they are written in — board first, because without it there is nothing to compute at all. The interval was restored to `week` and redeployed as 5.3.0; an interval change is a minor version, so neither switch needed an approval or a reinstall.
+
+**This corrects 1.25.1, which drew the wrong conclusion from silence.** That entry reported zero invocations in thirty-one hours and offered two explanations — Forge disabling a trigger after consecutive failures, or the version 3 scope change leaving it unable to run. **Both are now excluded.** A trigger that fires three times on schedule is not disabled, and the installation it fired under is the one the scope change produced. The silence was a weekly interval that was not due, which was the dull explanation available the whole time and the one not reached for.
+
+What remains genuinely unexplained is narrower and no longer alarming: why the only two fires under version 2 were two and a half hours apart under `interval: week`. No theory here survives contact with the rest of the timeline — a post-deploy fire would have produced one after version 4 and after 5.0.0, and neither happened. It is left as unexplained, because that is what it is.
+
+**The lesson kept from 1.25.1 is the one that was actually right, and it is sharper now.** A trigger that fails writes a line and a trigger that has not come due writes nothing, so an absence of logs carries no information at all — it cannot even distinguish *broken* from *idle*. `docs/forge-deployment.md` now says to establish liveness by shortening the interval, which takes about ten minutes and answers the question outright, instead of reasoning about a cadence.
+
+The near miss is worth stating plainly. The failure was real and the fix was right, but the *diagnosis* published in 1.25.1 was a plausible story fitted to missing data — the exact failure mode `CLAUDE.md` names as this project's worst, arriving in a changelog entry instead of a forecast.
+
 ## 1.25.1
 
 **App version 5.0.0 is deployed to the dev site, and the platform confirmed the claim ADR 0013 rests on.** `forge lint` passed the `llm` module as *0 errors, 0 warnings, 1 approval* — `MAJOR_VERSION_RULE`, *"Change due to usage of core:llm module"* — and it deployed with `--approve`.

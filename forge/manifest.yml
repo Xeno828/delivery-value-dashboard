@@ -69,8 +69,10 @@ modules:
     # Nothing surfaced it: a scheduled trigger is not retried and its failure
     # appears nowhere a person looks. tests/test_service.py holds the two apart.
     #
-    # It has not fired at all since, across three versions and a reinstall, and
-    # why is not established — docs/forge-deployment.md has both candidates.
+    # Confirmed working on 2026-08-26 by temporarily setting `fiveMinute`:
+    # three fires five minutes apart, INFO rather than ERROR, the handler's own
+    # refusal. An interval change is a minor version, so that test costs a
+    # deploy and no reinstall. docs/forge-deployment.md §4.
     - key: weekly-brief-fn
       handler: index.weeklyBrief
       # Longer than the default because this one reads a board, calls the

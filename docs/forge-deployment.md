@@ -383,21 +383,41 @@ Twice, on 2026-08-24, and never surfaced: a scheduled trigger is not retried and
 its failure appears nowhere a person looks. `tests/test_service.py` now asserts
 the trigger's function is not the resolver's.
 
-### A scheduled trigger that stops is worse than one that fails
+### To find out whether a trigger runs, shorten the interval — do not reason about it
 
-The same two log lines are the *only* two in seven days. Both are under major
-version 2. Since version 3 there have been **zero invocations in over thirty-one
-hours**, across three versions and a reinstall.
+**An absence of logs carries no information.** A trigger that fails writes a
+line; a trigger that has not come due writes nothing. So silence cannot even
+distinguish *broken* from *idle*, and a fix can sit in a trigger that has not run
+since, with lint, deploy, `install list` and `eligibility` all reporting healthy.
 
-Whether Forge disables a trigger after consecutive failures, or the version 3
-scope change left it unable to run, is **not established** — both fit and
-nothing available here separates them. What matters operationally is the shape:
-a trigger that fails writes a line, and a trigger that stops writes nothing, so
-silence and a long interval look identical. If you are relying on one, assert
-its liveness from something it produces rather than from the absence of errors.
+That is not a hypothetical. Those two error lines were the only entries in seven
+days, and thirty-one hours of silence followed them across three versions and a
+reinstall — which was written up here as a trigger that had probably been
+disabled by its own failures. It had not been. It was a weekly interval that was
+not due.
 
-It also means a fix can be deployed into a trigger that will never run it, with
-every other signal — lint, deploy, install list, eligibility — reporting healthy.
+The answer takes ten minutes and is not a deduction:
+
+```bash
+# in forge/manifest.yml, temporarily:
+#   interval: fiveMinute
+cd forge && forge deploy -e development
+cd forge && forge logs -e development -f weekly-brief-fn -s 30m
+# then restore `interval: week` and deploy again
+```
+
+Done on 2026-08-26 it produced three fires five minutes apart to the second, the
+first 5m28s after the deploy:
+
+```
+INFO 2026-08-26T07:44:17.475Z  weekly brief not sent: no board is configured for this
+installation to report on. … no recipients are configured … no mail transport is declared …
+```
+
+`INFO` rather than `ERROR` is the result: the trigger reaches `index.weeklyBrief`
+and the refusal is the handler's, not the platform's. An interval change is a
+**minor** version, so neither switch needs an approval or a reinstall — which is
+what makes this cheap enough to be the first thing you try rather than the last.
 
 ### And the one that is not fixed, because it is item 5
 
@@ -412,9 +432,8 @@ permission mirroring holding for free. See ADR 0013 and `docs/roadmap.md` — it
 
 A brief is composed from a real board and delivered to a real recipient. None of
 those three things exists yet, and the handler names all three every time it
-fires — which, as above, it has not yet been observed doing since the rewiring.
-The nearer milestone is one `weekly brief not sent: …` line in `forge logs`,
-which would prove the trigger reaches the handler at all.
+fires — which it is now observed doing, so the trigger, the handler and the
+refusal are all proved and only the three configurations are missing.
 
 ---
 
