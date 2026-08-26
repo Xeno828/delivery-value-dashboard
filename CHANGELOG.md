@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.30.0
+
+**Item 3 runs end to end against a real tenant. The only thing between it and an inbox is a site setting.**
+
+```
+Jira refused the notification with 403. It said: Outgoing emails disabled.
+```
+
+Every stage before that ran on live data, and each was blocked by the one before it until it was fixed: the trigger reaching the handler, the recipient config read from app storage and validated, the board read **as the app**, the calculator's facts and a correctly-refusing forecast, Forge LLMs writing prose, the figure guard passing it, `emailBody` rendering it and `notifyPayload` assembling the send. `send:notification:jira` gets the app through the API gate; it does not make a site send mail, and that is a switch no app can declare. [ADR 0014](docs/adr/0014-jira-sends-the-brief-and-the-read-only-rule-bends.md) records it as a precondition for the Marketplace listing rather than something to discover in a support ticket a week after purchase.
+
+**Six failures, none of them the obvious thing, each fixed with a test.**
+
+*The reason existed and reached nobody — three times.* `weekly brief: 1 board(s), 0 message(s) sent` said nothing about why; the per-board reasons were in the returned object and logged nowhere. `composeSection` discarded `proseFrom`'s cause and substituted an empty string, so *no choices*, *stopped early* and *no text* all became "the model returned no prose at all". And `sendBrief` threw away Jira's `errorMessages`, leaving a 403 that could equally have been mail disabled, a missing project permission, or an ungranted scope — three unrelated fixes behind one number. All three now say which.
+
+*`stop` is OpenAI's word.* Anthropic ends a normal completion with `end_turn`, so the truncation guard refused every good answer, three sections at a time. `FINISHED`, `TRUNCATED` and `DECLINED` are explicit lists now, and an unrecognised value is refused **and named** — naming `(end_turn)` is the only reason that took one deploy to find rather than several.
+
+*The model declining is its own category.* `finish_reason: refusal` is neither a bug nor a truncation, and the message it first produced advised adding the value to `FINISHED`, which would have shipped whatever came back when the model had chosen not to answer.
+
+*The model was shown a number and then refused for repeating it.* Figures are listed to it by key, and the key was `p85`; it wrote "85". No slot name contains a digit now — templates keep theirs, since the model never sees a template — and a test asserts it. The guard also had no way out: a weekly trigger would have sent the same prompt and got the same refusal for ever, so a section that fails is now shown the complaint and asked once more, and a model that breaks the rule twice is reported rather than softened.
+
+*`/v1/forecast-context` nests its figures under `sprint_completion`.* `sectionsFor` was written against the flat `/v1/forecast` shape, so `fillSlots` refused for want of figures that were present under another key — the guard working perfectly over a mistake upstream of it. Checkable in this repository at any point and checked only after it failed in production. The test now takes its shapes **from the real tool**: a fixture written by hand would have been written from the same misunderstanding, agreed with the code, and proved nothing.
+
+**Four of the six came from coding against a documented example instead of the SDK's own type declarations**, which were in `forge/node_modules` the whole time. `Content = string | ContentPart[]` — the example showed a string, so a completion whose text arrived as parts was reported as "no text". The types are authoritative; the examples are illustrations.
+
+**And the mutation testing was lying.** It has been measured all session with `grep -c FAIL`. One mutation raised a `KeyError` and aborted the suite — a traceback contains no "FAIL", so a caught mutation read as an uncaught one. Measured by exit status now, and the test that crashed reports a failure instead. Some earlier "not caught" readings in this session may have been wrong the same way; the measurement was as untrustworthy as the synthetic-input results that produced the phantom scrolling bug.
+
+**What the guard did on live output is the part worth keeping.** The model, told plainly not to, wrote figures into its prose. Nothing was sent. That is [ADR 0013](docs/adr/0013-the-brief-is-written-inside-the-tenant.md)'s central protection firing in production over a real board, and it is the one thing here that did not need fixing.
+
 ## 1.29.5
 
 **There was no bug. The dashboard scrolls on Forge with a mouse, and 1.29.1 through 1.29.4 were chasing an artefact of how it was being tested.** Confirmed by the only instrument that could settle it: a person with a hand on one.

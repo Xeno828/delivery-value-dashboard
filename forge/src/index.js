@@ -1142,12 +1142,43 @@ const sendBrief = async ({ anchorIssue, to, subject, textBody, htmlBody }) => {
     },
   );
   if (res.status === 204) return { sent: true };
+
+  /* Jira's own words, not just its status.
+     A 403 alone says "refused" and nothing about by what — a missing scope, an
+     app user without Browse on the project, outgoing mail disabled on the
+     site. All three look identical from here and have different fixes, and the
+     body says which. Discarding it was the third time in one session a reason
+     existed and reached nobody.
+     Capped and stripped of newlines: this goes in a log line, and Jira's error
+     bodies are its own generic sentences — no issue text — but a cap is
+     cheaper than trusting that forever. */
+  let said = '';
+  try {
+    const body = await res.json();
+    said = []
+      .concat(body?.errorMessages || [], Object.values(body?.errors || {}))
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .slice(0, 300);
+  } catch {
+    // A body that is not JSON is a proxy page, not an answer worth quoting.
+  }
+
   return {
     sent: false,
     // Jira's own status, so a 403 reads as the app lacking permission on that
     // issue rather than as a bug here, and a 404 as an anchor that has been
     // deleted since somebody configured it.
-    reason: `Jira refused the notification for ${anchorIssue} with ${res.status}.`,
+    // Jira's own status, so a 403 reads as the app lacking permission on the
+    // anchor rather than as a bug here, and a 404 as an anchor deleted since
+    // somebody configured it.
+    //
+    // The anchor's key is deliberately *not* in this sentence. Reasons are
+    // logged, and `CLAUDE.md` forbids an issue key reaching a log — an access
+    // log holding one is a copy of part of the customer's backlog. The board
+    // id in the log line is enough to find the anchor in the config.
+    reason: `Jira refused the notification with ${res.status}.`
+          + (said ? ` It said: ${said}` : ' It gave no reason.'),
   };
 };
 
@@ -1266,6 +1297,19 @@ export const weeklyBrief = async () => {
   const sent = out.reduce(
     (n, b) => n + (b.results || []).filter((r) => r.sent).length, 0);
   console.log(`weekly brief: ${out.length} board(s), ${sent} message(s) sent`);
+
+  /* And why, for the ones that did not go.
+     The first real run reported "1 board(s), 0 message(s) sent" and nothing
+     else, which is a summary nobody can act on: the reasons existed in the
+     returned object and reached no one. A scheduled trigger has no page to
+     render an error into, so the log is the only place a reason can live.
+     These sentences are this app's own — blockers, tool refusals, guard
+     complaints — and carry no issue key, no recipient and no issue text. */
+  for (const board of out) {
+    const why = (board.reasons || []).concat(
+      (board.results || []).filter((r) => !r.sent).flatMap((r) => r.reasons || []));
+    if (why.length) console.log(`weekly brief, board ${board.boardId}: ${why.join(' ')}`);
+  }
   return { sent: sent > 0, boards: out };
 };
 

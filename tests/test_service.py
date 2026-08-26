@@ -2199,6 +2199,55 @@ def test_the_brief_prompt_can_produce_an_answer_its_own_guard_accepts():
         check("a %s completion yields no prose" % state,
               "prose" not in r[state], r[state])
 
+    # `content` is `string | ContentPart[]` in the SDK's own declarations. This
+    # was written against the published example, which shows only the string,
+    # so the array form reported "the model returned no text" for a completion
+    # that had text in it — found in a tenant, on a timer, after the guards it
+    # was blocking had all been proved.
+    check("content delivered as text parts is read, not refused",
+          r["partsArray"].get("prose") == "Delivery slowed against last sprint.",
+          r["partsArray"])
+    # A part this does not understand is skipped rather than stringified:
+    # "[object Object]" in somebody's inbox is worse than a refusal.
+    check("a part that is not text is skipped, not stringified",
+          r["mixedParts"].get("prose") == "Only this.", r["mixedParts"])
+    check("an empty parts array is still no text",
+          "prose" not in r["emptyParts"], r["emptyParts"])
+
+    # `stop` is OpenAI's word for a finished completion. Anthropic says
+    # `end_turn`, so a `!== 'stop'` guard refused every good answer as
+    # truncated — three sections at a time, in a tenant, on a timer. Listed
+    # explicitly now instead of inferred from one sample.
+    fr = r["finishReasons"]
+    check("end_turn is a finished completion, not a truncated one",
+          fr["end_turn"] == "accepted", fr)
+    check("and so are stop and stop_sequence",
+          fr["stop"] == "accepted" and fr["stop_sequence"] == "accepted", fr)
+    check("max_tokens and length are still refused as truncation",
+          fr["max_tokens"] == "truncated" and fr["length"] == "truncated", fr)
+    # An unknown reason is refused rather than accepted: it might be a
+    # truncation this does not recognise, and half a brief reads like a whole
+    # one. It is *named* in the message, which is the only reason the end_turn
+    # case took one deploy to find rather than several.
+    check("an unrecognised finish reason is refused and named",
+          fr["tool_use"] == "unrecognised", fr)
+
+    # The model declining is its own category, and the distinction is not
+    # cosmetic: the first version of the unrecognised-reason message advised
+    # adding the value to FINISHED, which for `refusal` would have meant
+    # shipping whatever came back when the model had chosen not to answer.
+    check("a model refusal is reported as a refusal, not a truncation",
+          fr["refusal"] == "declined", fr)
+    check("and so is a content filter",
+          fr["content_filter"] == "declined", fr)
+    check("declined never overlaps finished or truncated",
+          not (set(r["declinedList"]) & (set(r["finishedList"]) | set(r["truncatedList"]))),
+          {"declined": r["declinedList"], "finished": r["finishedList"],
+           "truncated": r["truncatedList"]})
+    check("the two lists do not overlap",
+          not (set(r["finishedList"]) & set(r["truncatedList"])),
+          {"finished": r["finishedList"], "truncated": r["truncatedList"]})
+
     # And nothing the model returns may bypass the guard on its way in.
     check("the prompt's own text would pass the guard it asks for",
           not [w for w in b["numberWords"] if (" %s " % w) in msgs[0]["content"].lower()],
@@ -2245,6 +2294,23 @@ def test_a_scheduled_run_that_cannot_deliver_says_so_before_doing_work():
     check("the handler returns its reasons rather than throwing",
           "return { sent: false" in body and "throw" not in body.split("};")[0],
           body[:160])
+
+    # A scheduled run has no page to render an error into, so a reason that is
+    # not logged reaches nobody. The first real run in a tenant reported
+    # "1 board(s), 0 message(s) sent" and nothing else — a summary nobody can
+    # act on, with every reason sitting unread in the returned object.
+    check("the handler logs why a board sent nothing, not only how many did",
+          re.search(r"console\.log\(`weekly brief, board \$\{board\.boardId\}", body),
+          body[-300:])
+
+    # ...and no issue key goes into it. `CLAUDE.md` forbids one reaching a log:
+    # an access log holding issue keys is a copy of part of the backlog. The
+    # anchor's key was in the send-failure sentence until the logging existed,
+    # which is how a safe field becomes an unsafe one — by something else
+    # starting to read it.
+    check("no reason sentence carries an issue key",
+          "notification for ${anchorIssue}" not in src,
+          [ln for ln in src.split("\n") if "anchorIssue" in ln and "reason" in ln][:2])
 
 
 def test_a_boards_recipients_are_validated_before_anyone_is_told():
@@ -2423,6 +2489,90 @@ def test_the_brief_reaches_an_inbox_without_carrying_a_payload():
           sorted(m["payload"]))
 
 
+def test_the_brief_reads_the_shape_the_context_route_really_returns():
+    """The forecast figures are nested, and this read them flat.
+
+    `/v1/forecast` answers with `remaining_items` and `percentiles` at the top
+    level. `/v1/forecast-context` — the route the scheduled brief actually
+    calls — answers with `{sprint_completion, item_risk, next_commitment, ...}`
+    and puts them inside the first. `sectionsFor` was written against the flat
+    one, so in a tenant it produced *"the brief asks for remaining,
+    landing_date and the tools did not return it"*: `fillSlots` refusing
+    exactly as designed, over figures that were present under another key.
+
+    **The shapes here come from the real tool**, not from a fixture written by
+    hand. A fixture would have been written from the same misunderstanding that
+    caused the bug, agreed with the code, and proved nothing — which is the
+    whole reason this was found in production rather than here.
+    """
+    ds = json.loads((ROOT / "data" / "sample-bundle.json").read_text())
+    cid = (ds.get("contexts") or [{}])[0].get("id")
+    issues = [{k: v for k, v in i.items() if k in SVC.CALC_FIELDS} for i in ds["issues"]]
+    base = {"dataset": {"issues": issues, "contexts": ds["contexts"],
+                        "orgConfig": ds.get("orgConfig", {}), "meta": {}},
+            "contextId": cid}
+    available = SVC.route_forecast_context(base)
+
+    thin = {**base, "dataset": {**base["dataset"], "issues": issues[:3]}}
+    refused = SVC.route_forecast_context(thin)
+
+    check("the context route nests its figures under sprint_completion",
+          "sprint_completion" in available and "remaining_items" not in available,
+          sorted(available))
+    check("and the thin dataset really does refuse",
+          available["sprint_completion"]["available"] is True
+          and refused["sprint_completion"]["available"] is False,
+          {"thin": refused["sprint_completion"]})
+    # No `sentence` survives serialisation — `Refusal.sentence()` is a Python
+    # method. Whatever the brief prints has to be built from `reason`.
+    check("a refusal carries reason but no sentence",
+          "reason" in refused["sprint_completion"]
+          and "sentence" not in refused["sprint_completion"],
+          sorted(refused["sprint_completion"]))
+
+    node = subprocess.run(["node", str(ROOT / "tests" / "brief_shapes.mjs")],
+                          input=json.dumps({"refusal": "R",
+                                            "forecasts": {"available": available,
+                                                          "refused": refused}}),
+                          capture_output=True, text=True, cwd=str(ROOT))
+    if node.returncode != 0:
+        check("the brief shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    fs = json.loads(node.stdout)["forecastSection"]
+
+    # `.get` throughout, not `[...]`. A missing key is the failure this test
+    # exists to catch, and raising a KeyError aborts the whole suite with a
+    # traceback instead of reporting it — which read as "the mutation was not
+    # caught" when the mutation was caught and the measurement was wrong.
+    got = fs["available"]["figures"]
+    want = available["sprint_completion"]
+    check("the brief reads remaining_items from where the tool puts it",
+          got.get("remaining") == want["remaining_items"],
+          {"brief": got, "tool": want["remaining_items"]})
+    # The tool keys percentiles by int; JSON makes them strings on the way to
+    # node. `sectionsFor` reads both, and so does this.
+    pct = want["percentiles"]
+    p85 = pct.get(85, pct.get("85"))
+    check("and the 85th percentile date from where the tool puts it",
+          got.get("landing_date") == p85, {"brief": got, "tool": p85})
+    check("no figure the brief asks for is missing",
+          got and all(v is not None for v in got.values()), got)
+
+    # Verbatim, and only the tool's words — the same thing `fcRefusal` in
+    # src/app.js does with the same fields. Composing the fuller sentence here
+    # would be a second implementation of Refusal.sentence() in a second
+    # language.
+    said = fs["refused"]["refusal"] or ""
+    check("a refused forecast quotes the tool's reason verbatim",
+          refused["sprint_completion"]["reason"] in said, said)
+    check("and carries have and need beside it",
+          str(refused["sprint_completion"]["have"]) in said
+          and str(refused["sprint_completion"]["need"]) in said, said)
+    check("a refused forecast asks for no figures at all",
+          fs["refused"]["figures"] == {}, fs["refused"])
+
+
 def test_nothing_is_sent_that_the_guards_would_have_stopped():
     """Compose, render, send — with the model and the send stubbed.
 
@@ -2456,6 +2606,40 @@ def test_nothing_is_sent_that_the_guards_would_have_stopped():
           ok["out"])
     check("the refusal reaches the HTML body verbatim",
           "absent, not noisy" in ok["html"], ok["html"][-120:])
+
+    # Every way the model can give nothing usable keeps its own words. The
+    # first live run in a tenant reported "the model returned no prose at all"
+    # three times — which is what all four causes collapsed into, because the
+    # reason from `proseFrom` was replaced by an empty string that then tripped
+    # the empty-prose guard. A reason that names nothing is a reason nobody can
+    # act on, and this is the second time in one session that shape appeared.
+    mf = json.loads(node.stdout)["modelFailures"]
+    for name in ("noChoices", "truncated", "emptyText", "rubbish"):
+        check("a %s response is reported as itself" % name,
+              mf[name] and "no prose at all" not in " ".join(mf[name]),
+              mf[name])
+    check("a truncated completion still says it was truncated",
+          "stopped early" in " ".join(mf["truncated"]), mf["truncated"])
+
+    # Asking again when the guard refuses. In a tenant the model wrote "two"
+    # and "85" into every section despite the rule and nothing was sent — and a
+    # weekly trigger would have repeated the same prompt for ever, so the
+    # refusal was permanent rather than a bad week.
+    rt = json.loads(node.stdout)["retries"]
+    check("prose that passes first time costs one call",
+          rt["firstTimeCalls"] == 1 and rt["firstTime"], rt)
+    check("a model that breaks the rule is asked again, and its answer used",
+          rt["relentsCalls"] == 2
+          and rt["relents"] == "Throughput fell against the previous sprint.", rt)
+    check("a model that breaks it twice is reported, not softened",
+          rt["stubbornCalls"] == 2 and rt["stubborn"], rt)
+
+    # The values are listed to the model by key, so a key with a digit in it
+    # hands it a number to copy. `p85` did exactly that, and the model wrote
+    # "85". Templates may carry digits — the model never sees a template.
+    slots = json.loads(node.stdout)["slotNames"]
+    digity = [s for s in slots if any(c.isdigit() for c in s)]
+    check("no slot name contains a digit", not digity, digity or slots)
 
     # The one that matters most. brief.js refusing prose that carries a figure
     # is already covered; this asserts nothing reaches an inbox when it does.
@@ -2667,6 +2851,8 @@ if __name__ == "__main__":
     test_a_boards_recipients_are_validated_before_anyone_is_told()
     print("one rule, two validators")
     test_the_two_recipient_validators_agree()
+    print("the shape the context route returns")
+    test_the_brief_reads_the_shape_the_context_route_really_returns()
     print("the brief as an email")
     test_the_brief_reaches_an_inbox_without_carrying_a_payload()
     test_nothing_is_sent_that_the_guards_would_have_stopped()

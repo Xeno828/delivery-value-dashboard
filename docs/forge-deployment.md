@@ -428,12 +428,51 @@ panel viewer can only see issues they could already see in Jira, which is
 permission mirroring holding for free. See ADR 0013 and `docs/roadmap.md` — item
 3 depends on item 5, which the roadmap did not record.
 
+### Proved end to end on 2026-08-26, except the site's mail switch
+
+Every stage ran against a real tenant, in this order, each one blocked by the
+one before it until it was fixed:
+
+| Stage | How it was proved |
+|---|---|
+| The trigger fires and reaches the handler | `INFO … weekly brief not sent: …` in its own words |
+| Recipient config read from app storage and validated | it stopped naming the config and started naming the board |
+| The board read **as the app** | sections built from MOBL's real figures |
+| The calculator's facts and forecast | figures present, forecast refusing on 3 resolved items |
+| Forge LLMs writing the prose | a completion with `finish_reason: end_turn` |
+| The figure guard | it caught the model writing "two" and "85" and sent nothing |
+| `emailBody` and `notifyPayload` | reached the send with a rendered message |
+| The send | **403, "Outgoing emails disabled"** — a site setting |
+
+**Only the last line is outstanding, and it is not code.** Turn outgoing mail on
+for the site (Jira admin → System → Outgoing mail) and the brief goes.
+
+### What each failure taught, because none of them was the obvious thing
+
+- `the model returned no prose at all` — every cause collapsed into one sentence
+  because the reason from `proseFrom` was being discarded. **Log the reason, not
+  the count.**
+- `the model stopped early (end_turn)` — `stop` is OpenAI's word for a finished
+  completion; Anthropic says `end_turn`. Written from the doc example.
+- `unrecognised finish reason (refusal)` — the model declining is its own
+  category. The message advising "add it to FINISHED" would have shipped
+  whatever came back when it had chosen not to answer.
+- `the prose states "85"` — the model was shown its figures **by key**, and the
+  key was `p85`. A digit in a slot name hands the model a number to copy.
+- `the brief asks for remaining, landing_date` — `/v1/forecast-context` nests
+  its figures under `sprint_completion`; only the flat `/v1/forecast` has them
+  at the top level. Checkable in this repository the whole time.
+- `403` with no body — Jira's `errorMessages` say which of three unrelated
+  causes it is, and were being thrown away.
+
+Four of those six came from coding against a documented *example* instead of the
+SDK's own type declarations, which are sitting in `forge/node_modules` and are
+authoritative. **Read the types.**
+
 ### Done when
 
-A brief is composed from a real board and delivered to a real recipient. None of
-those three things exists yet, and the handler names all three every time it
-fires — which it is now observed doing, so the trigger, the handler and the
-refusal are all proved and only the three configurations are missing.
+A brief arrives in somebody's inbox. Everything up to the mail server is proved;
+the site's outgoing mail is off.
 
 ---
 

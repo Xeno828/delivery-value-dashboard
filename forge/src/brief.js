@@ -89,6 +89,14 @@ export const PROSE_RULE = [
   'words, and do not restate a figure you were given: refer to it by name and',
   'say which way it moved. The figures are inserted beside your sentences from',
   'the tools that produced them.',
+  // Added after a tenant run: told only the rule, the model wrote "two" and
+  // "85" and every section was refused. An instruction that says what to do
+  // instead of only what not to do is the difference between a rule and a
+  // rule that is followed.
+  'For example, write "throughput fell and the drop sits in unfinished work",',
+  'never "throughput fell to four". Do not name a percentile, a count, a date',
+  'or a duration. If a sentence needs a number to make sense, write the',
+  'sentence without it and let the figure beside it carry the number.',
 ].join(' ');
 
 /**
@@ -191,10 +199,16 @@ export const fillSlots = (template, values) => {
  * still *told* the figure was refused — otherwise it writes "delivery improved"
  * about a section that has no figure — but what it says about it is discarded.
  */
-export const section = ({ heading, template, values, prose, refusal }) => {
+export const section = ({ heading, template, values, prose, refusal, problems }) => {
   if (refusal) {
     return { heading, text: String(refusal), refused: true };
   }
+
+  /* A caller that already knows why this section cannot be written says so,
+     and its reason wins. Recomputing from an empty string would replace "the
+     model stopped early" with "the model returned no prose at all" — true, and
+     useless, because every cause collapses into the same sentence. */
+  if (problems && problems.length) return { heading, problems };
 
   const bad = proseProblems(prose);
   if (bad.length) return { heading, problems: bad };
@@ -314,21 +328,82 @@ export const briefMessages = ({ audience, figures, refused }) => {
  * than used, because half a paragraph reads as a whole one and the reader has
  * no way to tell.
  */
+/** A completion that finished properly. Anthropic says `end_turn`; `stop` is
+ *  kept because it is what the SDK's own example shows and costs nothing. */
+export const FINISHED = ['end_turn', 'stop', 'stop_sequence'];
+
+/** A completion that ran out of room. These are the ones that must be refused:
+ *  half a brief reads exactly like a whole one. */
+export const TRUNCATED = ['max_tokens', 'length'];
+
+/** The model chose not to answer. Distinct from both of the above: nothing is
+ *  wrong with the call and nothing was cut off — there is simply no prose, and
+ *  treating it as finished would ship whatever came back with the refusal. */
+export const DECLINED = ['refusal', 'content_filter'];
+
+const contentText = (content) => {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  // Only `text` parts today, and anything else is skipped rather than
+  // stringified: a part this does not understand is not prose, and
+  // `[object Object]` in somebody's inbox is worse than a refusal.
+  return content
+    .filter((p) => p && p.type === 'text' && typeof p.text === 'string')
+    .map((p) => p.text)
+    .join('');
+};
+
 export const proseFrom = (response) => {
   const choice = response?.choices?.[0];
   if (!choice) return { problems: ['the model returned no choices'] };
-  if (choice.finish_reason && choice.finish_reason !== 'stop') {
+  /* Which finish reasons mean finished.
+     This was `!== 'stop'`, taken from the published example, and `stop` is
+     OpenAI's word. Anthropic ends a normal completion with `end_turn`, so the
+     guard refused every good answer as truncated — in a tenant, on a timer,
+     three sections at a time. Listed explicitly now rather than inferred from
+     one sample, and an unrecognised value is refused *and named*, because
+     naming `(end_turn)` in the message is the only reason this took one deploy
+     to find rather than several. */
+  const finish = choice.finish_reason;
+  if (finish && TRUNCATED.includes(finish)) {
     return {
       problems: [
-        `the model stopped early (${choice.finish_reason}). A truncated brief `
-        + 'reads as a complete one, so it was not used.'],
+        `the model stopped early (${finish}). A truncated brief reads as a `
+        + 'complete one, so it was not used.'],
     };
   }
-  const content = choice.message?.content;
-  if (typeof content !== 'string' || !content.trim()) {
-    return { problems: ['the model returned no text'] };
+  if (finish && DECLINED.includes(finish)) {
+    /* The model itself declined. Not a bug and not a truncation, and above all
+       not something to add to FINISHED — the first version of this message
+       suggested exactly that for any unknown reason, which for `refusal` would
+       have meant shipping whatever the model returned when it had chosen not
+       to answer. Reported as what it is. */
+    return {
+      problems: [
+        'the model declined to answer this section. Nothing was sent for it. '
+        + 'If this repeats, the prompt is what to look at.'],
+    };
   }
-  return { prose: content.trim() };
+  if (finish && !FINISHED.includes(finish)) {
+    // Refused rather than accepted: an unknown reason might be a truncation
+    // this does not recognise, and the cost of being wrong that way is a brief
+    // that reads whole and is not.
+    return {
+      problems: [
+        `the model gave an unrecognised finish reason (${finish}), so the `
+        + 'completion was not used. Add it to FINISHED, TRUNCATED or DECLINED '
+        + 'in forge/src/brief.js once you know which it is.'],
+    };
+  }
+  /* `content` is `string | ContentPart[]` — the SDK's own type, and the second
+     form is the one that bit. The published example shows a plain string, this
+     was written against the example, and a `typeof content !== 'string'` test
+     then reported "the model returned no text" for a completion that had text
+     in it, in an array of `{ type: 'text', text }` parts. Read the type, not
+     the sample. */
+  const text = contentText(choice.message?.content);
+  if (!text.trim()) return { problems: ['the model returned no text'] };
+  return { prose: text.trim() };
 };
 
 /**

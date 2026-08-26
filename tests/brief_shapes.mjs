@@ -12,7 +12,7 @@
  */
 
 import {
-  MODEL, NUMBER_WORDS, PROSE_RULE, UNCHECKED,
+  DECLINED, FINISHED, MODEL, NUMBER_WORDS, PROSE_RULE, TRUNCATED, UNCHECKED,
   briefMessages, composeBrief, deliveryBlockers, fillSlots, proseFrom,
   proseProblems, section, slotsIn,
 } from '../forge/src/brief.js';
@@ -20,7 +20,7 @@ import {
   AUDIENCES, RESTRICT, boardsIn, notifyPayload, problemsIn, sendsFor,
 } from '../forge/src/recipients.js';
 import { emailBody, esc, safeUrl } from '../forge/src/mailbody.js';
-import { briefsForBoard } from '../forge/src/compose.js';
+import { briefsForBoard, composeSection, sectionsFor } from '../forge/src/compose.js';
 
 /* One set of recipient cases, judged here and by scripts/serve_live.py. Two
    implementations of a rule is what this repository most reliably regrets; the
@@ -178,6 +178,35 @@ console.log(JSON.stringify({
     empty: proseFrom({ choices: [{ finish_reason: 'stop', message: { content: '   ' } }] }),
     noChoices: proseFrom({ choices: [] }),
     rubbish: proseFrom(null),
+    /* `content` is `string | ContentPart[]` in the SDK's own type. The
+       published example shows only the string, this was written against the
+       example, and the array form reported "the model returned no text" for a
+       completion that had text in it — in a tenant, on a timer. */
+    partsArray: proseFrom({ choices: [{ finish_reason: 'stop', message: { content: [
+      { type: 'text', text: 'Delivery slowed ' }, { type: 'text', text: 'against last sprint.' },
+    ] } }] }),
+    mixedParts: proseFrom({ choices: [{ finish_reason: 'stop', message: { content: [
+      { type: 'image', source: {} }, { type: 'text', text: 'Only this.' },
+    ] } }] }),
+    emptyParts: proseFrom({ choices: [{ finish_reason: 'stop', message: { content: [] } }] }),
+    /* Which finish reasons mean finished. This was `!== 'stop'`, which is
+       OpenAI's word; Anthropic ends a normal completion with `end_turn`, so
+       every good answer was refused as truncated. Each value judged here. */
+    finishReasons: Object.fromEntries(
+      ['end_turn', 'stop', 'stop_sequence', 'max_tokens', 'length',
+       'refusal', 'content_filter', 'tool_use', '']
+        .map((fr) => {
+          const r = proseFrom({ choices: [{ finish_reason: fr,
+            message: { content: [{ type: 'text', text: 'Delivery slowed.' }] } }] });
+          if (r.prose) return [fr || 'absent', 'accepted'];
+          const why = r.problems[0];
+          return [fr || 'absent',
+            why.includes('unrecognised') ? 'unrecognised'
+              : why.includes('declined') ? 'declined' : 'truncated'];
+        })),
+    finishedList: FINISHED,
+    truncatedList: TRUNCATED,
+    declinedList: DECLINED,
   },
 
   /* The brief as an email, which is a new output surface for issue text. */
@@ -221,6 +250,82 @@ console.log(JSON.stringify({
       audience: 'team', boardName: 'B'.repeat(400), sections: [],
     }).subject,
   },
+
+  /* Which reason a section reports when the model gives nothing usable. The
+     first live run reported "the model returned no prose at all" for all three
+     sections, which is what every cause collapsed into before the reason from
+     `proseFrom` was carried through instead of being replaced by an empty
+     string. Each cause has to keep its own words. */
+  modelFailures: await (async () => {
+    const causes = {
+      noChoices: { choices: [] },
+      truncated: { choices: [{ finish_reason: 'length', message: { content: 'half a ' } }] },
+      emptyText: { choices: [{ finish_reason: 'stop', message: { content: '   ' } }] },
+      rubbish: null,
+    };
+    const out = {};
+    for (const [name, r] of Object.entries(causes)) {
+      const sec = await composeSection({
+        audience: 'exec', heading: 'H', template: 't', figures: {}, ask: async () => r });
+      out[name] = sec.problems || null;
+    }
+    return out;
+  })(),
+
+  /* The forecast section, over the shapes the *context* route really returns.
+     Python hands these in on stdin rather than them being written here: the
+     bug was reading `forecast.remaining_items` when the context route nests
+     everything under `sprint_completion`, and a fixture written from the same
+     misunderstanding would have agreed with the code and proved nothing. */
+  forecastSection: Object.fromEntries(
+    Object.entries(input.forecasts || {}).map(([name, f]) => {
+      const sec = sectionsFor('exec', { facts: {}, forecast: f })
+        .find((x) => x.heading === 'Forecast');
+      return [name, { refusal: sec.refusal ?? null, figures: sec.figures }];
+    })),
+
+  /* Asking again when the guard refuses. A tenant run had the model write
+     "two" and "85" into every section despite the rule, so nothing was sent —
+     and a weekly trigger would have repeated the same prompt for ever. */
+  retries: await (async () => {
+    const mk = (t) => ({ choices: [{ finish_reason: 'end_turn',
+      message: { content: [{ type: 'text', text: t }] } }] });
+    let calls = 0;
+    const relents = async () => {
+      calls += 1;
+      return mk(calls === 1 ? 'Throughput fell to four items.'
+                            : 'Throughput fell against the previous sprint.');
+    };
+    const good = await composeSection({ audience: 'exec', heading: 'H',
+      template: 't', figures: {}, ask: relents });
+    const relentsCalls = calls;
+
+    calls = 0;
+    const stubborn = async () => { calls += 1; return mk('Throughput fell to four items.'); };
+    const bad = await composeSection({ audience: 'exec', heading: 'H',
+      template: 't', figures: {}, ask: stubborn });
+    const stubbornCalls = calls;
+
+    calls = 0;
+    const clean = async () => { calls += 1; return mk('Throughput fell against the plan.'); };
+    const first = await composeSection({ audience: 'exec', heading: 'H',
+      template: 't', figures: {}, ask: clean });
+
+    return { relents: good.prose ?? null, relentsCalls,
+             stubborn: bad.problems ?? null, stubbornCalls,
+             firstTime: first.prose ?? null, firstTimeCalls: calls };
+  })(),
+
+  /* No slot name may contain a digit: the values are listed to the model by
+     key, so `p85` handed it a number to copy — and it copied that one. */
+  slotNames: (() => {
+    const facts = { delivery: { items_done: 2, items_total: 36 },
+      scope: { added_items: 1 }, flow: { cycle_p85: 8, unit: 'calendar days' },
+      risk: { blocked: [1], oldest_open: { days: 319 }, unit: 'calendar days' } };
+    const forecast = { available: true, remaining_items: 74, percentiles: { 85: '2026-09-14' } };
+    return ['exec', 'team'].flatMap((a) => sectionsFor(a, { facts, forecast }))
+      .flatMap((sec) => Object.keys(sec.figures || {}));
+  })(),
 
   /* Compose, render and send, with the model and the send stubbed. */
   pipeline: {

@@ -142,3 +142,32 @@ runtime, so anything left in it is provable only by deploying and watching a
 tenant. The code that decides what reaches somebody's inbox is not code to find
 out about that way, so the model and the send are injected and the tests supply
 stubs for both.
+
+## Added when it first ran: the site has to allow outgoing mail
+
+`send:notification:jira` gets the app through the API gate. It does not make
+the site send anything. Proved on 2026-08-26, when every stage of the brief
+worked against a real tenant and the final call came back:
+
+```
+Jira refused the notification with 403. It said: Outgoing emails disabled.
+```
+
+That is a **site setting**, not a scope, not a permission scheme and nothing an
+app can declare. A tenant with outgoing mail switched off — the default on many
+sandbox and dev sites, and a deliberate choice on some real ones — installs this
+app, configures recipients, and gets nothing, weekly, for ever.
+
+Two consequences.
+
+**The app must quote Jira rather than paraphrase it.** A bare *"Jira refused the
+notification with 403"* is indistinguishable between mail being disabled, the app
+user lacking Browse on the project, and a scope that was never granted. All three
+have different fixes and only the body says which. `sendBrief` captures
+`errorMessages` and puts them in the log, capped and newline-stripped. That one
+line turned a fourth round of guessing into an answer.
+
+**It belongs in the listing, not in a support ticket.** Requiring outgoing mail
+is a precondition a buyer can check before installing, and the kind of thing that
+otherwise surfaces as *"the app does not work"* a week after purchase. It goes
+next to the egress declaration Marketplace review already reads.
