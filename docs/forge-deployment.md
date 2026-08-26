@@ -437,121 +437,49 @@ refusal are all proved and only the three configurations are missing.
 
 ---
 
-## Open: most of the dashboard cannot be reached on Forge
+## The dashboard scrolls on Forge. Do not test a frame with synthetic input
 
-**Found on 2026-08-26 in a tenant, unfixed, and it is the biggest thing wrong
-with the Forge build.**
+There is no bug here. This section exists because for most of 2026-08-26 there
+appeared to be a serious one, and the way it was arrived at is worth more than
+the non-existent bug.
 
-The Custom UI iframe is sized by a Jira class to its container — measured at
-**1040px**, `overflow: clip` — and the host page cannot scroll
-(`document.scrollingElement.scrollHeight === clientHeight`). The dashboard is
-several thousand pixels tall. Everything below the flow tiles — team load,
-business value, releases, risks, and who receives the brief — is **unreachable**:
-not clipped visibly, not scrollable, absent. Wheel events over the frame do
-nothing, `Page_Down` and `End` with focus inside do nothing, and Jira's own
-full-screen control does not help.
+**What was reported:** the Custom UI frame is 1040px and does not grow while the
+app's document is 1498px empty and taller with a sprint, so everything past the
+first screen — team load, business value, releases, risks, who receives the
+brief — was said to be unreachable in a tenant.
 
-The part that renders renders perfectly, which is why this survived every deploy
-since the Forge build existed.
+**Both measurements were correct.** The frame really is fixed at its container
+height, and the document really does overflow it. What was wrong was the
+conclusion, and it rested on one thing nobody checked: *"and it does not
+scroll"*.
 
-**What it is not.** Not the app's CSS: `html, body` set only margin and padding,
-nothing uses `100vh`, and the same page scrolls correctly over loopback. Not a
-missing `view.resize()` — that method **does not exist** in `@forge/bridge`
-(`view` offers `submit`, `close`, `refresh`, `getContext`, `theme`,
-`emitReadyEvent` and others, and no resize). A change calling it was written and
-reverted rather than shipped, because a guard on a method that is never there is
-dead code that reads like a fix.
+**It scrolls perfectly with a mouse.** Every negative came from synthetic wheel
+and key events driven by browser automation, which do not reach a cross-origin
+iframe — they are handled by the top document. The evidence was there and was
+read as noise: wheel aimed at the middle of the frame scrolled the *host* page
+by 78px, which is Jira's nav collapsing and nothing to do with the app.
 
-**Two candidate causes have been tested and are ruled out.**
+The frame being fixed-height with an overflowing document that the reader
+scrolls is simply how a Custom UI page works.
 
-*Not a missing resize call.* `view.resize()` does not exist — see above.
+### What it cost, and the rule
 
-*Not the module layout.* `jira:projectPage` has no `viewportSize` property at
-all; the property that does exist is `layout`, defaulting to `native` and
-documented as offering `blank`, "a completely empty canvas for full viewport
-customization". Deployed as 6.4.0 the frame measured **1016px** instead of 1040
-— it recovered exactly the height of the chrome that went away — still
-`overflow: clip`, still with the host page unable to scroll. Reverted in 6.5.0.
+Three fixes were designed for it, deployed or nearly deployed, and reverted:
+`view.resize()` (a method that does not exist on `view`), `layout: blank` (moved
+the chrome, nothing else), `view.emitReadyEvent()` (no effect at 4s, 10s or
+16s). A fourth — an element scroller inside the frame — was written and reverted
+unproven. App versions 6.2.0 through 6.8.0 are that thrashing.
 
-**Measured, not inferred.** The frame's own document was loaded standalone from
-the exact CDN URL the iframe uses, where it *is* same-origin and readable:
+> **A negative result from synthetic input against an embedded frame is not
+> evidence.** Clicks may land, wheel and keys may not, and the coordinate space
+> can change between screenshots (1456x827 and 1232x959 within one session), so
+> input does not go where it appears to. Before concluding that an embedded page
+> cannot do something, establish that the input reached it — or ask a person
+> with a mouse. It takes five seconds and it would have saved all of the above.
 
-```
-tilesInDom: 17,  briefTilePresent: true
-htmlScrollHeight: 1498          ← with NO data loaded
-html/body overflow: visible, height: auto
-```
-
-So the document is **not constrained** — it is `overflow: visible`, sized to its
-content, 1498px empty and far taller once a sprint loads, against a 1040px
-frame. The content genuinely overflows.
-
-**What does not happen:** the frame does not grow, and nothing scrolls. The host
-page has about 78px of give — that is Jira's nav collapsing — and then stops.
-The embedded document does not scroll on wheel at all.
-
-**A false correction is recorded here because it was published.** An earlier
-version of this section concluded the opposite — that the content was being
-constrained rather than overflowing — reasoning that clicks reach the frame, so
-wheel events must too, so a document that does not scroll cannot be overflowing.
-The reasoning was sound and the premise was wrong: the automation's screenshot
-coordinate space changed between captures (1456x827, then 1232x959), so the
-scroll and click coordinates were not landing where they appeared to. One click
-aimed at the middle of the page toggled a control at the top of it. **Do not
-trust a negative result from synthetic input against an embedded frame without
-checking that the coordinate space is what you think it is.**
-
-**Where that leaves the cause — and a caveat that may undo all of it.**
-`view.emitReadyEvent()` was tried and changed nothing: 1040px at 4s, at 10s once
-a sprint had loaded, and at 16s, with zero give on the host page. That is the
-third host-side candidate eliminated, after a resize method that does not exist
-and a layout that only moved the chrome.
-
-**But every "it does not scroll" result here came from synthetic input, and at
-least one of them demonstrably went to the wrong document.** Wheel events aimed
-at the frame scrolled the *host* page by 78px — Jira's nav collapsing — which is
-direct evidence they were handled by the top document and never reached the
-frame. Synthetic key events were no better. A cross-origin frame cannot be
-inspected or driven reliably this way, and the automation offers no way to read
-its `scrollTop`.
-
-So the honest state of knowledge is:
-
-| | |
-|---|---|
-| The frame is 1040px and does not grow | **Measured**, from the parent document |
-| The app's document is 1498px empty, `overflow: visible`, all 17 tiles present | **Measured**, standalone at the same-origin CDN URL |
-| A real user cannot scroll inside the frame | **Not established.** Every negative came from synthetic input |
-
-**It is entirely possible there is no bug for a real reader** and the dashboard
-scrolls normally with a mouse. Deciding that takes five seconds and a hand:
-open the app on a project, put the cursor over the tiles and scroll. If the
-lower tiles come into view, this section is wrong and should be deleted.
-
-**One fix was written for the case where it is real and was reverted unproven.**
-If the host suppresses document scrolling, an element scroller is not the
-document — so the page can have its own, `html.in-forge .wrap { height: 100%;
-overflow-y: auto }`, with the class set by the bridge adapter because
-`require('@forge/bridge')` resolving is the only reliable evidence of being
-inside a frame. It changes shipped behaviour and nothing here can confirm it
-helps, so it is not in the tree. `git log` has it if the check above says the
-bug is real.
-
-**How to reproduce it in thirty seconds**, from the browser console on the
-project page:
-
-```js
-const f = document.querySelector('iframe[data-forge-iframe]');
-const sc = document.scrollingElement;
-({ iframe: f.getBoundingClientRect().height,
-   canPageScroll: sc.scrollHeight > sc.clientHeight })
-```
-
-A frame height equal to its container and `canPageScroll: false` is the bug.
-
-**What it blocks.** Configuring who receives a board's brief, because that tile
-is below the fold and there is no other way in — `forge storage` manages custom
-entity indexes only and cannot write a key-value pair.
+What is safe to trust from that session is what was measured through JavaScript
+in a document that could be read: frame height from the parent, and the app's
+own document loaded standalone from its CDN URL, where it is same-origin.
 
 ## What is still not here
 

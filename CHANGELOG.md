@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.29.5
+
+**There was no bug. The dashboard scrolls on Forge with a mouse, and 1.29.1 through 1.29.4 were chasing an artefact of how it was being tested.** Confirmed by the only instrument that could settle it: a person with a hand on one.
+
+Both measurements those entries rested on were correct — the frame is fixed at its container height, 1040px, and the app's document is 1498px empty and taller with a sprint loaded, so it overflows. What was wrong was the third clause, *"and it does not scroll"*, which was never established and is false. A frame at fixed height with an overflowing document the reader scrolls is simply how a Custom UI page works.
+
+**Every negative came from synthetic wheel and key events, which do not reach a cross-origin iframe** — the top document handles them. The evidence was in plain view from the first attempt and was read as noise: wheel aimed at the middle of the frame scrolled the *host* page by 78px, which is Jira's nav collapsing and has nothing to do with the app. Compounding it, the automation's screenshot coordinate space changed within the session (1456x827, then 1232x959), so clicks and scrolls were not landing where they appeared to; one click aimed at the centre of the page toggled a control at the top of it.
+
+**What it cost.** Three fixes designed, deployed or nearly deployed, and reverted — `view.resize()` (a method that does not exist), `layout: blank` (moved the chrome and nothing else), `view.emitReadyEvent()` (no effect at 4s, 10s or 16s) — plus a fourth written and reverted unproven. App versions 6.2.0 through 6.8.0 are that thrashing, and four changelog entries argued about a symptom nobody had reproduced by hand.
+
+**The rule, which is the only thing here worth keeping**, is now in `docs/forge-deployment.md` under a heading that says it rather than burying it:
+
+> A negative result from synthetic input against an embedded frame is not evidence. Clicks may land where wheel and keys do not, and the coordinate space can shift between screenshots, so input does not go where it appears to. Before concluding that an embedded page *cannot* do something, establish that the input reached it — or ask a person with a mouse.
+
+**What survives from that session, because it was measured rather than inferred:** the frame's height read from the parent document, and the app's own document read standalone at its CDN URL where it is same-origin. Both stand. So do the two genuine findings — PLAT's 2659 sprints triggering the no-silent-caps refusal exactly as designed, and the dashboard rendering real tenant figures for the first time.
+
+**And the thing that was said to be blocked is not blocked.** The recipients tile is reachable; it always was. Configuring a board and proving the brief end to end is the next step and needs nothing new.
+
 ## 1.29.4
 
 **`view.emitReadyEvent()` changed nothing** — 1040px at 4s, at 10s once a sprint had loaded, and at 16s, with zero give on the host page. Third host-side candidate eliminated, after a resize method that does not exist and a layout that only moved the chrome. Reverted; the app is on 6.8.0 with nothing experimental in it.
