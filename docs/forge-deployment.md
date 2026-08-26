@@ -437,6 +437,54 @@ refusal are all proved and only the three configurations are missing.
 
 ---
 
+## Open: most of the dashboard cannot be reached on Forge
+
+**Found on 2026-08-26 in a tenant, unfixed, and it is the biggest thing wrong
+with the Forge build.**
+
+The Custom UI iframe is sized by a Jira class to its container — measured at
+**1040px**, `overflow: clip` — and the host page cannot scroll
+(`document.scrollingElement.scrollHeight === clientHeight`). The dashboard is
+several thousand pixels tall. Everything below the flow tiles — team load,
+business value, releases, risks, and who receives the brief — is **unreachable**:
+not clipped visibly, not scrollable, absent. Wheel events over the frame do
+nothing, `Page_Down` and `End` with focus inside do nothing, and Jira's own
+full-screen control does not help.
+
+The part that renders renders perfectly, which is why this survived every deploy
+since the Forge build existed.
+
+**What it is not.** Not the app's CSS: `html, body` set only margin and padding,
+nothing uses `100vh`, and the same page scrolls correctly over loopback. Not a
+missing `view.resize()` — that method **does not exist** in `@forge/bridge`
+(`view` offers `submit`, `close`, `refresh`, `getContext`, `theme`,
+`emitReadyEvent` and others, and no resize). A change calling it was written and
+reverted rather than shipped, because a guard on a method that is never there is
+dead code that reads like a fix.
+
+**What it probably is.** Atlassian documents automatic resizing for Custom UI,
+where the iframe grows to the content and the *outer* page scrolls. That is not
+happening here — the frame is exactly its container's height, which is the
+signature of a module rendered at viewport size instead. `viewportSize` on the
+`jira:projectPage` module, and whether omitting it opts into auto-resize, is the
+first thing to test.
+
+**How to reproduce it in thirty seconds**, from the browser console on the
+project page:
+
+```js
+const f = document.querySelector('iframe[data-forge-iframe]');
+const sc = document.scrollingElement;
+({ iframe: f.getBoundingClientRect().height,
+   canPageScroll: sc.scrollHeight > sc.clientHeight })
+```
+
+A frame height equal to its container and `canPageScroll: false` is the bug.
+
+**What it blocks.** Configuring who receives a board's brief, because that tile
+is below the fold and there is no other way in — `forge storage` manages custom
+entity indexes only and cannot write a key-value pair.
+
 ## What is still not here
 
 Registering the Marketplace listing, its review, and billing. Atlassian Console work with no code in this repository, and a commercial workstream rather than an engineering one.

@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.29.1
+
+**The scheduled trigger runs the new code, and the deploy is proved.** App 6.0.0 to the dev site — a scope change, so uninstall and reinstall rather than upgrade, per the runbook's own rule. With `interval: fiveMinute`:
+
+```
+INFO 2026-08-26T12:32:48.925Z  weekly brief not sent: the recipient config is not
+an object, so no board is configured.
+```
+
+`INFO`, the handler's own words. That proves the trigger fires under 6.x, reads the app's key-value store, and refuses through `problemsIn` — everything up to the config check. The interval was restored to `week` and redeployed as 6.3.0.
+
+**It did not get further, and the reason is a real bug in the Forge build that this found.** The Custom UI iframe is sized by a Jira class to its container — measured at 1040px, `overflow: clip` — and the host page cannot scroll. The dashboard is several thousand pixels tall, so **everything below the flow tiles is unreachable**: team load, business value, releases, risks, and the recipients tile. Not clipped visibly, not scrollable, absent. Wheel events over the frame do nothing; `Page_Down` and `End` with focus inside do nothing; Jira's full-screen control does not help.
+
+The part that renders renders perfectly, which is why it survived every deploy since the Forge build existed. `docs/forge-deployment.md` has the reproduction and what has been ruled out.
+
+**A fix was written and reverted rather than shipped.** The obvious cause is a missing `view.resize()`, and an adapter change calling it was written, tested and about to go — until the SDK's own type declarations showed `view` has **no resize method** at all. The guard around it (`typeof view.resize !== 'function'`) meant the code would have done nothing, silently, while reading like a repair and passing a test that asserted the call was present. It is reverted. The finding is recorded with what has been ruled out — the app's CSS is not the cause, and the same page scrolls correctly over loopback — and the first thing to try next is `viewportSize` on the `jira:projectPage` module.
+
+Two smaller things the tenant taught, both recorded in the runbook:
+
+**The no-silent-caps rule fired on real data, correctly.** Pointing the app at PLAT produced *"sprints on board 1: more than 20 pages. 1000 were read and none are reported, because a list cut short here would read as a complete one."* That board has **2659 sprints**. The rule that looked pedantic when it was written is the reason the page said so instead of forecasting from an arbitrary twenty pages.
+
+**And the dashboard rendered real tenant numbers for the first time**: MOBL Sprint 1, 2 of 36 items done, 12 highest-priority open, the oldest at 319 days, from this site's own Jira over the bridge. 1.23.1 recorded that the pipe worked but no figure had travelled it. One has now.
+
+**Still unproven: the app-level board read and the send.** Both need a board with recipients configured, and configuring one needs the tile that cannot be reached.
+
 ## 1.29.0
 
 **The scheduled brief reads the board and sends it. Item 3 is built end to end.** The trigger walks the boards in the recipient config, resolves each one's project, pulls its current sprint or window, asks the calculator for the facts and the forecast, has the model write the prose, renders it and sends it through Jira. Every guard between those steps is the one already tested: prose carrying a figure sends nothing, an invalid config sends nothing, a refused forecast is carried verbatim, and one board failing does not take the rest with it.
