@@ -444,3 +444,12 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
   border-left: 3px solid var(--good-ink); background: var(--good-wash);
   color: var(--text-primary); font-size: .86rem;
 }
+
+/* ---------- recipient name picker ---------- */
+.br-find{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)}
+.br-findrow{display:flex;gap:8px;align-items:center}
+.br-findrow .br-in{flex:1;min-width:0}
+.br-hits{margin-top:8px}
+.br-hitlist{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.br-hit{padding:4px 10px;font-size:13px}
+.br-added{margin-top:6px;font-size:13px;color:var(--text-primary)}

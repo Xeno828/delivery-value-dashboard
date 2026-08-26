@@ -599,11 +599,59 @@ def dependency_checks():
              "add `pip install pip-audit` to CI")
 
 
+def picker_checks():
+    """A display name is attacker-set, and the picker is a new place one lands.
+
+    Every issue-derived string on this page already passes through `esc()` at
+    the point of output — the stored XSS in 1.4.0 came from two call sites that
+    did not. The recipient picker renders `displayName` from Jira's user search,
+    which is set by the person it names and is exactly as trustworthy as an
+    issue summary: not at all.
+
+    Structural rather than executed, and honestly so: over a local connection
+    there is no directory to search, so the browser suite cannot reach this
+    render path at all. What can be checked is that no name reaches `innerHTML`
+    without going through the one escaper.
+    """
+    print("the recipient picker")
+    js = (ROOT / "src" / "app.js").read_text()
+    if "function wireBriefSearch" not in js:
+        check("the picker exists to be checked", False, "wireBriefSearch missing")
+        return
+    body = js.split("function wireBriefSearch", 1)[1].split("\n}", 1)[0]
+
+    # Both of the strings that come back from the server.
+    check("a matched person's name is escaped where it is rendered",
+          "esc(p.displayName)" in body, body[:200])
+    check("and where it is confirmed after being added",
+          body.count("esc(displayName)") + body.count("esc(p.displayName)") >= 2,
+          [ln.strip() for ln in body.split("\n") if "displayName" in ln])
+    check("the server's own note is escaped too",
+          "esc(b.note" in body, [ln.strip() for ln in body.split("\n") if "b.note" in ln])
+
+    # A name interpolated raw would look almost identical to the escaped form.
+    raw = [ln.strip() for ln in body.split("\n")
+           if ("displayName" in ln or "b.note" in ln)
+           and "+" in ln and "esc(" not in ln]
+    check("no name or note is interpolated without it", not raw, raw)
+
+    # The id travels by index into an array this code just rendered, not through
+    # a data- attribute holding customer text.
+    check("a person's identity is not carried in a DOM attribute",
+          "data-i=" in body and "data-account" not in body
+          and "data-name" not in body, body[:200])
+
+    # The whole point of the tile: what is stored is an id, never an address.
+    check("the picker stores an account id, not an address",
+          "add(p.accountId" in body, body[-400:])
+
+
 def main():
     if not DIST.exists():
         sys.exit("build first: python3 build.py")
     browser_checks()
     source_checks()
+    picker_checks()
     secret_checks()
     server_checks()
     xlsx_checks()

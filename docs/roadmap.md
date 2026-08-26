@@ -22,7 +22,7 @@ references are wrong.
 |---|---|---|---|---|
 | 1 | OAuth app on the Marketplace | 1 — make it connectable | 4–6 wk | **Done** |
 | 2 | Organisation configuration | 1 — make it connectable | 2–3 wk | **Done** |
-| 3 | Scheduled delivery of the two views | 2 — make it arrive | 3–4 wk | **Proved end to end**; site mail is off |
+| 3 | Scheduled delivery of the two views | 2 — make it arrive | 3–4 wk | **Done** — delivered 2026-08-26 |
 | 4 | Durable sprint history | 3 — make it defensible | 3–4 wk | Open |
 | 5 | Permission mirroring | 3 — make it defensible | 5–8 wk | Open |
 | 6 | SSO, audit log, data residency | 3 — make it defensible | 6–10 wk | **Residency done**, SSO and audit open |

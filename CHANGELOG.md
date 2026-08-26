@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.32.0
+
+**A brief was delivered. Roadmap item 3 is done.**
+
+```
+INFO 2026-08-26T16:56:19.061Z  weekly brief: 1 board(s), 1 message(s) sent
+```
+
+Outgoing mail was switched on for the site and the next fire went straight through. Every stage of the path — the scheduled trigger, the recipient config in app storage, the board read as the app, the calculator's facts and forecast, Forge LLMs writing the prose, the figure guard passing it, the render, and Jira's own notification carrying it — is now proved against a real tenant rather than a stub. `docs/roadmap.md` moves item 3 to done.
+
+The site setting was the last thing between the code and an inbox, and it is worth restating why that took so long to see: a bare `403` from `/notify` says nothing, and the app was discarding Jira's `errorMessages`. *"Outgoing emails disabled"* was in the response the whole time.
+
+**The recipient picker takes a name now.** `searchUsers` shipped in 1.31.0 with no way to reach it; the tile has one. Each audience gets a search box beside its account-ID field: type a name, press Search or Enter, and the matches appear as buttons that append the id and say who was added.
+
+**The field stays, and stays the thing that is saved.** Two reasons it is not replaced by chips: an id can still be pasted where there is no directory to search — over a local connection there is none — and a reader can always see exactly what will be stored rather than a set of chips standing in for it.
+
+**Nothing in the picker calls `render()`, and that is the design rather than an oversight.** This tile is a form somebody is part-way through filling in. Re-rendering it to show a search result would throw away every unsaved edit in it, including the ones made before searching. The results are written into one element and the chosen id appended to the field directly. None of it is page state — it is a lookup somebody is doing, and it lives and dies inside the tile.
+
+Enter in the search box searches rather than submitting the form around it. Without that, typing a name and pressing Enter saves the recipient list *without* the person just searched for, which reads as the search having failed.
+
+**A display name is a new untrusted string**, set by the person it names and exactly as trustworthy as an issue summary — which is to say not at all, and the stored XSS in 1.4.0 came from two call sites that forgot it. Every name and every server note goes through the one `esc()`. `tests/security.py` grew a `picker_checks()` for it, structural rather than executed and honestly so: over a local connection there is no directory, so the browser suite cannot reach that render path. Removing either escape fails it.
+
+The chosen person's identity travels by array index into a list this code just rendered, not through a `data-` attribute holding customer text.
+
+**Not verified by eye.** The tile could not be reached with browser automation — synthetic scrolling moves the host page and not the frame, which is the same limitation that produced the phantom bug in 1.29.5 — so the picker is proved by its tests and by the route working, not by having been used. Worth a look before it is relied on.
+
 ## 1.31.0
 
 **The recipient picker takes a name, not an account id.** The config still holds account ids — the notify endpoint accepts nothing else, and an id is not a contact detail — but nobody knows their colleagues' ids, and asking an administrator to paste `712020:5ad8ac88-…` is asking them to get it wrong somewhere a brief then silently goes nowhere. `searchUsers` looks a name up and the picker stores the id.

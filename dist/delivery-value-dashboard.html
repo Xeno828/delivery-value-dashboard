@@ -452,6 +452,15 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
   color: var(--text-primary); font-size: .86rem;
 }
 
+/* ---------- recipient name picker ---------- */
+.br-find{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)}
+.br-findrow{display:flex;gap:8px;align-items:center}
+.br-findrow .br-in{flex:1;min-width:0}
+.br-hits{margin-top:8px}
+.br-hitlist{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.br-hit{padding:4px 10px;font-size:13px}
+.br-added{margin-top:6px;font-size:13px;color:var(--text-primary)}
+
 </style>
 </head>
 <body>
@@ -3277,7 +3286,24 @@ function briefAudienceFields(audience, who) {
       '" placeholder="5b10a2844c20165700ede21g, 712020:…" ' +
       'aria-describedby="br-' + audience + '-hint">' +
     '<div class="cap" id="br-' + audience + '-hint">Jira account IDs, comma separated. ' +
-      'Not email addresses &mdash; Jira&rsquo;s notification API has no field for one.</div>' +
+      'Not email addresses &mdash; Jira&rsquo;s notification API has no field for one. ' +
+      'Search below rather than typing one out.</div>' +
+    // The field above stays, and stays the thing that is saved. The search only
+    // appends to it. Two reasons: an id can still be pasted where there is no
+    // directory to search — over a local connection there is none — and a
+    // reader can always see exactly what will be stored, rather than a set of
+    // chips standing in for it.
+    '<div class="br-find">' +
+      '<label class="br-lab" for="br-' + audience + '-q">Find someone by name</label>' +
+      '<div class="br-findrow">' +
+        '<input class="br-in" id="br-' + audience + '-q" type="search" autocomplete="off" ' +
+          'placeholder="Start typing a name" aria-describedby="br-' + audience + '-fnote">' +
+        '<button type="button" class="btn" id="br-' + audience + '-go">Search</button>' +
+      "</div>" +
+      '<div class="cap" id="br-' + audience + '-fnote">Looks up people on this site and adds ' +
+        'the account ID above. Only you can see who you are allowed to see.</div>' +
+      '<div class="br-hits" id="br-' + audience + '-res" role="status" aria-live="polite"></div>' +
+    "</div>" +
     '<label class="br-lab" for="br-' + audience + '-g">Groups</label>' +
     '<input class="br-in" id="br-' + audience + '-g" type="text" value="' + esc(g) +
       '" placeholder="leadership, ops-team">' +
@@ -3411,6 +3437,81 @@ function renderBrief(el) {
     const next = { boards: Object.assign({}, boards) };
     delete next.boards[board.id];
     submit(next);
+  });
+
+  ["exec", "team"].forEach(a => wireBriefSearch(el, a));
+}
+
+/**
+ * The name picker, per audience.
+ *
+ * **Nothing here calls `render()`, and that is the whole design.** This tile is
+ * a form somebody is part-way through filling in; re-rendering it to show a
+ * search result would throw away every unsaved edit in it, including the ones
+ * they made before searching. So the results are written into one element and
+ * the chosen id is appended to the field directly. The page's state is
+ * untouched because none of this is page state — it is a lookup somebody is
+ * doing, and it lives and dies inside this tile.
+ */
+function wireBriefSearch(el, audience) {
+  const q = el.querySelector("#br-" + audience + "-q");
+  const go = el.querySelector("#br-" + audience + "-go");
+  const out = el.querySelector("#br-" + audience + "-res");
+  const users = el.querySelector("#br-" + audience + "-u");
+  if (!q || !go || !out || !users) return;
+
+  /** Append an id, once. Someone who searches the same name twice should not
+   *  end up sending two copies, and Jira would not send two anyway — the
+   *  duplicate would just sit in the config looking like a mistake. */
+  const add = (accountId, displayName) => {
+    const have = briefList(users.value);
+    if (have.indexOf(accountId) < 0) {
+      have.push(accountId);
+      users.value = have.join(", ");
+    }
+    // Named, because the field now shows an id nobody can read back. This is
+    // the only place the name and the id are visible together.
+    out.innerHTML = '<div class="br-added">Added <b>' + esc(displayName) +
+      "</b>. Save to apply it.</div>";
+    users.focus();
+  };
+
+  const search = () => {
+    const query = q.value.trim();
+    out.innerHTML = '<div class="note">Searching&hellip;</div>';
+    LIVE.get("searchUsers", { query: query }).then(res => {
+      const b = (res && res.body) || {};
+      const people = b.people || [];
+      // The server's own sentence. It distinguishes "nobody matched" from "you
+      // may not browse users on this site" from "there is no directory here",
+      // and those have different answers.
+      const note = '<div class="cap">' + esc(b.note || "") + "</div>";
+      if (!people.length) { out.innerHTML = note; return; }
+
+      out.innerHTML = note + '<ul class="br-hitlist">' + people.map((p, i) =>
+        '<li><button type="button" class="btn btn-quiet br-hit" data-i="' + i + '">' +
+        esc(p.displayName) + "</button></li>").join("") + "</ul>";
+
+      // Bound by index against the array we just rendered, so nothing about a
+      // person travels through a DOM attribute where markup could reach it.
+      out.querySelectorAll(".br-hit").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const p = people[Number(btn.getAttribute("data-i"))];
+          if (p) add(p.accountId, p.displayName);
+        });
+      });
+    }).catch(() => {
+      out.innerHTML = '<div class="cap">The server could not be reached, so no ' +
+        "names were looked up.</div>";
+    });
+  };
+
+  go.addEventListener("click", search);
+  // Enter searches rather than submitting the form around it. Without this,
+  // typing a name and pressing Enter saves the recipient list without the
+  // person just searched for, which reads as the search having failed.
+  q.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); search(); }
   });
 }
 
@@ -4263,7 +4364,8 @@ const ROUTES = {
     (p.items != null ? "&items=" + encodeURIComponent(p.items) : "") +
     (p.date ? "&date=" + encodeURIComponent(p.date) : ""),
   recipients: () => "api/recipients",
-  saveRecipients: () => "api/recipients"
+  saveRecipients: () => "api/recipients",
+  searchUsers: p => "api/users?query=" + encodeURIComponent(p.query)
 };
 
 /* `saveRecipients` is the one route that changes something, and the only place
