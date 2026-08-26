@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.29.2
+
+**`layout: blank` was the next hypothesis for the clipped Forge iframe, and it is wrong too.** `jira:projectPage` has no `viewportSize` property; the one that exists is `layout`, default `native`, with `blank` documented as "a completely empty canvas for full viewport customization". Deployed as 6.4.0 the frame measured **1016px** rather than 1040 — it recovered exactly the height of the chrome that disappeared — still `overflow: clip`, still with the host page unable to scroll. Reverted in 6.5.0.
+
+**The useful part is what testing it revealed, because the original reading was backwards.** Clicks *do* reach the iframe — an accidental one hit the theme toggle inside it — so wheel events reach it too, and a document taller than its viewport would scroll. It does not scroll. So the content is **not overflowing the frame; it is being constrained to it**, which is a different bug with a different fix from the one recorded in 1.29.1.
+
+If the host is constraining the embedded document to the frame's height, the fix belongs to this app: the split build needs its own scroll container, a `.wrap` that is `height: 100%` and `overflow-y: auto`, so the page scrolls inside the height it is given instead of relying on the document to grow.
+
+**That is written down as the next experiment and not built.** Two confident diagnoses have now been wrong — a resize method that does not exist, and a layout that changes nothing — and the honest response to that is to confirm the mechanism first rather than ship a third guess. `docs/forge-deployment.md` says how: compare the embedded document's own `scrollHeight` against the frame's height. Overflowing and not scrolling is one bug; not overflowing is another.
+
 ## 1.29.1
 
 **The scheduled trigger runs the new code, and the deploy is proved.** App 6.0.0 to the dev site — a scope change, so uninstall and reinstall rather than upgrade, per the runbook's own rule. With `interval: fiveMinute`:

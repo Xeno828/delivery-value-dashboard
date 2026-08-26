@@ -462,12 +462,37 @@ missing `view.resize()` — that method **does not exist** in `@forge/bridge`
 reverted rather than shipped, because a guard on a method that is never there is
 dead code that reads like a fix.
 
-**What it probably is.** Atlassian documents automatic resizing for Custom UI,
-where the iframe grows to the content and the *outer* page scrolls. That is not
-happening here — the frame is exactly its container's height, which is the
-signature of a module rendered at viewport size instead. `viewportSize` on the
-`jira:projectPage` module, and whether omitting it opts into auto-resize, is the
-first thing to test.
+**Two candidate causes have been tested and are ruled out.**
+
+*Not a missing resize call.* `view.resize()` does not exist — see above.
+
+*Not the module layout.* `jira:projectPage` has no `viewportSize` property at
+all; the property that does exist is `layout`, defaulting to `native` and
+documented as offering `blank`, "a completely empty canvas for full viewport
+customization". Deployed as 6.4.0 the frame measured **1016px** instead of 1040
+— it recovered exactly the height of the chrome that went away — still
+`overflow: clip`, still with the host page unable to scroll. Reverted in 6.5.0.
+
+**What the evidence now points at, and it is not what it looked like.** Clicks
+*do* reach the iframe: an accidental one hit the theme toggle inside it. So
+wheel events reach it too, and a document taller than its viewport would scroll.
+It does not scroll. That means **the content is not overflowing the frame — it
+is being constrained to it**, which is the opposite of the original reading and
+changes what to try.
+
+The likely mechanism is the host constraining the embedded document's `html` and
+`body` to the frame's height, in which case the fix belongs to this app: the
+split build needs its own scroll container — a `.wrap` that is `height: 100%`
+and `overflow-y: auto` — so the page scrolls inside the height it is given
+rather than relying on the document to grow. That is untested; it is written
+here as the next experiment rather than as an answer, because two confident
+diagnoses have already been wrong.
+
+**Confirm the mechanism before building the fix.** From the console, with the
+frame's own document reachable only by inspecting it in DevTools directly:
+compare `document.documentElement.scrollHeight` inside the frame against the
+frame's height. Overflowing and not scrolling is one bug; not overflowing is
+another, and they have different fixes.
 
 **How to reproduce it in thirty seconds**, from the browser console on the
 project page:
