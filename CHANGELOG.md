@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.29.3
+
+**1.29.2 was wrong, and this measures the thing both previous entries argued about.** The frame's own document was loaded standalone from the exact CDN URL the iframe uses — where it is same-origin and readable:
+
+```
+tilesInDom: 17,  briefTilePresent: true
+htmlScrollHeight: 1498          ← with NO data loaded
+html/body overflow: visible, height: auto
+```
+
+The document is **not constrained**. It is `overflow: visible`, sized to its content, 1498px empty and far taller with a sprint loaded, against a 1040px frame. **The content overflows**, which is what 1.29.1 said and what 1.29.2 talked itself out of.
+
+**How the false correction happened, because the reasoning was the sound part.** 1.29.2 argued: clicks reach the frame, so wheel events must too, so a document that will not scroll cannot be overflowing. Every step follows. The premise was wrong — the automation's screenshot coordinate space changed between captures, 1456x827 and then 1232x959, so scroll and click coordinates were not landing where they appeared to. A click aimed at the middle of the page toggled a control at the top of it, which was the visible clue and was read as noise. A later scroll that finally *did* move something moved the host page by 78px — Jira's nav collapsing — and stopped, which is what a real negative looks like once the input lands.
+
+The lesson is narrower than "be careful": **a negative result from synthetic input against an embedded frame is worthless without checking the coordinate space first.** Two of the three wrong turns in this bug came from trusting one.
+
+**What is now measured rather than argued:** the document overflows, the frame does not grow, the embedded document does not scroll, and the host page has 78px of give and no more. Most of the dashboard is unreachable in a tenant. That is the bug, unchanged from 1.29.1, now with numbers behind it instead of inference.
+
+**The cause is the host, not this app.** Atlassian documents automatic resizing for Custom UI — the frame grows to the content and the outer page scrolls — and the host performs it. `iframe-resizer` ships inside `@forge/bridge` but serves only the ADF renderer; nothing in the SDK sizes the app's own frame. So the host is not measuring this app, and the inner scrollbar is suppressed because it expects to resize instead of scroll.
+
+**`view.emitReadyEvent()` is the untested candidate** — it exists, unlike the `view.resize()` of 1.29.1, and is plausibly what tells the host the app is ready to be measured. **Not shipped.** Three diagnoses have now been offered and two were wrong; the fourth gets tested before it is written down as an answer.
+
 ## 1.29.2
 
 **`layout: blank` was the next hypothesis for the clipped Forge iframe, and it is wrong too.** `jira:projectPage` has no `viewportSize` property; the one that exists is `layout`, default `native`, with `blank` documented as "a completely empty canvas for full viewport customization". Deployed as 6.4.0 the frame measured **1016px** rather than 1040 — it recovered exactly the height of the chrome that disappeared — still `overflow: clip`, still with the host page unable to scroll. Reverted in 6.5.0.

@@ -473,26 +473,47 @@ customization". Deployed as 6.4.0 the frame measured **1016px** instead of 1040
 — it recovered exactly the height of the chrome that went away — still
 `overflow: clip`, still with the host page unable to scroll. Reverted in 6.5.0.
 
-**What the evidence now points at, and it is not what it looked like.** Clicks
-*do* reach the iframe: an accidental one hit the theme toggle inside it. So
-wheel events reach it too, and a document taller than its viewport would scroll.
-It does not scroll. That means **the content is not overflowing the frame — it
-is being constrained to it**, which is the opposite of the original reading and
-changes what to try.
+**Measured, not inferred.** The frame's own document was loaded standalone from
+the exact CDN URL the iframe uses, where it *is* same-origin and readable:
 
-The likely mechanism is the host constraining the embedded document's `html` and
-`body` to the frame's height, in which case the fix belongs to this app: the
-split build needs its own scroll container — a `.wrap` that is `height: 100%`
-and `overflow-y: auto` — so the page scrolls inside the height it is given
-rather than relying on the document to grow. That is untested; it is written
-here as the next experiment rather than as an answer, because two confident
-diagnoses have already been wrong.
+```
+tilesInDom: 17,  briefTilePresent: true
+htmlScrollHeight: 1498          ← with NO data loaded
+html/body overflow: visible, height: auto
+```
 
-**Confirm the mechanism before building the fix.** From the console, with the
-frame's own document reachable only by inspecting it in DevTools directly:
-compare `document.documentElement.scrollHeight` inside the frame against the
-frame's height. Overflowing and not scrolling is one bug; not overflowing is
-another, and they have different fixes.
+So the document is **not constrained** — it is `overflow: visible`, sized to its
+content, 1498px empty and far taller once a sprint loads, against a 1040px
+frame. The content genuinely overflows.
+
+**What does not happen:** the frame does not grow, and nothing scrolls. The host
+page has about 78px of give — that is Jira's nav collapsing — and then stops.
+The embedded document does not scroll on wheel at all.
+
+**A false correction is recorded here because it was published.** An earlier
+version of this section concluded the opposite — that the content was being
+constrained rather than overflowing — reasoning that clicks reach the frame, so
+wheel events must too, so a document that does not scroll cannot be overflowing.
+The reasoning was sound and the premise was wrong: the automation's screenshot
+coordinate space changed between captures (1456x827, then 1232x959), so the
+scroll and click coordinates were not landing where they appeared to. One click
+aimed at the middle of the page toggled a control at the top of it. **Do not
+trust a negative result from synthetic input against an embedded frame without
+checking that the coordinate space is what you think it is.**
+
+**Where that leaves the cause.** Atlassian documents automatic resizing for
+Custom UI, where the frame grows to the content and the outer page scrolls. It
+is the *host* that does this, not the SDK — `iframe-resizer` ships inside
+`@forge/bridge` but only for the ADF renderer, nothing that sizes the app's own
+frame. So the host is not measuring this app, and the inner scrollbar is
+suppressed because the host expects to resize instead of scroll.
+
+**The untested candidate is `view.emitReadyEvent()`**, which does exist on
+`view` and is plausibly what tells the host the app is ready to be measured. It
+has not been tried. It is written here rather than shipped because two
+confident fixes have already been wrong — a resize method that does not exist,
+and a layout that changed nothing — and a third guess deployed on the same
+reasoning would deserve the same fate.
 
 **How to reproduce it in thirty seconds**, from the browser console on the
 project page:
