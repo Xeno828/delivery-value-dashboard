@@ -18,6 +18,8 @@ The second was worse and is the kind this repository keeps paying for. The serve
 
 **The provenance note's rule was invisible.** It used `--info-wash`, which is a background token: `#12203a` on `#1a1a19` is a rule nobody can see, which is a rule that is not there. It takes `--info-ink`. Both are UI tokens and the chart palette stays out of it, which is what those tokens are separate for.
 
+**A trend that cannot be drawn says which reason it was.** The route refuses with a sentence when the calculator cannot answer — which is the state every tenant is in until the calculator ships `/v1/history` — and both trend tiles would have gone on printing *"needs at least two sprints of history"*, sending somebody to look for sprints that are already there. They ask for the served reason first and fall back to the thin-data sentence only once nothing else has explained the absence. This page has printed one cause for three different situations before; `tests/security.py` now holds both tiles to the order.
+
 **No new scope and no reinstall.** `storage:app` was already granted for the recipient config (ADR 0014), and a history row is nine numbers and a sprint name. Over loopback the same store is `data/series.local.json`, git-ignored under the existing `data/*.local.json` rule.
 
 ## 1.37.0

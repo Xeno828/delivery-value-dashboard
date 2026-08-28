@@ -749,12 +749,52 @@ def picker_checks():
           [ln.strip() for ln in brief.split("\n") if "canEdit" in ln])
 
 
+def series_refusal_checks():
+    """A trend that cannot be drawn must say which reason it was.
+
+    This page has printed one cause for three different situations before, and
+    the fix each time was to say which. A board whose calculator is unreachable
+    and a board with one sprint of history are not the same statement, and the
+    thin-data sentence sends somebody to look for sprints that are already
+    there.
+
+    Structural, and honestly so: over loopback the series route always answers,
+    so the browser suite cannot reach the refusing branch at all — it exists for
+    a Forge tenant whose calculator has not shipped the route yet.
+    """
+    print("a trend that refuses")
+    js = (ROOT / "src" / "app.js").read_text()
+    if "function seriesRefusalHtml" not in js:
+        check("the refusal exists to be checked", False, "seriesRefusalHtml missing")
+        return
+    body = js.split("function seriesRefusalHtml", 1)[1].split("\n}", 1)[0]
+
+    check("the server's own sentence is what is printed",
+          "esc(s.why)" in body, body[:200])
+    check("and it is escaped, like every other string from a transport",
+          "s.why" not in body.replace("esc(s.why)", "").replace("!s.why", ""),
+          [ln.strip() for ln in body.split("\n") if "why" in ln])
+    check("silence when the series is fine, rather than an empty refusal box",
+          "s.available !== false" in body, body[:200])
+
+    # Both trend tiles, because the reason is the same and printing it in one
+    # would leave the other saying the wrong thing.
+    for fn, thin in (("function renderPred", "Needs at least two sprints"),
+                     ("function renderLoad", "Needs sprint history")):
+        block = js.split(fn, 1)[1].split("\n}", 1)[0] if fn in js else ""
+        check("%s asks for the reason before blaming thin data" % fn.split()[-1],
+              block.index("seriesRefusalHtml") < block.index(thin)
+              if ("seriesRefusalHtml" in block and thin in block) else False,
+              fn)
+
+
 def main():
     if not DIST.exists():
         sys.exit("build first: python3 build.py")
     browser_checks()
     source_checks()
     picker_checks()
+    series_refusal_checks()
     secret_checks()
     server_checks()
     xlsx_checks()

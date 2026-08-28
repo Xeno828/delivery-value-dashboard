@@ -1947,6 +1947,10 @@ function renderAge(m) {
    ================================================================== */
 function renderPred(m) {
   const host = $("#pred-chart"), h = S.view.history || [];
+  // The served reason first, where there is one. Below it, thin data is the
+  // honest sentence — but only once nothing else has explained the absence.
+  const refused = seriesRefusalHtml();
+  if (refused) { host.innerHTML = refused; return; }
   if (h.length < 2) { host.innerHTML = '<div class="note">Needs at least two sprints of history.</div>'; return; }
   const W = cw(host), H = 208, P = { t: 16, r: 12, b: 44, l: 34 };
   const iw = W - P.l - P.r, ih = H - P.t - P.b;
@@ -2086,6 +2090,8 @@ function renderDora(m) {
    ================================================================== */
 function renderLoad() {
   const h = S.view.history || [], host = $("#load-body");
+  const refusedLoad = seriesRefusalHtml();
+  if (refusedLoad) { host.innerHTML = refusedLoad; return; }
   if (h.length < 2) { host.innerHTML = '<div class="note">Needs sprint history.</div>'; return; }
 
   const mk = (title, key, fmt, col, note) => {
@@ -2543,6 +2549,23 @@ function fetchSeries(cid) {
     S.series = r.ok && r.body ? r.body : null;
     render();
   }).catch(() => { S.series = null; render(); });
+}
+
+/**
+ * Why a trend cannot be drawn, when the reason is not thin data.
+ *
+ * Returns "" when the series is fine or when there is simply no transport, and
+ * a refusal otherwise. The distinction is the point: *"needs at least two
+ * sprints"* and *"the calculator returned 404"* are different statements and
+ * only one of them is ever true, and this page has printed one cause for three
+ * different reasons before. A tile that prints the thin-data sentence over an
+ * unreachable calculator sends somebody to look for sprints that are already
+ * there.
+ */
+function seriesRefusalHtml() {
+  const s = S.series;
+  if (!s || s.available !== false || !s.why) return "";
+  return '<div class="fc-refusal"><b>No trend for this board.</b> ' + esc(s.why) + "</div>";
 }
 
 /** What the page says above a trend, once, from the tool that counted it.
