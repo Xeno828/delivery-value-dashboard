@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.38.0
+
+**A Forge tenant has a trend at last.** Roadmap item 4b, wired. `history` in a Forge context body has been `[]` since the app existed — the resolver computes nothing — so the predictability chart and the Team load card have said *"needs at least two sprints"* in every tenant, with nothing on screen saying why. The rows now come from a route of their own on both transports: the `history` resolver over the bridge, `api/history` over loopback, one set of body shapes (ADR 0009).
+
+**A route of its own, not a field on the context body.** The context route is deliberately a single-sprint read that holds nothing between calls; a trend is a question about a *board* and costs one issue fetch per sprint to answer. Folding it in would have made every panel load of one sprint pay for all of them, which is a trade worth taking on purpose or not at all.
+
+**Two findings from wiring it, and the second one shipped a wrong chart in this session.**
+
+The first was a seam in the wrong place. `seriesNote()` lived in `forge/src/series.js` and counted rows into a sentence a reader reads — *"2 of these 3 sprints were rebuilt"* — which is a figure produced between a tool and a reader, exactly what `CLAUDE.md` forbids, and it would have needed a second implementation in Python the moment loopback answered the same route. The merge, the disagreements and the note are now `merge_series`, `series_disagreements` and `series_note` in `agent/tools/metrics.py`, and both transports get them from there. `series.js` keeps what is genuinely storage policy: where a board's rows live, what a row may contain, and whether an observation may be written. What stays duplicated is that policy, in two places because the decision has to be taken next to the store and there are two stores — run over one shared case file by `tests/test_service.py`, the same arrangement `validate()` has.
+
+The second was worse and is the kind this repository keeps paying for. The served route answers for the whole board, so selecting a sprint that closed in June drew a trend running through September and compared that sprint's delivery against a row from three months after it. It rendered as a perfectly ordinary chart. The bundle path had always sliced history per context; the rule was simply not carried into the new route. `series_upto()` is that rule, in the tool, and both transports pass the selected context to it — every sprint the look could see is still *recorded*, only what is *shown* stops at the selection. **It was caught by the transport-parity check in `tests/e2e.py`**, which compares what the page renders from a loopback body against a Forge-shaped one; that test exists because of `workingDays` going missing over the bridge, and this is the second bug it has found that nothing else would have.
+
+**Each row says where it came from, on the point as well as above the chart.** A rebuilt point is drawn hollow and dashed — texture rather than a third colour, because the series colours are validated for colour-vision deficiency and a new meaning inside them would break that. Hovering one names its warrant: recorded when the sprint closed, recorded while it was still running and on which day, or rebuilt from Jira. The legend gains the distinction **only when the series actually mixes the two**; on a board where every row is recorded there is nothing to explain.
+
+**`valueDelivered` comes back absent rather than nil over the calculator.** Jira has no native value field and `CALC_FIELDS` carries none, so the calculator can only ever answer null — and a zero would say the sprint delivered nothing worth anything, which is a much stronger claim than nobody having told us. A set that carries the field and sums to zero keeps its zero. `problemsInRow` allows null in exactly the two positions the derivation is entitled to leave empty and refuses it everywhere else, because a count is never absent.
+
+**The provenance note's rule was invisible.** It used `--info-wash`, which is a background token: `#12203a` on `#1a1a19` is a rule nobody can see, which is a rule that is not there. It takes `--info-ink`. Both are UI tokens and the chart palette stays out of it, which is what those tokens are separate for.
+
+**No new scope and no reinstall.** `storage:app` was already granted for the recipient config (ADR 0014), and a history row is nine numbers and a sprint name. Over loopback the same store is `data/series.local.json`, git-ignored under the existing `data/*.local.json` rule.
+
 ## 1.37.0
 
 **The durable series has a module and a shape, and neither of them stores an issue.** Roadmap item 4b. `forge/src/series.js` owns what is kept, what may be written, and how a recorded row and a re-derived one are presented side by side. It is pure — no Forge, no network, no storage — so `tests/test_service.py` runs it over the shapes a tenant will actually produce, including the ones where the two disagree, which is the case the module exists for. Forty-four checks.

@@ -26,6 +26,7 @@ Routes
     POST /v1/forecast        forecast.build
     POST /v1/ask             intake.forecast_ask
     POST /v1/sequence        intake.sequence
+    POST /v1/history         metrics.history_series
 
 Every POST takes {"dataset": {...}, ...} and returns
 {"ok": true, "calendar": "...", "result": {...}} or {"ok": false, "error": "..."}.
@@ -628,6 +629,60 @@ def route_sequence(body):
                        as_of=_iso_or_none(body, "asOf"))
 
 
+def route_history(body):
+    """One row per sprint, for a caller that cannot compute one.
+
+    The caller that needs this is a Forge resolver. It holds the tenant's own
+    contexts and issues and must not derive a history row itself — `CLAUDE.md`
+    is explicit that nothing between a tool and a reader does arithmetic, and a
+    resolver that counted completions would be the second implementation this
+    repository spends most of its tests preventing.
+
+    So it sends what it has and `metrics.history_series` does the rest. This
+    service still computes nothing: it validates, delegates and passes the rows
+    back. A row here is nine numbers and a sprint name; the issue text that
+    produced them is refused at the door by `clean_dataset`, like every other
+    route.
+
+    The rows come back with their context id and the sprint's state attached,
+    because the caller has to decide whether it may *record* each one — a sprint
+    that closed before the app saw the board is shown and never stored. That
+    decision is the caller's and is made in `forge/src/series.js`; this route
+    supplies the two facts it needs and takes no view.
+    """
+    ds = clean_dataset(body)
+    contexts = (body.get("dataset") or {}).get("contexts")
+    if not isinstance(contexts, list) or not contexts:
+        raise Refused('send {"dataset": {"contexts": [...], "issues": [...]}} — '
+                      "a row is per sprint, and the sprints come from the contexts. "
+                      "Nothing was calculated.")
+    rows = MT.history_series(contexts, ds.get("issues") or [])
+
+    # Every row is returned to the caller, because what may be *recorded* is
+    # every sprint this look could see. What is *shown* stops at the selected
+    # context — a sprint does not get to be compared against its own future.
+    cid = body.get("contextId")
+    shown = MT.series_upto(rows, cid) if isinstance(cid, str) and cid else rows
+
+    # The caller's store, if it has one, so the merged answer comes back in the
+    # same round trip. Nothing is stored here — this service holds no state and
+    # is not becoming a place a tenant's series lives. It is handed the rows the
+    # caller already has, and it returns what a reader should see.
+    stored = body.get("stored")
+    if stored is not None and not isinstance(stored, dict):
+        raise Refused('"stored" must be the caller\'s series object, or absent')
+    merged = MT.merge_series(stored or {}, [{"sprintId": r["contextId"], "row": r["row"]}
+                                            for r in shown],
+                             body.get("statuses"))
+    return {
+        "rows": rows,
+        "sprints": len(rows),
+        "merged": merged["rows"],
+        "orphaned": merged["orphaned"],
+        "note": MT.series_note(merged),
+    }
+
+
 ROUTES = {
     "/v1/facts": route_facts,
     "/v1/forecast": route_forecast,
@@ -635,6 +690,7 @@ ROUTES = {
     "/v1/slice": route_slice,
     "/v1/ask": route_ask,
     "/v1/sequence": route_sequence,
+    "/v1/history": route_history,
 }
 
 

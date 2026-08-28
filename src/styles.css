@@ -452,6 +452,25 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 .br-hits{margin-top:8px}
 .br-hitlist{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
 .br-hit{padding:4px 10px;font-size:13px}
+/* The trend series' provenance note. A left rule rather than a panel: it is a
+   caveat about the evidence under the chart above it, not a finding of its own,
+   and a boxed warning would read as something being wrong when usually nothing
+   is.
+
+   --info-ink and not --info-wash. The wash is a background fill and against the
+   dark panel it is #12203a on #1a1a19 — a rule nobody can see, which is a rule
+   that is not there. A mark takes the ink token. Both are UI tokens; the chart
+   palette is validated for colour-vision deficiency separately and stays out
+   of here. */
+.sr-note{
+  margin-top:8px;padding:6px 0 6px 10px;border-left:2px solid var(--info-ink);
+  color:var(--text-secondary);
+}
+/* A rebuilt point is drawn hollow. The distinction is between two kinds of
+   evidence, not two kinds of value, so it is texture rather than another
+   colour — the series colours are validated for colour-vision deficiency and
+   adding a third meaning to them would break that. */
+.pred-rebuilt{fill-opacity:.34;stroke-width:1.5;stroke-dasharray:3 2}
 .br-added{margin-top:6px;font-size:13px;color:var(--text-primary)}
 /* The named recipient list. It is the primary view of an audience and the only
    place a recipient is removed; the account-ID field it is built from is folded

@@ -34,6 +34,10 @@ import { deliveryBlockers } from './brief.js';
 import { boardsIn, notifyPayload, problemsIn } from './recipients.js';
 import { briefsForBoard, sectionsFor } from './compose.js';
 import { ADMIN_PERMISSION, editability } from './permissions.js';
+import {
+  entryFrom, problemsInRow, readSeries, recordable, seriesKey,
+  statusFingerprint, writeSeries,
+} from './series.js';
 import { MAX_MATCHES, MAX_NAMES, idsToAsk, matchNote, nameNote, namesFrom,
   peopleFrom } from './people.js';
 
@@ -860,6 +864,168 @@ resolver.define('forecast', answering(async ({ payload, context }) => {
   if (answer.available === false) return { status: 200, body: noCalculator(answer.sentence) };
 
   return { status: 200, body: reattach(answer.result, byKey) };
+}));
+
+/**
+ * The board's trend series — roadmap item 4, ADR 0015.
+ *
+ * A route of its own rather than a field on `context`, and for the reason the
+ * context route states about itself: it is a *sprint* read, deliberately
+ * holding nothing between calls. A trend is a question about a board, it costs
+ * one issue fetch per sprint to answer, and making every panel load of one
+ * sprint pay for all of them would be a different trade taken by accident.
+ *
+ * Three things happen here, in this order.
+ *
+ * **The rows are computed by the calculator, never here.** `CLAUDE.md` is
+ * explicit that nothing between a tool and a reader does arithmetic, and a
+ * resolver that counted completions would be the second implementation of
+ * `history_row` — the one whose failure mode is a plausible row rather than an
+ * error, as 1.36.0 demonstrated at some length.
+ *
+ * **What we may record is decided before anything is written.** `recordable`
+ * is the rule, and the one it enforces is that a sprint which closed before
+ * this installation ever saw the board is *shown and not stored*. The rows are
+ * usually identical; the warrant is not, and writing one in as the other would
+ * make the series look complete from the day of install.
+ *
+ * **The store is read whole and written per sprint.** One key per board, so two
+ * boards closing sprints in the same hour are two writers rather than one lost
+ * row. A write happens only when the entry actually changes, because this route
+ * runs on every panel load and a store rewritten each time is a quota spent on
+ * nothing.
+ */
+resolver.define('history', answering(async ({ payload, context }) => {
+  const asked = payload?.id;
+  const projectKey = moduleProjectKey(context);
+  if (!projectKey) return NO_PROJECT(context);
+  const parsed = parseContextId(asked);
+  if (!parsed) {
+    return { status: 404, body: notFound(asked, 'that is not a project/board/period id') };
+  }
+
+  const { contexts } = await projectContexts(projectKey);
+  // This board's sprints only. A flow board's windows overlap completely, so a
+  // trend across them would count one issue three times and draw a line out of
+  // it — ADR 0011, and the calculator refuses them for the same reason.
+  const mine = contexts.filter((c) => String(c.boardId) === String(parsed.boardId)
+    && (c.kind || 'sprint') === 'sprint');
+  if (!mine.length) {
+    return {
+      status: 200,
+      body: {
+        available: false,
+        rows: [],
+        note: '',
+        why: 'this board reports a window at a time rather than a sprint, so it has no '
+          + 'sprint-by-sprint trend. A window is not a clock and it is not a sprint either.',
+      },
+    };
+  }
+
+  const spField = await storyPointFieldFor();
+  const issues = [];
+  for (const entry of mine) {
+    issues.push(...await issuesForEntry(entry, spField, context?.siteUrl));
+  }
+  const projected = issues.map(projectIssue);
+  assertNoFreeText(projected);
+
+  const orgConfig = (await orgConfigFor(projectKey)).config;
+  const fingerprint = statusFingerprint(orgConfig);
+  const key = seriesKey(parsed.boardId);
+  const stored = readSeries((await kvs.get(key)) ?? null);
+
+  // One call. The calculator is sent the rows' raw material *and* the series
+  // this installation has kept, and answers with both: the per-sprint rows, so
+  // this resolver can decide what it is entitled to record, and the merged
+  // view with its note, so nothing here counts anything a reader will read.
+  const answer = await callCalculator('/v1/history', {
+    dataset: { issues: projected, contexts: mine, orgConfig },
+    stored,
+    statuses: fingerprint,
+    // Recorded from every sprint this look could see; shown only up to the one
+    // the reader selected. A sprint does not get to be compared against its own
+    // future, and the rule lives in the tool so both transports obey one copy.
+    contextId: asked,
+  });
+  if (answer.available === false) {
+    return { status: 200, body: { available: false, rows: [], note: '', problems: [], why: answer.sentence } };
+  }
+  const result = answer.result ?? {};
+
+  // ---- what may be kept ----
+  //
+  // Decided here and not in the calculator, because it is the only part of this
+  // that is a decision about *storage* rather than about a figure. `recordable`
+  // is the rule: a sprint that closed before this installation ever saw the
+  // board is shown and never stored, however identical its row.
+  let next = stored;
+  let wrote = false;
+  const refused = [];
+  for (const { contextId, sprintState, asOf, row } of result.rows ?? []) {
+    const prior = (next.sprints || {})[String(contextId)];
+    if (!recordable({ sprintState }, prior).record) continue;
+    // Validated before writing, never after reading: a bad row in the store is
+    // read by every panel load from then on, and a panel is not where anybody
+    // wants to discover it.
+    const problems = problemsInRow(row);
+    if (problems.length) {
+      refused.push(`${row?.sprint ?? contextId}: ${problems[0]}`);
+      continue;
+    }
+    // `asOf` and not today. The row is a statement about a moment, and for a
+    // closed sprint that moment is its completion date rather than the day
+    // somebody happened to open the panel. For an active sprint the two are the
+    // same date, which is why getting this wrong would never have shown.
+    const entry = entryFrom({ sprintState }, row, asOf ?? todayISO(), orgConfig);
+    // Only when it actually moved. This route runs on every panel load, and a
+    // store rewritten each time is a write quota spent on nothing.
+    if (prior && JSON.stringify(prior) === JSON.stringify(entry)) continue;
+    next = writeSeries(next, contextId, entry);
+    wrote = true;
+  }
+
+  if (!wrote) {
+    return {
+      status: 200,
+      body: {
+        available: true,
+        rows: result.merged ?? [],
+        note: result.note ?? '',
+        problems: [...stored.problems, ...refused],
+      },
+    };
+  }
+
+  // Something was recorded, so the merged answer just received described the
+  // store as it was a moment ago. Asked again rather than patched here: patching
+  // it would mean this resolver deciding which rows became recorded and what the
+  // note should now say, which is the arithmetic it does not do. Two calls
+  // happen only on the panel load after a sprint moves, not on every one.
+  await kvs.set(key, next);
+  const again = await callCalculator('/v1/history', {
+    dataset: { issues: projected, contexts: mine, orgConfig },
+    stored: next,
+    statuses: fingerprint,
+    contextId: asked,
+  });
+  if (again.available === false) {
+    return { status: 200, body: { available: false, rows: [], note: '', problems: [], why: again.sentence } };
+  }
+  return {
+    status: 200,
+    body: {
+      available: true,
+      rows: again.result?.merged ?? [],
+      note: again.result?.note ?? '',
+      // The store's own complaints, verbatim and separate from the note: a row
+      // this app declined to keep is a fact about this app, not about the team,
+      // and collapsing the two would put an internal problem into a sentence
+      // about delivery.
+      problems: [...stored.problems, ...refused],
+    },
+  };
 }));
 
 /**

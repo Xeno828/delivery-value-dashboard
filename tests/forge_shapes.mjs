@@ -25,11 +25,12 @@ import {
 import {
   SERIES_VERSION, seriesKey, ROW_FIELDS, rowProjection, problemsInRow,
   statusFingerprint, recordable, entryFrom, readSeries, writeSeries,
-  disagreements, mergeSeries, seriesNote,
 } from '../forge/src/series.js';
 
 import { readFileSync } from 'node:fs';
 const CASES = JSON.parse(readFileSync(new URL('./fixtures/org-configs.json', import.meta.url)));
+/* The series policy cases, run identically by scripts/serve_live.py. */
+const SERIES_CASES = JSON.parse(readFileSync(new URL('./fixtures/series-cases.json', import.meta.url)));
 
 /* A Jira site's own statuses. "Signed off" is the case orgconfig.py was
    written for: a site with that column and no "Done" column read every sprint
@@ -146,11 +147,11 @@ const reread = contextEntry(bareBoard, sprints.find((sp) => sp.id === 43), 'SFT'
 /* ---------------------------------------------------------------------------
    The durable sprint series — ADR 0015.
 
-   The interesting cases are the ones where a recorded row and a re-derivation
-   of the same sprint disagree, because that is the only signal this product
-   ever gets that something happened underneath a year of history. `good` is
-   one honest row; every other row below is `good` with exactly one thing
-   changed, so a failing check names the thing.
+   What is checked here is storage policy and the projection, which is all this
+   module now decides. The merge, the disagreements and the note moved to
+   `agent/tools/metrics.py` when it became clear the note counts rows into a
+   sentence a reader reads, and a figure produced between a tool and a reader is
+   the thing this repository spends most of its tests preventing.
    --------------------------------------------------------------------------- */
 const good = {
   sprint: 'Sprint 22', committedSP: 34, completedSP: 25,
@@ -158,33 +159,6 @@ const good = {
   wipItems: 3, unplannedItems: 2, flowEfficiency: 0.33, valueDelivered: 12000,
 };
 const STATUSES_NOW = { statuses: { done: ['Done', 'Shipped'], inProgress: ['In Progress', 'In Review'] } };
-/* The same configuration, reordered and recased. Neither changes what the
-   words mean, and a fingerprint that moved for either would report a
-   recategorisation on every config re-save. */
-const STATUSES_SAME = { statuses: { done: ['shipped', 'DONE'], inProgress: ['in review', 'In Progress'] } };
-/* "In Review" no longer counts as in progress. Every wipItems in the series
-   moves, retroactively, and nothing marks it. */
-const STATUSES_MOVED = { statuses: { done: ['Done', 'Shipped'], inProgress: ['In Progress'] } };
-
-const activeEntry = { sprintState: 'active' };
-const closedEntry = { sprintState: 'closed' };
-const priorMid = entryFrom(activeEntry, good, '2026-07-15', STATUSES_NOW);
-const priorFinal = entryFrom(closedEntry, good, '2026-07-17', STATUSES_NOW);
-
-/* A board offering three sprints. The middle one was recorded; the other two
-   closed before the app was there. */
-const stored = writeSeries({ sprints: {} }, '22', priorFinal);
-const rebuilt = [
-  { sprintId: '21', row: { ...good, sprint: 'Sprint 21' } },
-  { sprintId: '22', row: good },
-  { sprintId: '23', row: { ...good, sprint: 'Sprint 23' } },
-];
-/* The same board, where Jira now answers a smaller commitment for the recorded
-   sprint than the recording holds — a reopen-and-reclose, or a deleted issue. */
-const rebuiltStripped = rebuilt.map((r) => (r.sprintId !== '22' ? r
-  : { ...r, row: { ...good, committedItems: 10, committedSP: 25 } }));
-/* And a store holding a sprint the board no longer offers at all. */
-const storedOrphan = writeSeries(stored, '19', priorFinal);
 
 console.log(JSON.stringify({
   contexts: contextsBody('Jira, project SFT — 1 board', entries),
@@ -315,60 +289,33 @@ console.log(JSON.stringify({
       missing: problemsInRow({ ...good, wipItems: undefined }),
       notANumber: problemsInRow({ ...good, completedItems: '10' }),
       nullEfficiency: problemsInRow({ ...good, flowEfficiency: null }),
+      // Every Forge tenant. Jira has no value field and the calculator is never
+      // sent one, so this arrives null and must not be refused — nor stored as
+      // a zero, which would claim the sprint delivered nothing of worth.
+      nullValue: problemsInRow({ ...good, valueDelivered: null }),
+      nullCount: problemsInRow({ ...good, completedItems: null }),
       impossible: problemsInRow({ ...good, completedItems: 99 }),
       extra: problemsInRow({ ...good, summary: 'an issue title' }),
       notAnObject: problemsInRow('Sprint 22'),
     },
-    fingerprint: {
-      now: statusFingerprint(STATUSES_NOW),
-      reordered: statusFingerprint(STATUSES_SAME),
-      moved: statusFingerprint(STATUSES_MOVED),
-      empty: statusFingerprint(undefined),
-    },
-    recordable: {
-      active: recordable(activeEntry, null),
-      activeAgain: recordable(activeEntry, priorMid),
-      closedWithPrior: recordable(closedEntry, priorMid),
-      closedNoPrior: recordable(closedEntry, null),
-      alreadyFinal: recordable(closedEntry, priorFinal),
-      nonsenseState: recordable({ sprintState: 'future' }, null),
-    },
-    entry: priorFinal,
+    // The shared case lists. tests/test_service.py runs the identical files
+    // through the loopback server's mirrors and asserts the two agree.
+    recordable: SERIES_CASES.recordable.map(
+      (c) => [c.name, recordable({ sprintState: c.state }, c.prior).record]),
+    recordableWhy: SERIES_CASES.recordable
+      .filter((c) => !c.record)
+      .map((c) => [c.name, recordable({ sprintState: c.state }, c.prior).why]),
+    fingerprints: SERIES_CASES.fingerprints.map(
+      (c) => [c.name, statusFingerprint(c.config)]),
+    entry: entryFrom({ sprintState: 'closed' }, good, '2026-07-17', STATUSES_NOW),
+    midEntry: entryFrom({ sprintState: 'active' }, good, '2026-07-15', STATUSES_NOW),
     read: {
       empty: readSeries(null),
-      wrongVersion: readSeries({ version: 99, sprints: { 22: priorFinal } }),
+      wrongVersion: readSeries({ version: 99, sprints: { 22: { row: good } } }),
+      good: readSeries(writeSeries({ sprints: {} }, 'SFT/2/22',
+        entryFrom({ sprintState: 'closed' }, good, '2026-07-17', STATUSES_NOW))),
     },
-    disagree: {
-      none: disagreements(good, good),
-      commitment: disagreements(good, { ...good, committedItems: 10 }),
-      // A rounded ratio differing in the last place is two roundings of one
-      // quantity, not a disagreement. Two places is.
-      roundingOnly: disagreements(good, { ...good, flowEfficiency: 0.34 }),
-      efficiency: disagreements(good, { ...good, flowEfficiency: 0.19 }),
-    },
-    merged: mergeSeries(stored, rebuilt, statusFingerprint(STATUSES_NOW)),
-    mergedStripped: mergeSeries(stored, rebuiltStripped, statusFingerprint(STATUSES_NOW)),
-    mergedMoved: mergeSeries(
-      writeSeries({ sprints: {} }, '22', entryFrom(closedEntry, good, '2026-07-17', STATUSES_MOVED)),
-      rebuilt, statusFingerprint(STATUSES_NOW)),
-    mergedMidFlight: mergeSeries(
-      writeSeries({ sprints: {} }, '22', priorMid), rebuilt,
-      statusFingerprint(STATUSES_NOW)),
-    orphaned: mergeSeries(storedOrphan, rebuilt, statusFingerprint(STATUSES_NOW)),
-    notes: {
-      allRecorded: seriesNote(mergeSeries(
-        rebuilt.reduce((acc, r) => writeSeries(acc, r.sprintId,
-          entryFrom(closedEntry, r.row, '2026-07-17', STATUSES_NOW)), { sprints: {} }),
-        rebuilt, statusFingerprint(STATUSES_NOW))),
-      mixed: seriesNote(mergeSeries(stored, rebuilt, statusFingerprint(STATUSES_NOW))),
-      stripped: seriesNote(mergeSeries(stored, rebuiltStripped, statusFingerprint(STATUSES_NOW))),
-      moved: seriesNote(mergeSeries(
-        writeSeries({ sprints: {} }, '22', entryFrom(closedEntry, good, '2026-07-17', STATUSES_MOVED)),
-        rebuilt, statusFingerprint(STATUSES_NOW))),
-      midFlight: seriesNote(mergeSeries(
-        writeSeries({ sprints: {} }, '22', priorMid), rebuilt,
-        statusFingerprint(STATUSES_NOW))),
-      orphaned: seriesNote(mergeSeries(storedOrphan, rebuilt, statusFingerprint(STATUSES_NOW))),
-    },
+    written: writeSeries({ sprints: {} }, 'SFT/2/22',
+      entryFrom({ sprintState: 'closed' }, good, '2026-07-17', STATUSES_NOW)),
   },
 }, null, 2));

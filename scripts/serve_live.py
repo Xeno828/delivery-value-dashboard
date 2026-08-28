@@ -47,6 +47,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "agent" / "tools"))
 import forecast as FC  # noqa: E402
 import intake as IN    # noqa: E402
+import metrics as MT   # noqa: E402
 import orgconfig as OC  # noqa: E402
 # The slice — which issues a forecast reads and what it is told about them.
 # It lived here until the hosted calculator needed the same rules; a slice
@@ -449,6 +450,9 @@ class JiraBackend:
 # serves the person who started it, so "is this user a project administrator"
 # has no meaning here. The Forge side asks Jira. See ADR 0014.
 RECIPIENTS_FILE = pathlib.Path("data/recipients.local.json")
+#: The durable series, over loopback. App storage on Forge, a git-ignored file
+#: here — same rule, same body shapes, different shelf. ADR 0015, ADR 0009.
+SERIES_FILE = pathlib.Path("data/series.local.json")
 
 # A config bigger than this is refused rather than stored. Stated because a cap
 # that truncates silently reads as one that accepted everything.
@@ -547,6 +551,125 @@ def write_recipients(config):
     RECIPIENTS_FILE.write_text(json.dumps(config, indent=2) + "\n")
 
 
+def read_series(board_id):
+    """One board's recorded rows. Missing and unreadable both read as empty.
+
+    Keyed by board inside one file rather than a file per board: the Forge side
+    is one key per board because two boards closing sprints in the same hour
+    would otherwise be two writers of one value, and this side is a single
+    process serialising its own writes. The shape on the wire is what the two
+    transports have to agree about, and it does.
+    """
+    try:
+        all_boards = json.loads(SERIES_FILE.read_text())
+    except (OSError, ValueError):
+        return {"version": 1, "sprints": {}}
+    got = (all_boards or {}).get(str(board_id))
+    if not isinstance(got, dict) or got.get("version") != 1:
+        return {"version": 1, "sprints": {}}
+    return got
+
+
+def write_series(board_id, series):
+    try:
+        all_boards = json.loads(SERIES_FILE.read_text())
+    except (OSError, ValueError):
+        all_boards = {}
+    if not isinstance(all_boards, dict):
+        all_boards = {}
+    all_boards[str(board_id)] = series
+    SERIES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SERIES_FILE.write_text(json.dumps(all_boards, indent=2) + "\n")
+
+
+def series_recordable(sprint_state, prior):
+    """Whether this observation may be written. Mirrors `recordable` in
+    `forge/src/series.js`, and `tests/test_service.py` runs the two over one
+    shared list of cases — the same arrangement `validate()` has.
+
+    Two implementations of a *policy* is a smaller liability than two
+    implementations of a figure, and there is no third option: the decision has
+    to be taken next to the store, and there are two stores.
+    """
+    if sprint_state not in ("active", "closed"):
+        return False
+    if prior and prior.get("final") is True:
+        return False
+    if sprint_state == "closed" and not prior:
+        return False
+    return True
+
+
+def series_for(backend, cid):
+    """The trend series for the board `cid` belongs to, and the recording of it.
+
+    The same three steps as the Forge resolver, in the same order: ask the tool
+    for the rows, decide what may be kept, merge. Nothing here counts anything —
+    `merge_series` and `series_note` are in `metrics.py`, and this calls them
+    exactly as the calculator does for the other transport.
+    """
+    contexts = backend.contexts()
+    ctx = next((c for c in contexts if c.get("id") == cid), None)
+    if ctx is None:
+        return None
+    board = ctx.get("boardId")
+    mine = [c for c in contexts
+            if str(c.get("boardId")) == str(board) and (c.get("kind") or "sprint") == "sprint"]
+    if not mine:
+        return {"available": False, "rows": [], "note": "", "problems": [],
+                "why": "this board reports a window at a time rather than a sprint, so "
+                       "it has no sprint-by-sprint trend. A window is not a clock and "
+                       "it is not a sprint either."}
+
+    issues = []
+    for c in mine:
+        got = backend.context(c["id"]) or {}
+        issues.extend(got.get("issues") or [])
+    cfg = backend.org_config()
+    rows = MT.history_series(mine, issues)
+
+    stored = read_series(board)
+    fingerprint = series_fingerprint(cfg)
+    wrote = False
+    for r in rows:
+        prior = (stored.get("sprints") or {}).get(str(r["contextId"]))
+        if not series_recordable(r.get("sprintState"), prior):
+            continue
+        entry = {"row": {k: v for k, v in r["row"].items() if k in MT.ROW_FIELDS},
+                 "observedOn": r.get("asOf"),
+                 "final": r.get("sprintState") == "closed",
+                 "statuses": fingerprint}
+        if prior == entry:
+            continue
+        stored = {"version": 1,
+                  "sprints": dict(stored.get("sprints") or {}, **{str(r["contextId"]): entry})}
+        wrote = True
+    if wrote:
+        write_series(board, stored)
+
+    # Recorded from every row this look could see; shown only up to the
+    # selected context, because a sprint is not compared against its own future.
+    merged = MT.merge_series(stored,
+                             [{"sprintId": r["contextId"], "row": r["row"]}
+                              for r in MT.series_upto(rows, cid)],
+                             fingerprint)
+    return {"available": True, "rows": merged["rows"],
+            "note": MT.series_note(merged), "problems": []}
+
+
+def series_fingerprint(cfg):
+    """Mirrors `statusFingerprint` in `forge/src/series.js`. Order- and
+    case-insensitive, because neither changes what the words mean and both
+    change a naive join — a config re-saved in a different order would
+    otherwise read as a recategorisation."""
+    st = (cfg or {}).get("statuses") or {}
+
+    def part(v):
+        return ",".join(sorted(x.strip().lower() for x in (v or [])
+                               if isinstance(x, str) and x.strip()))
+    return "done=%s|prog=%s" % (part(st.get("done")), part(st.get("inProgress")))
+
+
 # ---------------------------------------------------------------- handler
 class Handler(SimpleHTTPRequestHandler):
     backend = None
@@ -626,6 +749,12 @@ class Handler(SimpleHTTPRequestHandler):
                         "connection. The ids under Account IDs are what will be "
                         "sent to; on Jira they are shown as names.",
             })
+        if path in ("api/history", "dist/api/history"):
+            cid = urllib.parse.parse_qs(u.query).get("id", [""])[0]
+            got = series_for(self.backend, cid)
+            if got is None:
+                return self._json({"error": "unknown context %r" % cid}, 404)
+            return self._json(got)
         if path in ("api/recipients", "dist/api/recipients"):
             config = read_recipients()
             return self._json({

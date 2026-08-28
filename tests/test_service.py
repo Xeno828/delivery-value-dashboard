@@ -37,6 +37,7 @@ sys.path.insert(0, str(ROOT / "service"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import app as SVC        # noqa: E402
+import metrics as MT     # noqa: E402
 import forecast as FC
 import selection as SEL    # noqa: E402
 import orgconfig as OC   # noqa: E402
@@ -3063,14 +3064,19 @@ def test_a_name_can_be_looked_up_without_the_directory_leaking():
 
 
 def series_checks():
-    """The durable sprint series — ADR 0015.
+    """The durable sprint series — ADR 0015, roadmap item 4.
 
-    A history row re-derives correctly from Jira at any distance; that was
-    established in 1.36.0 and it is why this store is small. Rows are recorded
-    because four things can make a later re-derivation disagree with what was
-    true and none of them announces itself. This module's whole job is to keep
-    a recorded row and a reconstruction apart, and to say so when they differ —
-    so the cases that matter here are the disagreements, not the happy path.
+    Two halves, and the split is the design. `forge/src/series.js` decides what
+    is **kept**: where a board's rows live, what a row may contain, and whether
+    an observation may be written at all. `agent/tools/metrics.py` decides what
+    is **shown**: the merge, the disagreements and the note. The note counts
+    rows into a sentence a reader reads, and a figure produced between a tool
+    and a reader is the thing this repository spends most of its tests
+    preventing — so it is not in the JavaScript, and there is exactly one of it.
+
+    What remains duplicated is *policy*, in two places because the decision has
+    to be taken next to the store and there are two stores. Both are run below
+    over one shared file.
     """
     print("the durable sprint series")
     node = subprocess.run(["node", str(ROOT / "tests" / "forge_shapes.mjs")],
@@ -3080,13 +3086,13 @@ def series_checks():
               (node.stderr or node.stdout)[-200:])
         return
     S = json.loads(node.stdout)["series"]
+    cases = json.loads((ROOT / "tests" / "fixtures" / "series-cases.json").read_text())
 
     # ---- the store holds counts, never issue text ----
     #
     # The property that keeps item 4 off item 5's critical path: nothing in this
-    # store is something a reader could be denied sight of. An allow-list rather
-    # than a deny-list, for the same reason as the projections in people.js —
-    # a deny-list is one upstream change away from storing an issue summary.
+    # store is something a reader could be denied sight of, so a permission
+    # model is not a prerequisite for having one.
     check("a stored row carries only counts, a name and a currency total",
           S["projected"] == S["fields"], S["projected"])
     check("issue text handed to the projection does not survive it",
@@ -3095,6 +3101,12 @@ def series_checks():
     check("and a row that carries any is refused rather than trimmed",
           any("never anything derived from issue text" in x
               for x in S["problems"]["extra"]), S["problems"]["extra"])
+    # One allow-list, mirrored, because the tool and the store must agree about
+    # what a row is. A field admitted by one and unknown to the other is either
+    # stored and never read, or read and never stored.
+    check("both languages agree on which fields a row has",
+          list(S["fields"]) == list(MT.ROW_FIELDS),
+          {"js": S["fields"], "py": list(MT.ROW_FIELDS)})
 
     # ---- a bad row is caught before it is written, not after it is read ----
     check("an honest row has nothing wrong with it", S["problems"]["good"] == [],
@@ -3104,13 +3116,13 @@ def series_checks():
           S["problems"]["missing"])
     check("a figure that is not a number is refused",
           len(S["problems"]["notANumber"]) == 1, S["problems"]["notANumber"])
-    # The one null the derivation itself produces: no lead time to divide by is
-    # a refusal to state a ratio, not a gap in the row.
     check("a null flow efficiency is the derivation refusing, and is allowed",
           S["problems"]["nullEfficiency"] == [], S["problems"]["nullEfficiency"])
-    # The wrong-slice check. A row claiming more completed than the sprint ever
-    # held was computed over different issues than it says, which is this
-    # repository's most expensive class of bug.
+    check("a null value delivered is absent rather than nil, and is allowed",
+          S["problems"]["nullValue"] == [], S["problems"]["nullValue"])
+    check("but a null count is refused, because a count is never absent",
+          any("completedItems is null" in x for x in S["problems"]["nullCount"]),
+          S["problems"]["nullCount"])
     check("completing more than the sprint contained is refused as a wrong slice",
           any("different set of issues" in x for x in S["problems"]["impossible"]),
           S["problems"]["impossible"])
@@ -3118,123 +3130,215 @@ def series_checks():
           S["problems"]["notAnObject"] == ["the row is not an object."],
           S["problems"]["notAnObject"])
 
-    # ---- the status fingerprint ----
+    # ---- policy, run over one shared list by both transports ----
     #
-    # The fourth hazard, and the only one this product can detect: `started` is
-    # the changelog replayed through today's idea of "in progress", so
-    # recategorising a status moves every wipItems in the series at once.
-    fp = S["fingerprint"]
+    # The same arrangement `validate()` has. A policy that differed between
+    # transports would mean a sprint recorded down one route and reconstructed
+    # down the other, with the page saying different things about one board
+    # depending on how it was reached.
+    js_rec = {name: got for name, got in S["recordable"]}
+    for c in cases["recordable"]:
+        want, name = c["record"], c["name"]
+        check("recordable, both transports: %s" % name,
+              js_rec.get(name) is want
+              and LIVE.series_recordable(c["state"], c["prior"]) is want,
+              {"want": want, "js": js_rec.get(name),
+               "py": LIVE.series_recordable(c["state"], c["prior"])})
+    check("every refusal to record says which of the reasons it was",
+          all(why.strip() for _, why in S["recordableWhy"]), S["recordableWhy"])
+    check("a sprint that closed before we saw it is named a reconstruction",
+          any("reconstruction" in why for _, why in S["recordableWhy"]),
+          S["recordableWhy"])
+
+    js_fp = {name: got for name, got in S["fingerprints"]}
+    for c in cases["fingerprints"]:
+        check("status fingerprint, both transports: %s" % c["name"],
+              js_fp.get(c["name"]) == LIVE.series_fingerprint(c["config"]),
+              {"js": js_fp.get(c["name"]), "py": LIVE.series_fingerprint(c["config"])})
+    fps = [got for _, got in S["fingerprints"]]
     check("reordering and recasing the same statuses is not a change",
-          fp["now"] == fp["reordered"], (fp["now"], fp["reordered"]))
+          fps[0] == fps[1], fps[:2])
     check("dropping a status from 'in progress' is",
-          fp["now"] != fp["moved"], (fp["now"], fp["moved"]))
-    check("no configuration at all still fingerprints, rather than throwing",
-          isinstance(fp["empty"], str), fp["empty"])
+          fps[0] != fps[2], (fps[0], fps[2]))
+    check("blank entries mean nothing and do not count as a change",
+          fps[0] == fps[4], (fps[0], fps[4]))
 
-    # ---- what may be written ----
-    #
-    # The rule the whole record turns on. A row is recorded when the app saw the
-    # sprint run; a row derived afterwards is a reconstruction and is never
-    # written, because writing it would launder one warrant into the other and
-    # make the series look complete from the day of install.
-    r = S["recordable"]
-    check("an active sprint may always be observed", r["active"]["record"] is True, r["active"])
-    check("and observed again, replacing the last look",
-          r["activeAgain"]["record"] is True, r["activeAgain"])
-    check("a sprint we were already watching may be recorded when it closes",
-          r["closedWithPrior"]["record"] is True, r["closedWithPrior"])
-    check("a sprint that closed before we ever saw it is NOT recorded",
-          r["closedNoPrior"]["record"] is False, r["closedNoPrior"])
-    check("...and says it is a reconstruction rather than refusing silently",
-          "reconstruction" in r["closedNoPrior"]["why"], r["closedNoPrior"]["why"])
-    check("a row already recorded after the close is never rewritten",
-          r["alreadyFinal"]["record"] is False, r["alreadyFinal"])
-    check("a sprint state this does not understand is refused, not assumed",
-          r["nonsenseState"]["record"] is False, r["nonsenseState"])
-
-    # ---- an unreadable store is absent, not half-read ----
-    check("a store from a version this cannot read is used for nothing",
+    # ---- what a written entry is ----
+    e = S["entry"]
+    check("an entry keeps the row, when it was observed, and under which statuses",
+          sorted(e) == ["final", "observedOn", "row", "statuses"], sorted(e))
+    check("a sprint seen after it closed is final; one seen running is not",
+          e["final"] is True and S["midEntry"]["final"] is False,
+          (e["final"], S["midEntry"]["final"]))
+    check("an unreadable store version is used for nothing",
           S["read"]["wrongVersion"]["sprints"] == {}
           and len(S["read"]["wrongVersion"]["problems"]) == 1,
           S["read"]["wrongVersion"])
     check("and no store at all is not a problem, it is an empty series",
           S["read"]["empty"] == {"sprints": {}, "problems": []}, S["read"]["empty"])
-
-    # ---- disagreement, which is the point of the module ----
-    d = S["disagree"]
-    check("a row compared against itself disagrees about nothing",
-          d["none"] == [], d["none"])
-    check("a commitment that shrank is reported by field",
-          [x["field"] for x in d["commitment"]] == ["committedItems"], d["commitment"])
-    check("a rounded ratio differing in the last place is not a disagreement",
-          d["roundingOnly"] == [], d["roundingOnly"])
-    check("a flow efficiency that really moved is",
-          [x["field"] for x in d["efficiency"]] == ["flowEfficiency"], d["efficiency"])
-
-    # ---- the merge: one series, two kinds of evidence in it ----
-    m = S["merged"]
-    check("a recorded row substitutes at its own position, never appends",
-          [row["source"] for row in m["rows"]]
-          == ["reconstructed", "recorded", "reconstructed"],
-          [row["source"] for row in m["rows"]])
-    check("and the sprints stay in the order the board runs them",
-          [row["sprint"] for row in m["rows"]]
-          == ["Sprint 21", "Sprint 22", "Sprint 23"],
-          [row["sprint"] for row in m["rows"]])
-    check("every row says which kind of evidence it is",
-          all(row.get("source") in ("recorded", "reconstructed") for row in m["rows"]),
-          [row.get("source") for row in m["rows"]])
-
-    stripped = S["mergedStripped"]["rows"][1]
-    check("a recorded row that no longer matches Jira keeps its own figures",
-          stripped["committedItems"] == 13, stripped)
-    check("...and names the fields that moved rather than picking a winner",
-          sorted(stripped["differs"]) == ["committedItems", "committedSP"],
-          stripped["differs"])
-
-    moved = S["mergedMoved"]["rows"][1]
-    check("a row recorded under different 'in progress' statuses says so",
-          moved["statusesMoved"] is True, moved)
-    check("and one recorded under the same statuses does not",
-          S["merged"]["rows"][1]["statusesMoved"] is False, S["merged"]["rows"][1])
-
-    mid = S["mergedMidFlight"]["rows"][1]
-    check("a row last seen mid-sprint is not claimed as the sprint's end",
-          mid["atSprintEnd"] is False and m["rows"][1]["atSprintEnd"] is True,
-          (mid["atSprintEnd"], m["rows"][1]["atSprintEnd"]))
-
-    # A recorded sprint the board no longer offers. Dropped rather than spliced
-    # in at a guessed position — a point on a chart at a date nothing else
-    # agrees with is worse than a point that is missing and counted.
-    check("a recorded sprint the board no longer offers is dropped and counted",
-          S["orphaned"]["orphaned"] == ["19"]
-          and len(S["orphaned"]["rows"]) == 3, S["orphaned"]["orphaned"])
-
-    # ---- the note: silent unless there is something a chart cannot show ----
-    n = S["notes"]
-    check("a fully recorded series says nothing at all", n["allRecorded"] == "",
-          n["allRecorded"])
-    check("a mixed series says how much of it was rebuilt",
-          "rebuilt from Jira" in n["mixed"], n["mixed"])
-    check("a disagreement is stated with the fields, and which figures are shown",
-          "no longer match" in n["stripped"]
-          and "committedItems" in n["stripped"]
-          and "recorded figures are shown" in n["stripped"], n["stripped"])
-    check("a recategorised status is named as a change of measurement",
-          "not quite the same measurement" in n["moved"], n["moved"])
-    check("a mid-flight last look is not passed off as a sprint end",
-          "still running" in n["midFlight"], n["midFlight"])
-    check("a dropped sprint is counted rather than left unmentioned",
-          "no longer offered by this board" in n["orphaned"], n["orphaned"])
-
-    # No silent caps: every count in the note is read off the rows it describes.
-    check("the note counts what it can see, not what it was told",
-          n["mixed"].startswith("2 of these 3 sprints"), n["mixed"][:40])
-
+    check("what was written reads back", list(S["read"]["good"]["sprints"]) == ["SFT/2/22"],
+          S["read"]["good"])
     check("one key per board, so two boards closing at once are two writers",
           S["key"] == "series:42", S["key"])
-    check("the store states its own version",
-          S["version"] == 1 and S["entry"]["statuses"], S["entry"])
+
+    # ---- the merge and the note, which exist once, in Python ----
+    good = dict(zip(MT.ROW_FIELDS,
+                    ["Sprint 22", 34, 25, 13, 10, 10, 3, 2, 0.33, 12000]))
+    entry = {"row": good, "observedOn": "2026-07-17", "final": True, "statuses": "a"}
+    stored = {"version": 1, "sprints": {"S22": entry}}
+    rebuilt = [{"sprintId": "S21", "row": dict(good, sprint="Sprint 21")},
+               {"sprintId": "S22", "row": good},
+               {"sprintId": "S23", "row": dict(good, sprint="Sprint 23")}]
+
+    m = MT.merge_series(stored, rebuilt, "a")
+    check("a recorded row substitutes at its own position, never appends",
+          [r["source"] for r in m["rows"]]
+          == ["reconstructed", "recorded", "reconstructed"],
+          [r["source"] for r in m["rows"]])
+    check("and the sprints stay in the order the board runs them",
+          [r["sprint"] for r in m["rows"]]
+          == ["Sprint 21", "Sprint 22", "Sprint 23"], [r["sprint"] for r in m["rows"]])
+    # Silent only when there is genuinely nothing a chart cannot show: every
+    # sprint recorded, at its own end, under today's statuses, all agreeing.
+    all_recorded = {"version": 1, "sprints": {
+        r["sprintId"]: {"row": r["row"], "observedOn": "2026-07-17",
+                        "final": True, "statuses": "a"} for r in rebuilt}}
+    check("a fully recorded, fully agreeing series says nothing at all",
+          MT.series_note(MT.merge_series(all_recorded, rebuilt, "a")) == "",
+          MT.series_note(MT.merge_series(all_recorded, rebuilt, "a")))
+    check("and a series with two of its three rebuilt is worth a sentence",
+          "2 of these 3 sprints" in MT.series_note(m), MT.series_note(m))
+
+    # A commitment that shrank: a reopened sprint, or a deleted issue. The
+    # recorded figures are drawn and the fields that moved are named — no winner
+    # is picked, because which field moved is more useful than either number.
+    shrunk = [dict(r, row=dict(good, committedItems=10, committedSP=25))
+              if r["sprintId"] == "S22" else r for r in rebuilt]
+    ms = MT.merge_series(stored, shrunk, "a")
+    check("a recorded row that no longer matches Jira keeps its own figures",
+          ms["rows"][1]["committedItems"] == 13, ms["rows"][1])
+    check("...and names the fields that moved rather than picking a winner",
+          sorted(ms["rows"][1]["differs"]) == ["committedItems", "committedSP"],
+          ms["rows"][1]["differs"])
+    note = MT.series_note(ms)
+    check("the note states the disagreement and which figures are shown",
+          "no longer matches" in note and "committedItems" in note
+          and "recorded figures are shown" in note, note)
+
+    # A rounded ratio differing in the last place is two roundings of one
+    # quantity, not a disagreement. Every other field is a count.
+    check("a rounded ratio differing in the last place is not a disagreement",
+          MT.series_disagreements(good, dict(good, flowEfficiency=0.34)) == [],
+          MT.series_disagreements(good, dict(good, flowEfficiency=0.34)))
+    check("a flow efficiency that really moved is",
+          [d["field"] for d in MT.series_disagreements(good, dict(good, flowEfficiency=0.19))]
+          == ["flowEfficiency"], "")
+    check("two refusals to state one figure are agreement, not a difference",
+          MT.series_disagreements(dict(good, valueDelivered=None),
+                                  dict(good, valueDelivered=None)) == [], "")
+    check("but a figure appearing where there was none is reported",
+          [d["field"] for d in MT.series_disagreements(dict(good, valueDelivered=None), good)]
+          == ["valueDelivered"], "")
+
+    moved = MT.merge_series(stored, rebuilt, "b")
+    check("a row recorded under different 'in progress' statuses says so",
+          moved["rows"][1]["statusesMoved"] is True
+          and m["rows"][1]["statusesMoved"] is False,
+          (moved["rows"][1]["statusesMoved"], m["rows"][1]["statusesMoved"]))
+    check("and the note calls it a change of measurement, not an error",
+          "not quite the same measurement" in MT.series_note(moved),
+          MT.series_note(moved))
+
+    mid = MT.merge_series({"version": 1, "sprints": {"S22": dict(entry, final=False)}},
+                          rebuilt, "a")
+    check("a row last seen mid-sprint is not claimed as the sprint's end",
+          mid["rows"][1]["atSprintEnd"] is False, mid["rows"][1])
+    check("and the note says which day it is instead",
+          "still running" in MT.series_note(mid), MT.series_note(mid))
+
+    orphan = MT.merge_series(
+        {"version": 1, "sprints": {"S22": entry, "S19": entry}}, rebuilt, "a")
+    check("a recorded sprint the board no longer offers is dropped and counted",
+          orphan["orphaned"] == ["S19"] and len(orphan["rows"]) == 3,
+          orphan["orphaned"])
+    check("and the note says it was left out rather than placed at a guess",
+          "no longer offered by this board" in MT.series_note(orphan),
+          MT.series_note(orphan))
+
+    # ---- a sprint is never compared against its own future ----
+    #
+    # The bundle path has always sliced `history` per context; the served route
+    # returns the whole board, and without this it drew a trend running months
+    # past the sprint on screen and compared that sprint's delivery against a
+    # row from after it. It read as a perfectly ordinary chart, and the
+    # transport-parity check in tests/e2e.py is what caught it.
+    ordered = [{"contextId": "B/1/S%d" % n, "row": {"sprint": "S%d" % n}}
+               for n in range(19, 25)]
+    check("the series stops at the selected sprint",
+          [r["contextId"] for r in MT.series_upto(ordered, "B/1/S21")]
+          == ["B/1/S19", "B/1/S20", "B/1/S21"],
+          [r["contextId"] for r in MT.series_upto(ordered, "B/1/S21")])
+    check("the latest sprint sees all of it",
+          len(MT.series_upto(ordered, "B/1/S24")) == 6, "")
+    check("the earliest sees only itself",
+          len(MT.series_upto(ordered, "B/1/S19")) == 1, "")
+    # A context this series is not about leaves the rows alone. Returning an
+    # empty trend would read as a team with no history rather than as a question
+    # asked of the wrong board.
+    check("an id that is not in the series does not silently empty it",
+          len(MT.series_upto(ordered, "OTHER/9/S1")) == 6, "")
+    check("and neither does no id at all",
+          len(MT.series_upto(ordered, None)) == 6, "")
+
+    # ---- one round trip, and the service still computes nothing of its own ----
+    bundle = json.loads((ROOT / "data" / "sample-bundle.json").read_text())
+    proj = [{k: v for k, v in i.items() if k in SVC.CALC_FIELDS}
+            for i in bundle["issues"]]
+    served = SVC.route_history({"dataset": {"contexts": bundle["contexts"],
+                                            "issues": proj,
+                                            "orgConfig": bundle.get("orgConfig")}})
+    direct = MT.history_series(bundle["contexts"], proj)
+    check("the service's rows are the tool's rows, called directly",
+          served["rows"] == direct, (len(served["rows"]), len(direct)))
+    check("and its merged view is the tool's merge of them",
+          served["merged"] == MT.merge_series(
+              {}, [{"sprintId": r["contextId"], "row": r["row"]} for r in direct],
+              None)["rows"], served["sprints"])
+    # Jira has no value field and CALC_FIELDS carries none, so the calculator
+    # can only ever answer null here. Zero would say the sprint delivered
+    # nothing worth anything, which is a much stronger claim.
+    check("value delivered comes back absent, never zero, over the calculator",
+          all(r["row"]["valueDelivered"] is None for r in served["rows"]),
+          [r["row"]["valueDelivered"] for r in served["rows"][:3]])
+    upto = SVC.route_history({"dataset": {"contexts": bundle["contexts"],
+                                          "issues": proj,
+                                          "orgConfig": bundle.get("orgConfig")},
+                              "contextId": "BLC/42/S21"})
+    check("the route records every sprint it saw but shows only up to the selection",
+          len(upto["rows"]) == len(served["rows"]) and len(upto["merged"]) == 3,
+          {"rows": len(upto["rows"]), "shown": len(upto["merged"])})
+
+    check("a history request with no contexts is refused, not answered emptily",
+          _refuses(lambda: SVC.route_history({"dataset": {"issues": []}})),
+          "no contexts")
+    check("issue text sent to the history route is refused like everywhere else",
+          _refuses(lambda: SVC.route_history(
+              {"dataset": {"contexts": bundle["contexts"],
+                           "issues": [dict(proj[0], summary="a title")]}})),
+          "free text")
+
+
+def _refuses(fn):
+    """Whether a route refused. Reported by exception type, not by grepping a
+    sentence — a refusal that changed its wording would otherwise start
+    reporting as a route that answered."""
+    try:
+        fn()
+    except SVC.Refused:
+        return True
+    except Exception:
+        return False
+    return False
 
 
 if __name__ == "__main__":

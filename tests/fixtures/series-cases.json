@@ -1,0 +1,37 @@
+{
+  "_why": "Two implementations of one policy, run over one list. forge/src/series.js decides what may be recorded on Forge; scripts/serve_live.py decides it over loopback. Neither is arithmetic — the figures all come from agent/tools/metrics.py — but a policy that differed between transports would mean a sprint recorded down one route and reconstructed down the other, with the page saying different things about the same board depending on how it was reached. ADR 0009, ADR 0015.",
+
+  "recordable": [
+    { "name": "an active sprint, never seen before",
+      "state": "active", "prior": null, "record": true },
+    { "name": "an active sprint we already have a mid-flight row for",
+      "state": "active", "prior": { "final": false }, "record": true },
+    { "name": "a sprint we were watching, now closed",
+      "state": "closed", "prior": { "final": false }, "record": true },
+    { "name": "a sprint that closed before we ever saw the board",
+      "state": "closed", "prior": null, "record": false },
+    { "name": "a sprint already recorded after its close",
+      "state": "closed", "prior": { "final": true }, "record": false },
+    { "name": "an active sprint whose prior row is somehow already final",
+      "state": "active", "prior": { "final": true }, "record": false },
+    { "name": "a state neither transport understands",
+      "state": "future", "prior": null, "record": false },
+    { "name": "no state at all",
+      "state": null, "prior": null, "record": false }
+  ],
+
+  "fingerprints": [
+    { "name": "the site's statuses",
+      "config": { "statuses": { "done": ["Done", "Shipped"], "inProgress": ["In Progress", "In Review"] } } },
+    { "name": "the same, reordered and recased",
+      "config": { "statuses": { "done": ["shipped", "DONE"], "inProgress": ["in review", "In Progress"] } } },
+    { "name": "In Review no longer counts as in progress",
+      "config": { "statuses": { "done": ["Done", "Shipped"], "inProgress": ["In Progress"] } } },
+    { "name": "a done list that gained a status",
+      "config": { "statuses": { "done": ["Done", "Shipped", "Signed off"], "inProgress": ["In Progress", "In Review"] } } },
+    { "name": "blank and whitespace entries, which mean nothing and must not count",
+      "config": { "statuses": { "done": ["Done", "  ", "Shipped", ""], "inProgress": ["In Progress", "In Review"] } } },
+    { "name": "no configuration at all",
+      "config": {} }
+  ]
+}

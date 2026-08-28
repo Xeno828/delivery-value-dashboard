@@ -127,6 +127,15 @@ const S = {
   recipients: undefined,
   recipientsSaved: false,
   recipientsProblems: [],
+  /** The board's trend series as the transport last reported it, with each row
+   *  saying whether it was recorded at the time or rebuilt from Jira after the
+   *  fact. `undefined` means not asked yet; `null` means there is no transport
+   *  or it refused, and a saved copy keeps whatever rows it was built with.
+   *  ADR 0015. */
+  series: undefined,
+  /** Which board `series` is about, so moving between two sprints of one board
+   *  does not refetch it and moving to another board does. */
+  seriesBoard: null,
   view: null,
   /** Tile ids currently on screen. Set at boot from the URL or from a saved
    *  copy's data-tiles attribute; never from storage, which would not
@@ -467,7 +476,12 @@ function buildView() {
     // A rollup spans several sprints, so a burndown is undefined for it. Better
     // an explicit blank with a reason than a chart that means nothing.
     burndown: ctx.isRollup ? [] : (last.burndown || []),
-    history: last.history || [],
+    // The served series wins over whatever the dataset carried, because it is
+    // the one that says where each row came from. A saved copy has no server
+    // to ask and keeps the rows it was built with — unlabelled, which is
+    // honest: nothing in a file can say whether a row was recorded.
+    history: (S.series && S.series.available && (S.series.rows || []).length)
+      ? S.series.rows : (last.history || []),
     releases: ctx.isRollup ? [] : (last.releases || []),
     dora: last.dora || null,
     meta: Object.assign({}, S.data.meta, {
@@ -1950,13 +1964,31 @@ function renderPred(m) {
   h.forEach((d, i) => {
     const cx = P.l + bandW * i + bandW / 2;
     const rel = cm(d) ? cp(d) / cm(d) : 0;
+    // Where the row came from, said on the point itself as well as in the note
+    // above: a reader hovering one sprint is asking about that sprint, and the
+    // sentence covering the whole series is not the answer.
+    const rebuilt = d.source === "reconstructed";
+    const extra = [];
+    if (d.source) {
+      extra.push(["Row", rebuilt
+        ? "rebuilt from Jira — this sprint closed before the app saw the board"
+        : "recorded" + (d.atSprintEnd === false ? " while still running, on " +
+            esc(d.observedOn || "an earlier day") : " when the sprint closed")]);
+    }
+    if ((d.differs || []).length) {
+      extra.push(["No longer matches Jira on", d.differs.join(", ")]);
+    }
+    if (d.statusesMoved) {
+      extra.push(["Measured under", "a different set of \u201cin progress\u201d statuses"]);
+    }
     const tt = ttBox(d.sprint, [["Committed", U().fmt(cm(d)) + " " + U().short],
       ["Completed", U().fmt(cp(d)) + " " + U().short],
-      ["Hit rate", pct(rel)], ["Items finished", d.throughput]],
+      ["Hit rate", pct(rel)], ["Items finished", d.throughput]].concat(extra),
       rel >= 0.9 ? "Commitment met." : "<b>" + U().fmt(cm(d) - cp(d)) + " " + U().n(cm(d) - cp(d)) + " short</b> of the commitment.");
-    s.add('<rect class="hit" x="' + (cx - bw - 1) + '" y="' + y(cm(d)) + '" width="' + bw + '" height="' + (y(0) - y(cm(d))) +
+    const mark = rebuilt ? ' class="hit pred-rebuilt" stroke="' : ' class="hit" stroke="';
+    s.add('<rect' + mark + commitCol + '" x="' + (cx - bw - 1) + '" y="' + y(cm(d)) + '" width="' + bw + '" height="' + (y(0) - y(cm(d))) +
       '" rx="3" fill="' + commitCol + '" data-tt="' + esc(tt) + '"/>');
-    s.add('<rect class="hit" x="' + (cx + 1) + '" y="' + y(cp(d)) + '" width="' + bw + '" height="' + (y(0) - y(cp(d))) +
+    s.add('<rect' + mark + doneCol + '" x="' + (cx + 1) + '" y="' + y(cp(d)) + '" width="' + bw + '" height="' + (y(0) - y(cp(d))) +
       '" rx="3" fill="' + doneCol + '" data-tt="' + esc(tt) + '"/>');
     s.add('<text class="axis-lab" x="' + cx + '" y="' + (H - 28) + '" text-anchor="middle">' + esc(d.sprint.replace("Sprint ", "S")) + "</text>");
     s.add('<text class="axis-lab" x="' + cx + '" y="' + (H - 15) + '" text-anchor="middle" style="font-weight:650;fill:' +
@@ -1967,13 +1999,20 @@ function renderPred(m) {
   const rates = h.map(d => cm(d) ? cp(d) / cm(d) : 0);
   const avg = sum(rates) / rates.length;
   const spread = Math.max.apply(null, h.map(cp)) - Math.min.apply(null, h.map(cp));
+  // Only when the series actually mixes the two. A legend entry explaining a
+  // distinction nothing on the chart makes is noise, and on a board where every
+  // row is recorded there is no distinction to make.
+  const mixes = h.some(d => d.source === "reconstructed") && h.some(d => d.source === "recorded");
   host.innerHTML = '<div class="legend"><span><i class="swatch" style="background:' + commitCol + '"></i>Committed</span>' +
     '<span><i class="swatch" style="background:' + doneCol + '"></i>Completed</span>' +
+    (mixes ? '<span><i class="swatch pred-rebuilt" style="background:' + doneCol +
+      ';border:1px solid ' + doneCol + '"></i>Rebuilt from Jira</span>' : "") +
     '<span style="margin-left:auto">% = share of the commitment met</span></div>' + s.out() +
     '<div class="note" style="margin-top:8px">Average hit rate <b>' + pct(avg) + "</b>; completed output swings by <b>" +
     U().fmt(spread) + " " + U().label + "</b> between the best and worst sprint. A commitment set from the last three actuals (<b>" +
     (m.avg3 ? U().fmt(m.avg3) + " " + U().label : "—") + "</b>) would be met far more often than one set from ambition." +
-    (U().isItems ? " The forecasting agent sizes this properly — a distribution over simulated sprints rather than a mean of three numbers." : "") + "</div>";
+    (U().isItems ? " The forecasting agent sizes this properly — a distribution over simulated sprints rather than a mean of three numbers." : "") + "</div>" +
+    seriesNoteHtml();
   S.tables.pred = { cols: ["Sprint", "Committed items", "Completed items", "Committed pts", "Completed pts",
       "Hit rate (" + U().short + ")", "Flow efficiency"],
     rows: h.map(d => [d.sprint, d.committedItems ?? "—", d.completedItems ?? d.throughput ?? "—",
@@ -2098,7 +2137,7 @@ function renderLoad() {
       : wipUp
       ? "Work in progress and completion are rising together, which is the healthy version of a busier team."
       : "Load and interruption are both steady. Nothing here suggests the team is being overloaded."
-  ) + "</div>";
+  ) + "</div>" + seriesNoteHtml();
 }
 
 /* =====================================================================
@@ -2473,6 +2512,53 @@ function fetchRecipients() {
       why: "The server did not answer about recipients (" + (r.status || 0) + ")." };
     render();
   }).catch(() => { S.recipients = null; render(); });
+}
+
+/* ---------------------------------------------------------------------
+   The trend series — roadmap item 4, ADR 0015.
+
+   The sprint-by-sprint rows behind the predictability chart and the Team load
+   card. They used to arrive inside the context body, which is where the
+   loopback bundle still carries them; a Forge tenant's context body has an
+   empty `history` and always has, because a resolver computes nothing.
+
+   So they come from a route of their own, and it answers a question about the
+   *board* rather than the selected sprint — which is why it is not folded into
+   the context body: making every panel load of one sprint fetch all of them
+   would be a different trade taken by accident.
+
+   The rows arrive labelled. A **recorded** row was written when this
+   installation saw that sprint; a **reconstructed** one was re-derived from
+   Jira for a sprint that closed before the app was there. On most sites the two
+   are identical — what differs is the warrant, and a reader comparing this
+   quarter against last year is entitled to see where it changes.
+   --------------------------------------------------------------------- */
+
+/** Per context, because the answer is per board and the context names one.
+ *  Refetched when the selection moves to another board and not otherwise. */
+function fetchSeries(cid) {
+  if (!LIVE) { S.series = null; return; }
+  S.series = undefined;
+  LIVE.get("history", { id: cid }).then(r => {
+    S.series = r.ok && r.body ? r.body : null;
+    render();
+  }).catch(() => { S.series = null; render(); });
+}
+
+/** What the page says above a trend, once, from the tool that counted it.
+ *  Empty when the series has nothing a chart cannot show for itself. */
+function seriesNoteHtml() {
+  const s = S.series;
+  if (!s || !s.available) return "";
+  const bits = [];
+  if (s.note) bits.push('<div class="note sr-note">' + esc(s.note) + "</div>");
+  // The store's own complaints, kept apart from the note: a row this app
+  // declined to keep is a fact about this app, not about the team.
+  if ((s.problems || []).length) {
+    bits.push('<div class="fc-refusal"><b>Some rows were not kept.</b><ul>' +
+      s.problems.map(x => "<li>" + esc(x) + "</li>").join("") + "</ul></div>");
+  }
+  return bits.join("");
 }
 
 /** Comma-separated, empties dropped. What a person types into a list field. */
@@ -3725,6 +3811,16 @@ function saveView() {
    ================================================================== */
 let rafT;
 function render() {
+  // Asked once per board, not once per render. The series is a question about
+  // the board, so moving between two sprints of one board must not refetch it —
+  // and moving to another board must.
+  if (LIVE && S.ctx) {
+    const board = String((S.data.contexts.find(c => c.id === S.ctx) || {}).boardId || "");
+    if (board && board !== S.seriesBoard) {
+      S.seriesBoard = board;
+      fetchSeries(S.ctx);
+    }
+  }
   S.view = buildView();
   /* Before anything is painted: the tiles a board shows by default depend on
      what kind of board it is, and a switch must not leave one board's default
@@ -3798,6 +3894,10 @@ const ROUTES = {
   forecast: p => "api/forecast?id=" + encodeURIComponent(p.id) +
     (p.items != null ? "&items=" + encodeURIComponent(p.items) : "") +
     (p.date ? "&date=" + encodeURIComponent(p.date) : ""),
+  // The board's trend series. Per context because the id names the board, and
+  // the resolver checks it against the project this page is open on rather than
+  // trusting a board number from the page. ADR 0015.
+  history: p => "api/history?id=" + encodeURIComponent(p.id),
   recipients: () => "api/recipients",
   saveRecipients: () => "api/recipients",
   searchUsers: p => "api/users?query=" + encodeURIComponent(p.query),

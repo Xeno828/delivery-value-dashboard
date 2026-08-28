@@ -185,8 +185,250 @@ def history_row(issues, sprint_name, as_of):
         # because a working-day cycle over a calendar-day lead is the shape of
         # the 25%-versus-22% disagreement that shipped once.
         "flowEfficiency": round(tot_cyc / tot_lead, 2) if tot_lead else None,
-        "valueDelivered": round(sum(i.get("businessValue") or 0 for i in done), 0),
+        # Absent, not nil. Jira has no native value field, so a payload that
+        # never carried one — every Forge tenant's — would otherwise report
+        # every sprint as having delivered nothing of value, which is a much
+        # stronger claim than "nobody told us". A set where the field is
+        # present and sums to zero keeps its zero.
+        "valueDelivered": (round(sum(i.get("businessValue") or 0 for i in done), 0)
+                           if any("businessValue" in i for i in issues) else None),
     }
+
+
+def history_series(contexts, issues):
+    """One row per sprint context, in the order the board runs them.
+
+    The loop lives here rather than in whatever calls it, for the same reason
+    `slice_for` does: a caller that grouped issues by context itself would be a
+    second opinion about which issues belong to which sprint, and every failure
+    of that opinion is a plausible row rather than an error.
+
+    Only sprint contexts. A flow board's windows overlap completely — 14, 30 and
+    90 days of the same board — so a "history" over them would count the same
+    issue three times and draw a trend out of one. ADR 0011: a window is not a
+    clock, and it is not a sprint either.
+
+    Returns the context id beside each row rather than a bare list, because the
+    caller has to line these up against a store keyed by sprint and a positional
+    match would silently slip the day a board gains a sprint.
+    """
+    out = []
+    for c in contexts or []:
+        if (c.get("kind") or "sprint") != "sprint":
+            continue
+        cid = c.get("id")
+        if not cid:
+            continue
+        mine = [i for i in issues or [] if i.get("contextId") == cid]
+        as_of = c.get("asOfDate") or c.get("endDate")
+        if not as_of:
+            # No moment to be a statement about. Dropped and countable by the
+            # caller rather than dated to today, which would report a closed
+            # sprint's figures as of now — the 1.36.0 bug, re-entered by a
+            # different door.
+            continue
+        out.append({
+            "contextId": cid,
+            "sprintState": c.get("sprintState"),
+            # The moment the row is a statement about, returned rather than left
+            # for the caller to recover from the contexts it sent. A caller that
+            # re-derived it would be free to derive a different one, and "this
+            # row is that Wednesday" is the whole claim a mid-flight row makes.
+            "asOf": as_of,
+            "row": history_row(mine, c.get("sprintName") or cid, as_of),
+        })
+    return out
+
+
+
+# --------------------------------------------------------- the durable series
+#
+# ADR 0015. A history row re-derives from Jira at any distance, so this is not a
+# cache; rows are recorded because four things can make a later re-derivation
+# disagree with what was true and none of them announces itself.
+#
+# The merge, the disagreements and the note live here rather than in the caller
+# for the reason every figure in this repository lives in a tool: the note
+# states counts a reader reads — *"2 of these 3 sprints were rebuilt"* — and a
+# count computed between a tool and a reader is a second implementation waiting
+# to disagree with the first. `forge/src/series.js` decides what is *kept*;
+# this decides what is *shown*.
+
+#: Fields a stored row carries. An allow-list, not a filter for size: this row
+#: is derived from issues, and a deny-list is one upstream change away from
+#: putting an issue summary into an app's store. Mirrored in series.js, and
+#: `tests/test_service.py` holds the two lists together.
+ROW_FIELDS = ("sprint", "committedSP", "completedSP", "committedItems",
+              "completedItems", "throughput", "wipItems", "unplannedItems",
+              "flowEfficiency", "valueDelivered")
+
+#: Compared when a recorded row meets a re-derived one. Every one of these is
+#: supposed to re-derive identically, so a difference is never noise.
+_COMPARED = tuple(f for f in ROW_FIELDS if f != "sprint")
+
+#: The two the derivation is entitled to leave absent. `flowEfficiency` when
+#: there is no lead time to divide by; `valueDelivered` when nothing carried a
+#: business value at all, which is every Forge tenant — Jira has no such field.
+#: Zero there would claim the sprint delivered nothing worth anything.
+_NULLABLE = ("flowEfficiency", "valueDelivered")
+
+
+def series_disagreements(recorded, reconstructed):
+    """Fields on which a recorded row and a re-derivation differ.
+
+    Which field moved says a great deal about why. Commitment falling is a
+    stripped sprint membership or a deleted issue; work in progress moving with
+    commitment unchanged is a status recategorised underneath it.
+
+    `flowEfficiency` carries a tolerance because it is a rounded ratio and two
+    roundings of one quantity differ in the last place. Nothing else does:
+    these are counts, and a count off by one is off by one.
+    """
+    out = []
+    if not recorded or not reconstructed:
+        return out
+    for f in _COMPARED:
+        a, b = recorded.get(f, "\0"), reconstructed.get(f, "\0")
+        if a == "\0" or b == "\0":
+            continue
+        if f in _NULLABLE:
+            if (a is None) != (b is None):
+                out.append({"field": f, "recorded": a, "reconstructed": b})
+            elif a is None:
+                continue            # two refusals to state one figure agree
+            elif f == "flowEfficiency":
+                if abs(a - b) > 0.011:
+                    out.append({"field": f, "recorded": a, "reconstructed": b})
+            elif a != b:
+                out.append({"field": f, "recorded": a, "reconstructed": b})
+            continue
+        if a != b:
+            out.append({"field": f, "recorded": a, "reconstructed": b})
+    return out
+
+
+def merge_series(stored, computed, today_statuses=None):
+    """One series, with each row saying which kind of evidence it is.
+
+    `computed` arrives in the order the board runs its sprints and that order is
+    kept, because it is a chart's x-axis. A recorded row *substitutes* at the
+    same position; it never appends and never reorders, so a series with one
+    recorded sprint in the middle is still one series.
+
+    A recorded sprint that the board no longer offers is dropped and counted,
+    not spliced back in at a guessed position — a point on a chart at a date
+    nothing else agrees with is worse than a point that is missing and named.
+    """
+    sprints = (stored or {}).get("sprints") or {}
+    rows, seen = [], set()
+    for item in computed or []:
+        sid = str(item.get("sprintId") if item.get("sprintId") is not None
+                  else item.get("contextId"))
+        raw = item.get("row") or {}
+        seen.add(sid)
+        kept = sprints.get(sid)
+        if not kept or not kept.get("row"):
+            rows.append(dict(raw, source="reconstructed"))
+            continue
+        row = dict(kept["row"])
+        row["source"] = "recorded"
+        row["observedOn"] = kept.get("observedOn")
+        # On the row and not only in the note, because a chart may show one
+        # sprint at a time and the note sits above all of them.
+        row["atSprintEnd"] = kept.get("final") is True
+        row["differs"] = [d["field"] for d in series_disagreements(kept["row"], raw)]
+        # Computed under a different idea of "in progress" than today's. Not an
+        # error and not a disagreement — it is what makes a difference in
+        # wipItems explicable rather than alarming.
+        row["statusesMoved"] = bool(
+            isinstance(today_statuses, str) and isinstance(kept.get("statuses"), str)
+            and kept["statuses"] != today_statuses)
+        rows.append(row)
+    return {"rows": rows, "orphaned": sorted(k for k in sprints if k not in seen)}
+
+
+def series_upto(rows, context_id):
+    """A context sees the series up to and including itself, never the future.
+
+    The fetcher has always done this — `history` in a bundle is sliced per
+    context — and the rule survived into the served route only because this
+    function exists. Without it, selecting a sprint that closed in June draws a
+    trend running through September and compares that sprint's delivery against
+    a row from three months after it, which is not a comparison anybody asked
+    for and reads as a perfectly ordinary chart.
+
+    Matched on the context id rather than on a date, because the ids are what
+    the caller selected by and a date comparison would need a tie-break the
+    moment two sprints share an end. An id that is not in the list leaves the
+    rows alone: the caller is looking at something this series is not about, and
+    silently returning an empty trend would read as a team with no history.
+    """
+    ids = [r.get("contextId") for r in rows or []]
+    if context_id not in ids:
+        return list(rows or [])
+    return list(rows)[:ids.index(context_id) + 1]
+
+
+def series_note(merged):
+    """What the page says above the chart. Silent when there is nothing to say.
+
+    Every sentence is about something a reader cannot see by looking. Six
+    visible points do not need a sentence saying there are six; a recorded
+    sprint whose figures no longer match Jira's answer does.
+
+    Counts are read off the rows they describe, never computed beside them.
+    """
+    rows = (merged or {}).get("rows") or []
+    orphaned = (merged or {}).get("orphaned") or []
+    recorded = [r for r in rows if r.get("source") == "recorded"]
+    rebuilt = [r for r in rows if r.get("source") == "reconstructed"]
+    out = []
+
+    if recorded and rebuilt:
+        out.append(
+            "%d of these %d sprint%s closed before this app saw the board, so %s "
+            "rebuilt from Jira rather than recorded at the time. They agree unless "
+            "something below says otherwise."
+            % (len(rebuilt), len(rows), "" if len(rows) == 1 else "s",
+               "its row was" if len(rebuilt) == 1 else "their rows were"))
+
+    mid = [r for r in recorded if r.get("atSprintEnd") is False]
+    if mid:
+        out.append(
+            "One recorded sprint was last seen while it was still running, so its "
+            "row is that day rather than the sprint's end." if len(mid) == 1 else
+            "%d recorded sprints were last seen while still running, so their rows "
+            "are those days rather than the sprints' ends." % len(mid))
+
+    moved = [r for r in recorded if r.get("statusesMoved") is True]
+    if moved:
+        out.append(
+            "%s recorded under a different set of \u201cin progress\u201d statuses than "
+            "this site uses now. Work in progress and flow efficiency are measured "
+            "against that word, so those points and the recent ones are not quite "
+            "the same measurement."
+            % ("One sprint was" if len(moved) == 1 else "%d sprints were" % len(moved)))
+
+    differing = [r for r in recorded if r.get("differs")]
+    if differing:
+        fields = sorted({f for r in differing for f in r["differs"]})
+        out.append(
+            "%s what Jira answers for %s today \u2014 %s. The recorded figures are "
+            "shown. A sprint reopened and closed again, or an issue deleted, changes "
+            "what can be re-derived; the record of what was true does not change."
+            % ("One recorded sprint no longer matches" if len(differing) == 1
+               else "%d recorded sprints no longer match" % len(differing),
+               "it" if len(differing) == 1 else "them", ", ".join(fields)))
+
+    if orphaned:
+        out.append(
+            "%s no longer offered by this board and %s left out rather than placed "
+            "at a guessed position."
+            % ("One recorded sprint is" if len(orphaned) == 1
+               else "%d recorded sprints are" % len(orphaned),
+               "was" if len(orphaned) == 1 else "were"))
+
+    return " ".join(out)
 
 
 def facts(ds, previous=None, scope="sprint"):

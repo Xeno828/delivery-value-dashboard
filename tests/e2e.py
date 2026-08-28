@@ -672,6 +672,13 @@ def transports(b):
         cid = contexts_body["contexts"][0]["id"]
         with urllib.request.urlopen(api + "context?id=" + cid, timeout=20) as r:
             context_body = json.loads(r.read())
+        # The trend series, which is its own route on both transports. A Forge
+        # context body carries `history: []` and always has — the resolver
+        # computes nothing — so the rows come from here or the page has none.
+        # Fetched rather than fabricated: the whole claim under test is that one
+        # body renders identically whichever transport carried it.
+        with urllib.request.urlopen(api + "history?id=" + cid, timeout=20) as r:
+            history_body = json.loads(r.read())
 
         # A fingerprint of what the page decided, not of how it looks. The
         # footer carries the issue count and the sprint count; the KPI strip
@@ -848,8 +855,10 @@ def transports(b):
             const bodies = %s;
             if (route === 'contexts') return Promise.resolve({status: 200, body: bodies.contexts});
             if (route === 'context') return Promise.resolve({status: 200, body: bodies.context});
+            if (route === 'history') return Promise.resolve({status: 200, body: bodies.history});
             return Promise.resolve({status: 404, body: null}); } };
-        """ % json.dumps({"contexts": contexts_body, "context": forge_shaped})
+        """ % json.dumps({"contexts": contexts_body, "context": forge_shaped,
+                          "history": history_body})
 
         page = b.new_page(viewport={"width": 1500, "height": 1000})
         page.add_init_script(shaped_stub)
@@ -864,6 +873,12 @@ def transports(b):
 
         check("the page fills in the working days the resolver does not send",
               wd > 0, wd)
+        # The trend tiles on a Forge-shaped body have nothing to draw unless the
+        # series route supplies it: `history` in a context body is empty on that
+        # transport and always has been. This is the check that would have
+        # failed before the route existed — the tiles rendered "needs at least
+        # two sprints" in every tenant and nothing said why.
+
         check("and resolves `started` out of the raw transitions, earliest first",
               starts_shaped == starts_loop, {"served": starts_loop[:4],
                                              "forge-shaped": starts_shaped[:4]})

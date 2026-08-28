@@ -133,6 +133,18 @@ The distinction is not pedantry. Read off current status, a closed sprint report
 
 Because the row is derived from dates, **it re-derives correctly at any distance** — a sprint that closed a year ago produces the same row today that it produced then. That is a property worth knowing before assuming a series must be stored to be trustworthy; the reasons it is stored anyway are narrower, and [ADR 0015](adr/0015-a-durable-series-stores-what-jira-forgets.md) sets out all four.
 
+Over a live connection the rows come from a **route of their own** (`api/history`, or the `history` resolver) rather than from the context body, and each one carries where it came from:
+
+```json
+{ "sprint": "Sprint 23", "committedItems": 12, "completedItems": 8, "…": "…",
+  "source": "recorded", "observedOn": "2026-07-17", "atSprintEnd": true,
+  "differs": [], "statusesMoved": false }
+```
+
+`source` is `"recorded"` for a row this installation wrote when it saw that sprint, and `"reconstructed"` for one re-derived from Jira afterwards. `differs` names the fields on which a recorded row and Jira's answer today disagree — both are kept and neither wins. A saved copy has no route to ask and keeps whatever rows it was built with, unlabelled, which is honest: nothing in a file can say whether a row was recorded. [ADR 0015](adr/0015-a-durable-series-stores-what-jira-forgets.md).
+
+A context sees the series **up to and including itself, never the future**. A sprint that closed in June is not compared against a row from September.
+
 One of them belongs here, because it is a property of this schema rather than of Jira. **`started` is not a field Jira keeps.** It is recovered by replaying an issue's changelog and taking the first transition into a status that the *current* `orgConfig.statuses` calls In Progress. Recategorise a status and every past sprint's `started` moves, and with it every `wipItems` and `flowEfficiency` in the series — retroactively, with nothing marking the change. It is the same hazard that made `orgConfig` travel inside the dataset rather than beside it.
 
 **There is no hours or overtime field, deliberately.** The organisation does not operate overtime, and carrying such a field would imply a time-tracking regime that does not exist. An earlier version of this dashboard charted output-per-person against recorded overtime; both were removed. Output per person, with no counterweight, is a productivity-per-head number, and this dashboard does not measure people.

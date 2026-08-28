@@ -16,11 +16,23 @@
  * ones where a recorded row and a reconstruction disagree, which is the case
  * this module exists for.
  *
- * **Nothing here computes a row.** `history_row()` in `agent/tools/metrics.py`
- * does that, and on Forge it runs in the calculator, because a resolver that
- * derived its own figures would be the second implementation `CLAUDE.md`
- * forbids. This module decides what is kept, what may be written, and how a
- * kept row and a re-derived one are presented side by side.
+ * **This module decides what is kept. It decides nothing that is shown.** That
+ * line was in the wrong place when this file was first written: `seriesNote`
+ * lived here and counted rows into a sentence a reader reads — *"2 of these 3
+ * sprints were rebuilt"* — which is a figure produced between a tool and a
+ * reader, exactly what `CLAUDE.md` forbids, and it would have needed a second
+ * implementation in Python the moment loopback answered the same route.
+ *
+ * So the merge, the disagreements and the note are `merge_series`,
+ * `series_disagreements` and `series_note` in `agent/tools/metrics.py`, and
+ * both transports get them from there. What is left here is storage policy and
+ * validation: where a board's rows live, what a row may contain, and whether
+ * this observation may be written at all. None of it is arithmetic and none of
+ * it reaches a reader as a figure.
+ *
+ * `ROW_FIELDS` is mirrored in `metrics.py` and `tests/test_service.py` holds
+ * the two lists together — a projection that admitted a field the tool did not
+ * know about would store something nothing ever reads.
  */
 
 /** The store's own shape version. Bumped when the *layout* changes, never
@@ -54,21 +66,30 @@ export const ROW_FIELDS = Object.freeze([
   'flowEfficiency', 'valueDelivered',
 ]);
 
-/** The re-derivable fields, which is every count except the sprint's name. A
- *  recorded row and a reconstruction are compared on exactly these — see
- *  `disagreements`. */
+/** The re-derivable fields, which is every count except the sprint's name.
+ *  Comparing a recorded row against a re-derived one happens in
+ *  `metrics.series_disagreements`, not here — see the header. */
 const COMPARED = ROW_FIELDS.filter((f) => f !== 'sprint');
 
 const isFiniteNumber = (v) => typeof v === 'number' && Number.isFinite(v);
 
+/** The two fields the derivation is entitled to leave null, and why.
+ *
+ *  `flowEfficiency` is null when there is no lead time to divide by — a refusal
+ *  to state a ratio rather than a gap in the row.
+ *
+ *  `valueDelivered` is null when nothing in the issue set carried a business
+ *  value at all, which is every Forge tenant: Jira has no native value field,
+ *  and the calculator is never sent one because `CALC_FIELDS` does not include
+ *  it. Zero there would say the sprint delivered nothing worth anything, which
+ *  is a much stronger claim than nobody having told us. A set that carries the
+ *  field and sums to zero keeps its zero.
+ *
+ *  A null anywhere else is a row that should not be stored. */
+const NULLABLE = new Set(['flowEfficiency', 'valueDelivered']);
+
 /**
  * A row reduced to the fields above, with everything else dropped.
- *
- * `flowEfficiency` is allowed to be null and nothing else is: it is the one
- * figure the derivation itself declines to state when there is no lead time to
- * divide by, and a null there is a refusal rather than a gap. A null in any
- * other position is a row that should not be stored, and `problemsInRow` says
- * so rather than this function quietly substituting a zero.
  */
 export const rowProjection = (row) => {
   const out = {};
@@ -96,7 +117,7 @@ export const problemsInRow = (row) => {
   }
   for (const f of COMPARED) {
     const v = r[f];
-    if (v === null && f === 'flowEfficiency') continue;
+    if (v === null && NULLABLE.has(f)) continue;
     if (!isFiniteNumber(v)) {
       out.push(`${f} is ${v === undefined ? 'missing' : JSON.stringify(v)}, and every figure in a stored row must be a number — a row with a gap in it reads as a zero on a chart.`);
     }
@@ -222,130 +243,3 @@ export const writeSeries = (existing, sprintId, entry) => ({
   version: SERIES_VERSION,
   sprints: { ...(existing.sprints || {}), [String(sprintId)]: entry },
 });
-
-/**
- * Where a recorded row and a re-derived one disagree, by field.
- *
- * Every field compared is one that is supposed to re-derive identically, so a
- * disagreement is never noise — it is one of ADR 0015's four hazards having
- * happened to that sprint, and which field moved says a great deal about which
- * one it was. Commitment falling is a stripped sprint membership or a deleted
- * issue; work in progress moving with commitment unchanged is a status
- * recategorised underneath it.
- *
- * `flowEfficiency` is compared with a tolerance because it is a rounded ratio
- * and two roundings of the same quantity differ in the last place. Nothing else
- * is: these are counts, and a count that is off by one is off by one.
- */
-export const disagreements = (recorded, reconstructed) => {
-  const out = [];
-  if (!recorded || !reconstructed) return out;
-  for (const f of COMPARED) {
-    const a = recorded[f];
-    const b = reconstructed[f];
-    if (a === undefined || b === undefined) continue;
-    if (a === null && b === null) continue;
-    if (f === 'flowEfficiency') {
-      if (isFiniteNumber(a) && isFiniteNumber(b) && Math.abs(a - b) > 0.011) {
-        out.push({ field: f, recorded: a, reconstructed: b });
-      } else if ((a === null) !== (b === null)) {
-        out.push({ field: f, recorded: a, reconstructed: b });
-      }
-      continue;
-    }
-    if (a !== b) out.push({ field: f, recorded: a, reconstructed: b });
-  }
-  return out;
-};
-
-/**
- * The series the page reads: recorded rows where we have them, reconstructions
- * where we do not, each saying which it is.
- *
- * `reconstructed` arrives in the order the sprints run and that order is kept,
- * because it is a chart's x-axis. A recorded row substitutes for the
- * reconstruction at the same position — it does not append, and it does not
- * reorder — so a series with one recorded sprint in the middle is still one
- * series.
- *
- * A recorded sprint that is not in `reconstructed` at all is **dropped, and
- * counted in the note**. It is a sprint this board no longer offers — deleted,
- * or moved to another board — and splicing it back in at a guessed position
- * would put a point on a chart at a date nothing else agrees with.
- */
-export const mergeSeries = (stored, reconstructed, todayStatuses) => {
-  const sprints = (stored && stored.sprints) || {};
-  const list = Array.isArray(reconstructed) ? reconstructed : [];
-  const seen = new Set();
-
-  const rows = list.map(({ sprintId, row }) => {
-    const key = String(sprintId);
-    const kept = sprints[key];
-    seen.add(key);
-    if (!kept || !kept.row) {
-      return { ...rowProjection(row), source: 'reconstructed' };
-    }
-    return {
-      ...kept.row,
-      source: 'recorded',
-      observedOn: kept.observedOn || null,
-      // Stated on the row rather than only in a note, because a chart may show
-      // one sprint at a time and the note is above all of them.
-      atSprintEnd: kept.final === true,
-      differs: disagreements(kept.row, rowProjection(row)).map((d) => d.field),
-      // Computed under a different idea of "in progress" than today's. Not an
-      // error and not a disagreement — it is the reason a disagreement in
-      // `wipItems` would be explicable rather than alarming.
-      statusesMoved: typeof todayStatuses === 'string' && typeof kept.statuses === 'string'
-        && kept.statuses !== todayStatuses,
-    };
-  });
-
-  const orphaned = Object.keys(sprints).filter((k) => !seen.has(k));
-  return { rows, orphaned };
-};
-
-/**
- * What the page says above the chart. Silent when there is nothing to say.
- *
- * Every sentence here is about something a reader cannot see by looking at the
- * chart, which is the same rule `nameNote` follows. "Six sprints, four
- * recorded" over six visible points is noise; a sprint whose recorded figures
- * disagree with Jira's own answer today is not.
- *
- * Counts are read off the rows they describe, never computed beside them.
- */
-export const seriesNote = ({ rows, orphaned }) => {
-  const out = [];
-  const list = Array.isArray(rows) ? rows : [];
-  const recorded = list.filter((r) => r.source === 'recorded');
-  const rebuilt = list.filter((r) => r.source === 'reconstructed');
-
-  if (recorded.length && rebuilt.length) {
-    out.push(`${rebuilt.length} of these ${list.length} sprint${list.length === 1 ? '' : 's'} closed before this app saw the board, so ${rebuilt.length === 1 ? 'its row was' : 'their rows were'} rebuilt from Jira rather than recorded at the time. They agree unless something below says otherwise.`);
-  }
-
-  const midFlight = recorded.filter((r) => r.atSprintEnd === false);
-  if (midFlight.length) {
-    out.push(midFlight.length === 1
-      ? 'One recorded sprint was last seen while it was still running, so its row is that day rather than the sprint\'s end.'
-      : `${midFlight.length} recorded sprints were last seen while still running, so their rows are those days rather than the sprints' ends.`);
-  }
-
-  const moved = recorded.filter((r) => r.statusesMoved === true);
-  if (moved.length) {
-    out.push(`${moved.length === 1 ? 'One sprint was' : `${moved.length} sprints were`} recorded under a different set of "in progress" statuses than this site uses now. Work in progress and flow efficiency are measured against that word, so those points and the recent ones are not quite the same measurement.`);
-  }
-
-  const differing = recorded.filter((r) => (r.differs || []).length);
-  if (differing.length) {
-    const fields = [...new Set(differing.flatMap((r) => r.differs))].sort();
-    out.push(`${differing.length === 1 ? 'One recorded sprint no longer matches' : `${differing.length} recorded sprints no longer match`} what Jira answers for ${differing.length === 1 ? 'it' : 'them'} today — ${fields.join(', ')}. The recorded figures are shown. A sprint reopened and closed again, or an issue deleted, changes what can be re-derived; the record of what was true does not change.`);
-  }
-
-  if ((orphaned || []).length) {
-    out.push(`${orphaned.length === 1 ? 'One recorded sprint is' : `${orphaned.length} recorded sprints are`} no longer offered by this board and ${orphaned.length === 1 ? 'was' : 'were'} left out rather than placed at a guessed position.`);
-  }
-
-  return out.join(' ');
-};
