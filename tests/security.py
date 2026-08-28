@@ -645,6 +645,38 @@ def picker_checks():
     check("the picker stores an account id, not an address",
           "add(p.accountId" in body, body[-400:])
 
+    # The names shown for ids already stored are a second render path for the
+    # same attacker-set string, reached by a different route: `displayName` out
+    # of `/user/bulk` rather than `/user/search`. The XSS in 1.4.0 was two call
+    # sites, one of which had been escaped.
+    if "function wireBriefNames" not in js:
+        check("the name list exists to be checked", False, "wireBriefNames missing")
+        return
+    names = js.split("function wireBriefNames", 1)[1].split("\n}", 1)[0]
+
+    check("a stored id's name is escaped where it is rendered",
+          "esc(p.displayName)" in names, names[:200])
+    check("the server's own note is escaped there too",
+          "esc(b.note)" in names,
+          [ln.strip() for ln in names.split("\n") if "b.note" in ln])
+    # The id is rendered beside the name and is not safe either: the field is
+    # free text, and a lookup happens before anything has been saved, so the id
+    # echoed back is whatever was typed into it. `ACCOUNT_ID` only refuses it at
+    # save time, which is after this has already been drawn.
+    check("and so is the account id shown beside it",
+          "esc(p.accountId)" in names,
+          [ln.strip() for ln in names.split("\n") if "accountId" in ln])
+
+    raw = [ln.strip() for ln in names.split("\n")
+           if ("displayName" in ln or "b.note" in ln or "p.accountId" in ln)
+           and "+" in ln and "esc(" not in ln]
+    check("no name, note or id is interpolated without it", not raw, raw)
+
+    # Same rule as the search: nothing about a person travels through a DOM
+    # attribute where markup could reach it.
+    check("no part of a person is carried in a DOM attribute",
+          "data-account" not in names and "data-name" not in names, names[:200])
+
 
 def main():
     if not DIST.exists():

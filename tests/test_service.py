@@ -2313,6 +2313,146 @@ def test_a_scheduled_run_that_cannot_deliver_says_so_before_doing_work():
           [ln for ln in src.split("\n") if "anchorIssue" in ln and "reason" in ln][:2])
 
 
+def test_a_stored_id_can_be_shown_as_a_name():
+    """The search stops anyone needing to know an account id. This stops the
+    field being unreadable to whoever opens the tile next.
+
+    A recipient list is a disclosure control, and one nobody can check is not
+    doing its job: `712020:5ad8ac88-…, 60ad2eb506bf0c006a432a17` is a list an
+    administrator can only take on trust.
+
+    What is guarded here is the same projection discipline as the search — the
+    bulk endpoint returns `emailAddress` too — plus the two states that only
+    exist on this side. An id can resolve to a **deactivated** account, or to
+    **nothing at all**, and those are different facts with different fixes. The
+    search filters deactivated people out because adding one is a mistake being
+    made now; here the mistake is already in the config, quietly sending
+    nothing, and hiding the row would leave a list that looks complete.
+    """
+    node = subprocess.run(["node", str(ROOT / "tests" / "brief_shapes.mjs")],
+                          input=json.dumps({"refusal": "R"}),
+                          capture_output=True, text=True, cwd=str(ROOT))
+    if node.returncode != 0:
+        check("the brief shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    n = json.loads(node.stdout)["names"]
+    rows = n["mixed"]["people"]
+
+    # An allow-list of three fields. `state` is the third and it is a state, not
+    # a flag: two booleans would let "deactivated" and "no such account" be read
+    # as each other, which is how "no sprint calendar" came to be printed for
+    # three unrelated causes.
+    fields = {k for row in rows for k in row}
+    check("a named id carries an account id, a display name and a state, and "
+          "nothing else", fields == {"accountId", "displayName", "state"},
+          sorted(fields))
+    for leaked in ("example.com", "avatarUrls", "timeZone", "locale", "emailAddress"):
+        check("no %s survives the name projection" % leaked,
+              leaked not in n["serialised"], n["serialised"][:160])
+
+    # Every id asked about gets a row, in the order it was asked about. Four
+    # names against five ids, with no way to tell which one is missing, is the
+    # list-that-looks-complete this repository pays for most often.
+    check("every id asked about comes back with a row",
+          [r["accountId"] for r in rows] == n["asked"],
+          [[r["accountId"] for r in rows], n["asked"]])
+
+    state = {r["accountId"]: r["state"] for r in rows}
+    check("a deactivated account is shown rather than filtered out",
+          state.get("a2") == "deactivated", state)
+    check("an id that matches no account says so in its own words",
+          state.get("ghost") == "unknown", state)
+    check("and the two are not the same state",
+          state.get("a2") != state.get("ghost"), state)
+    check("a live account is not marked as either",
+          state.get("a1") == "active", state)
+    check("an id that matched nothing carries no invented name",
+          [r["displayName"] for r in rows if r["state"] == "unknown"] == [""], rows)
+
+    # The note speaks only for what a reader cannot see by looking. The names
+    # are listed directly beneath it.
+    check("nothing wrong is said quietly, which is to say not at all",
+          n["quietNote"] == "", n["quietNote"])
+    check("a deactivated account is named as one in the note",
+          "deactivated" in n["mixedNote"], n["mixedNote"])
+    check("and says the brief reaches nobody there, rather than implying it",
+          "reaches nobody" in n["mixedNote"], n["mixedNote"])
+    check("an unresolvable id is named separately, not folded into the same "
+          "sentence", "matches no account" in n["mixedNote"], n["mixedNote"])
+
+    # No silent caps.
+    check("the ids asked about in one call are capped",
+          n["asking"] == n["max"], [n["asking"], n["max"]])
+    check("and the remainder is counted, not dropped",
+          n["over"] == 3, n["over"])
+    check("and the note says how many were not looked up",
+          str(n["over"]) in n["overNote"] and str(n["max"]) in n["overNote"],
+          n["overNote"])
+    check("a repeated id is asked about once", n["deduped"]["ask"] == ["a1", "a2"],
+          n["deduped"])
+    check("and deduplicating does not invent a remainder",
+          n["deduped"]["over"] == 0, n["deduped"])
+
+    # `user/bulk` paginates: the list is under `values`. Reading the envelope as
+    # the answer would return no names for every id and the tile would state,
+    # with confidence, that none of them exists.
+    check("a response that is not a list is refused rather than read as empty",
+          "problems" in n["notAList"], n["notAList"])
+
+    src = (ROOT / "forge" / "src" / "index.js").read_text()
+    block = src.split("resolver.define('namesFor'", 1)[-1].split("}));", 1)[0]
+    check("the resolver exists", "user/bulk" in block, block[:160])
+    # As the reader, like the search. As the app it would show names out of a
+    # directory this reader may not browse.
+    check("the name lookup runs as the reader, not as the app",
+          "asUser()" in block and "jira(" not in block, block[:200])
+    # The one way to send `accountId` more than once without hand-building a
+    # URL and reaching for assumeTrustedRoute, which would throw away the only
+    # guard `route` provides.
+    # `route` hands a URLSearchParams through in query position without a second
+    # round of encoding, which is the only way to send `accountId` repeatedly.
+    # Building the query as a string works too and costs the one guard `route`
+    # exists to provide, so the escape hatch must not be imported.
+    imports = "".join(re.findall(r"^import .*?;$", src, flags=re.M | re.S))
+    check("the repeated parameter goes through route, not around it",
+          "URLSearchParams" in block and "assumeTrustedRoute" not in imports,
+          [block[:120], imports[:120]])
+    check("no new scope: the search's own scope covers this",
+          "read:jira-user" in (ROOT / "forge" / "manifest.yml").read_text(), "")
+
+    # One contract, two transports. The body shape is the contract; the page
+    # must not learn which one answered.
+    live = (ROOT / "scripts" / "serve_live.py").read_text()
+    check("the loopback server answers the same route",
+          "api/names" in live, "no api/names route")
+    check("and says there is no directory rather than returning nobody",
+          "user directory" in live.split("api/names", 1)[-1][:900], "")
+    app = (ROOT / "src" / "app.js").read_text()
+    check("the page names the route once, in the map that encodes it",
+          app.count("namesFor:") == 1 and 'LIVE.get("namesFor"' in app, "")
+    # Prose about @forge/bridge is everywhere in this file and is the point; an
+    # import of it is the thing ADR 0009 forbids, and a substring check cannot
+    # tell them apart.
+    check("and the tile does not import a bridge to reach it",
+          not re.search(r"""(?:^|[^\w])(?:import|require)\s*\(?\s*['"]@forge/bridge""",
+                        app), "")
+
+    # The tile is a form somebody is part-way through. Re-rendering it to show a
+    # name would discard every unsaved edit in it, which is the rule the search
+    # was written under and the one a second lookup is most likely to break.
+    names_fn = app.split("function wireBriefNames", 1)[-1].split("\n}", 1)[0]
+    check("the name lookup never re-renders the page",
+          "render()" not in names_fn, [ln.strip() for ln in names_fn.split("\n")
+                                       if "render()" in ln])
+    # Two edits leave two lookups in flight; the slower one landing second would
+    # paint names for ids the field no longer holds.
+    check("a stale answer cannot overwrite a newer one",
+          "latest" in names_fn and names_fn.count("mine !== latest") >= 2,
+          names_fn[:200])
+
+
+
 def test_a_boards_recipients_are_validated_before_anyone_is_told():
     """A recipient list decides who is told what is on a board.
 
@@ -2934,6 +3074,8 @@ if __name__ == "__main__":
     test_a_scheduled_run_that_cannot_deliver_says_so_before_doing_work()
     print("finding a person by name")
     test_a_name_can_be_looked_up_without_the_directory_leaking()
+    print("reading a stored id back as a name")
+    test_a_stored_id_can_be_shown_as_a_name()
     print("who a boards brief goes to")
     test_a_boards_recipients_are_validated_before_anyone_is_told()
     print("one rule, two validators")

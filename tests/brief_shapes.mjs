@@ -20,7 +20,8 @@ import {
   AUDIENCES, RESTRICT, boardsIn, notifyPayload, problemsIn, sendsFor,
 } from '../forge/src/recipients.js';
 import { emailBody, esc, safeUrl } from '../forge/src/mailbody.js';
-import { MAX_MATCHES, matchNote, peopleFrom } from '../forge/src/people.js';
+import { MAX_MATCHES, MAX_NAMES, idsToAsk, matchNote, nameNote, namesFrom,
+  peopleFrom } from '../forge/src/people.js';
 import { briefsForBoard, composeSection, sectionsFor } from '../forge/src/compose.js';
 
 /* One set of recipient cases, judged here and by scripts/serve_live.py. Two
@@ -240,6 +241,41 @@ console.log(JSON.stringify({
       notAList: peopleFrom({ values: [] }),
       // Serialised whole, so a leaked field shows up wherever it hides.
       serialised: JSON.stringify(peopleFrom(raw)),
+    };
+  })(),
+
+  /* Reading the stored ids back as names. Same projection discipline as the
+     search above, and one more state: an id can resolve to a deactivated
+     account, or to nothing at all, and those are different facts. */
+  names: (() => {
+    const bulk = [
+      { accountId: 'a1', displayName: 'Mitch Davis', active: true,
+        emailAddress: 'mitch@example.com', avatarUrls: { '48x48': 'https://x/y' },
+        timeZone: 'Europe/London', locale: 'en_GB' },
+      { accountId: 'a2', displayName: 'Old Colleague', active: false,
+        emailAddress: 'old@example.com', locale: 'en_GB' },
+    ];
+    // Deliberately not the response order, and with one id that matches
+    // nothing sitting in the middle of it.
+    const asked = ['a2', 'ghost', 'a1'];
+    const mixed = namesFrom(bulk, asked);
+    const fine = namesFrom([bulk[0]], ['a1']);
+    const tooMany = idsToAsk(Array.from({ length: MAX_NAMES + 3 }, (_, i) => `id${i}`));
+    return {
+      max: MAX_NAMES,
+      asked,
+      mixed,
+      mixedNote: nameNote(mixed, 0),
+      // Nothing wrong: the names are listed below it, so it says nothing.
+      quietNote: nameNote(fine, 0),
+      overNote: nameNote(fine, tooMany.over),
+      over: tooMany.over,
+      asking: tooMany.ask.length,
+      deduped: idsToAsk(['a1', 'a1', '   ', 'a2', null, 7]),
+      // `user/bulk` paginates; the list is under `values`, and the object
+      // itself is not an answer.
+      notAList: namesFrom({ values: [] }, ['a1']),
+      serialised: JSON.stringify(mixed),
     };
   })(),
 

@@ -453,3 +453,18 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 .br-hitlist{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
 .br-hit{padding:4px 10px;font-size:13px}
 .br-added{margin-top:6px;font-size:13px;color:var(--text-primary)}
+/* The names behind the ids in the field above. The id stays visible beside the
+   name: what is saved is the id, and a row that showed only a name would hide
+   the thing the reader came to check. */
+.br-names{margin-top:6px}
+.br-namelist{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}
+.br-namelist li{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;font-size:13px}
+.br-nm{font-weight:600;color:var(--text-primary)}
+.br-nm i{font-weight:400;color:var(--muted)}
+.br-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--muted);word-break:break-all}
+/* A state, not a decoration. --info-ink is a UI token; the chart palette is
+   validated for colour-vision deficiency separately and stays out of here. */
+.br-state{
+  font-size:11px;font-weight:600;padding:1px 6px;border-radius:10px;
+  background:var(--accent-bg);color:var(--info-ink);white-space:nowrap;
+}

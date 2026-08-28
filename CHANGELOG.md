@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.33.0
+
+**The recipient field shows who those ids are.** 1.32.0 gave the picker a name search, which stops anybody needing to *know* an account id to add one. It did nothing for the administrator who opens the tile next and finds `712020:5ad8ac88-…, 60ad2eb506bf0c006a432a17` in the field. A recipient list is a disclosure control, and one nobody can check is not doing its job — the only way to audit it was to paste an id into a user search by hand.
+
+Each audience's ids are now resolved to names underneath the field, in the field's own order, so the two can be read straight down against each other. `GET /rest/api/3/user/bulk` answers the whole list in one request under `read:jira-user`, the scope the search already uses: no new scope, no consent screen, no reinstall.
+
+**The field itself does not change, and neither does what is saved.** The names are a gloss written beside the ids, never over them. The same two reasons as last time: an id must still be pasteable where there is no directory to search, and a reader must be able to see exactly what will be stored.
+
+**Three states, not a boolean.** An id can name a live account, a deactivated one, or nothing at all, and the last two have different fixes — reactivate the person, or delete the line. Collapsing them into one falsy flag is how *"no sprint calendar"* came to be printed for three unrelated causes in 1.28.0, so each row carries a `state` of `active`, `deactivated` or `unknown` and says which.
+
+**Deactivated accounts are shown here and filtered out of the search, which is not an inconsistency.** The search drops them because adding one is a mistake being made now. This is the mistake already sitting in the config, quietly sending nothing at a weekly cadence. Hiding the row would leave a list of names that looks complete and correct while one of its recipients has not read anything for months — the single most useful thing this route can say.
+
+**Every id asked about comes back with a row.** `user/bulk` omits the ids it cannot match rather than reporting them, so reading its response as the answer gives four names for five ids with no way to tell which one is missing: a list that looks complete and is not, which is the failure this codebase pays for most often. The unmatched ids are recovered by asking what came back for each id rather than by counting what came back.
+
+The note above the list **says nothing when there is nothing wrong**. The names are directly below it, so *"3 recipients, named"* over three visible names is noise. It speaks only for what a reader cannot see by looking: an account that will never receive anything, an id that names nobody, and ids beyond the fiftieth, which are not looked up and are counted rather than dropped.
+
+**`route` takes a `URLSearchParams`, which is how `accountId` is sent more than once.** The bulk endpoint has no comma-separated form, and Forge's `route` tag URI-encodes each substitution, so a hand-built query string would arrive with its separators escaped. Assembling the URL and passing it through `assumeTrustedRoute` would also work and would throw away the one guard `route` exists to provide; `tests/test_service.py` fails if that import ever appears.
+
+**Nothing here calls `render()` either**, for the reason the search does not: the tile is a form somebody is part-way through, and re-rendering it to show a name would discard every unsaved edit in it. The lookup writes into one element and touches nothing else. It refreshes when the field loses focus rather than on every keystroke — an account id is thirty-odd characters, and looking one up half-typed asks about ids that do not exist and then says so, which reads as the field being wrong while it is being filled in.
+
+**Two edits leave two lookups in flight, and the slower one must not land second.** Each request is numbered and only the newest may write its answer. Without that, an answer for ids the field no longer holds paints itself over the current one — a list describing something other than what the reader is looking at, which is the plausible-wrong-number class this repository fears most.
+
+**A second render path for the same untrusted string.** `displayName` now arrives from `/user/bulk` as well as `/user/search`, and the id shown beside it is not safe either: the field is free text and the lookup runs before anything has been saved, so the id echoed back is whatever was typed. `ACCOUNT_ID` only refuses it at save time, which is after the row has been drawn. `picker_checks()` in `tests/security.py` covers all three strings; removing any one escape fails it.
+
+Both transports answer the route. Over loopback there is still no directory, and it says so rather than returning an empty list — *"none of these ids exists"* is a far stronger claim than *"there is nowhere to ask"*.
+
+**And the picker has now been used by a person.** The caveat 1.32.0 closed on — proved by its tests and by its route answering, never by a mouse — is retired for the search: a name typed into the tile on the dev site returns a match and puts the account id into the field. The names list added here still wants the same thirty seconds.
+
 ## 1.32.0
 
 **A brief was delivered. Roadmap item 3 is done.**

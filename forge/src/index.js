@@ -34,7 +34,8 @@ import { deliveryBlockers } from './brief.js';
 import { boardsIn, notifyPayload, problemsIn } from './recipients.js';
 import { briefsForBoard, sectionsFor } from './compose.js';
 import { ADMIN_PERMISSION, editability } from './permissions.js';
-import { MAX_MATCHES, matchNote, peopleFrom } from './people.js';
+import { MAX_MATCHES, MAX_NAMES, idsToAsk, matchNote, nameNote, namesFrom,
+  peopleFrom } from './people.js';
 
 const resolver = new Resolver();
 
@@ -1091,6 +1092,69 @@ resolver.define('searchUsers', answering(async ({ payload }) => {
   }
   return { status: 200, body: { available: true, people: found.people,
     note: matchNote(found) } };
+}));
+
+/**
+ * The names behind the ids a board already has stored.
+ *
+ * The search resolver above stops anyone having to know an account id to add
+ * one; this stops the field being unreadable to whoever opens the tile next.
+ * `people.js` has why an inactive account is shown rather than filtered, and
+ * why an id that matches nothing is named rather than dropped.
+ *
+ * No new scope: `read:jira-user` is the one the search already uses.
+ */
+resolver.define('namesFor', answering(async ({ payload }) => {
+  const { ask, over } = idsToAsk(payload?.ids);
+  // An empty field is not a failure to look anything up. Answering `available`
+  // with nothing in it lets the tile render no rows and say nothing, rather
+  // than showing a refusal to somebody who has simply not typed yet.
+  if (!ask.length) {
+    return { status: 200, body: { available: true, people: [], note: '' } };
+  }
+
+  // A URLSearchParams in query position is handed through by `route` without a
+  // second round of encoding, and it is the only way to send `accountId` more
+  // than once — the bulk endpoint has no comma-separated form. Assembling the
+  // query as a string and reaching for `assumeTrustedRoute` would also work,
+  // and would throw away the single guard `route` exists to provide.
+  const params = new URLSearchParams();
+  params.set('maxResults', String(MAX_NAMES));
+  for (const id of ask) params.append('accountId', id);
+
+  // As the reader, exactly like the search. Resolved as the app, this would
+  // show names out of a directory the reader may not browse — a disclosure the
+  // tile has no standing to make on their behalf.
+  const res = await api.asUser().requestJira(route`/rest/api/3/user/bulk?${params}`);
+
+  if (!res.ok) {
+    return {
+      status: 200,
+      body: {
+        available: false,
+        people: [],
+        // The same site permission the search runs into, and the same reason to
+        // name it: the ids are still correct and still send, so this is a
+        // display that is missing rather than a config that is broken.
+        note: res.status === 403
+          ? 'You do not have permission to browse users on this site, so these '
+            + 'ids cannot be shown as names. A site administrator grants "Browse '
+            + 'users and groups". What is stored is unaffected.'
+          : `Jira returned ${res.status} looking these ids up.`,
+      },
+    };
+  }
+
+  // `user/bulk` paginates, so the list is under `values`. Anything else is not
+  // an answer, and `namesFrom` refuses it rather than reading an empty list off
+  // it — no names and "all five ids are dead" are very different statements.
+  const found = namesFrom((await res.json())?.values, ask);
+  if (found.problems) {
+    return { status: 200, body: { available: false, people: [],
+      note: found.problems.join(' ') } };
+  }
+  return { status: 200, body: { available: true, people: found.people,
+    note: nameNote(found, over) } };
 }));
 
 resolver.define('saveRecipients', answering(async ({ payload, context }) => {

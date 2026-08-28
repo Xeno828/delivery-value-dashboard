@@ -610,6 +610,21 @@ class Handler(SimpleHTTPRequestHandler):
                         "there is none over a local connection. Account ids can "
                         "be entered directly; on Jira the name search works.",
             })
+        if path in ("api/names", "dist/api/names"):
+            # Names for ids already stored, and the same answer as api/users for
+            # the same reason: resolving an id to a name needs the site's user
+            # directory, and a local connection has none. Returning an empty
+            # people list with `available` true would read as "none of these ids
+            # exists", which is a much stronger claim than "there is nowhere to
+            # ask". ADR 0009 — the body shape is the contract, not the answer.
+            return self._json({
+                "available": False,
+                "people": [],
+                "note": "Showing a stored account id as a name needs the site's "
+                        "user directory, and there is none over a local "
+                        "connection. The ids below are what will be sent to; on "
+                        "Jira they are shown as names.",
+            })
         if path in ("api/recipients", "dist/api/recipients"):
             config = read_recipients()
             return self._json({

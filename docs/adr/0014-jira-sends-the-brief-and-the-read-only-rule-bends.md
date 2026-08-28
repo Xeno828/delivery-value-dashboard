@@ -205,3 +205,32 @@ Deactivated accounts, app users and customer accounts are not offered. A brief
 addressed to a deactivated colleague goes nowhere, which is the failure an empty
 audience is already refused for; and without the filter this app's own account
 would appear in the list of people who could receive its own brief.
+
+## And the other direction: reading the stored ids back
+
+A search solves half of it. The other half is the administrator who opens the
+tile *next* and finds a field full of ids — a recipient list, which is a
+disclosure control, that nobody can audit without pasting each id into a user
+search by hand. So the stored ids are resolved back to names beside the field,
+through `GET /rest/api/3/user/bulk` under the same `read:jira-user` the search
+already holds, as the reader for the same reason the search is.
+
+The same projection discipline applies and the allow-list gains a third field,
+`state`, because there are three answers and not two: an id names a live
+account, a **deactivated** one, or **nothing at all**. The last two have
+different fixes — reactivate the person, or delete the line — and one falsy flag
+standing for both is how a refusal came to print the same cause for three
+unrelated failures.
+
+**A deactivated account is shown here and filtered out of the search above, and
+that is deliberate.** The search refuses one because adding it is a mistake being
+made now, in front of somebody who can choose otherwise. This is the mistake
+already in the config, quietly sending nothing every week. Dropping the row
+would leave a list of names that reads as complete while one of its recipients
+has not received anything for months, which is the most useful thing the lookup
+can say and the reason it exists.
+
+For the same reason, every id asked about gets a row. `user/bulk` omits the ids
+it cannot match rather than reporting them, and four names against five ids —
+with no way to tell which one is missing — is a list that looks complete and is
+not.

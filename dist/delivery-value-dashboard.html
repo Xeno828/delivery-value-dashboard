@@ -460,6 +460,21 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 .br-hitlist{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
 .br-hit{padding:4px 10px;font-size:13px}
 .br-added{margin-top:6px;font-size:13px;color:var(--text-primary)}
+/* The names behind the ids in the field above. The id stays visible beside the
+   name: what is saved is the id, and a row that showed only a name would hide
+   the thing the reader came to check. */
+.br-names{margin-top:6px}
+.br-namelist{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}
+.br-namelist li{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;font-size:13px}
+.br-nm{font-weight:600;color:var(--text-primary)}
+.br-nm i{font-weight:400;color:var(--muted)}
+.br-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--muted);word-break:break-all}
+/* A state, not a decoration. --info-ink is a UI token; the chart palette is
+   validated for colour-vision deficiency separately and stays out of here. */
+.br-state{
+  font-size:11px;font-weight:600;padding:1px 6px;border-radius:10px;
+  background:var(--accent-bg);color:var(--info-ink);white-space:nowrap;
+}
 
 </style>
 </head>
@@ -3288,6 +3303,10 @@ function briefAudienceFields(audience, who) {
     '<div class="cap" id="br-' + audience + '-hint">Jira account IDs, comma separated. ' +
       'Not email addresses &mdash; Jira&rsquo;s notification API has no field for one. ' +
       'Search below rather than typing one out.</div>' +
+    // Who those ids actually are, in the field's own order. Written here rather
+    // than into the field itself: what is saved must stay visibly the ids.
+    '<div class="br-names" id="br-' + audience + '-names" role="status" ' +
+      'aria-live="polite"></div>' +
     // The field above stays, and stays the thing that is saved. The search only
     // appends to it. Two reasons: an id can still be pasted where there is no
     // directory to search — over a local connection there is none — and a
@@ -3439,7 +3458,14 @@ function renderBrief(el) {
     submit(next);
   });
 
-  ["exec", "team"].forEach(a => wireBriefSearch(el, a));
+  // The names under each field, then the search that appends to it. The
+  // refresher is handed over rather than reached for, so the two stay separate
+  // functions with a single named edge between them.
+  ["exec", "team"].forEach(a => {
+    const refresh = wireBriefNames(el, a);
+    wireBriefSearch(el, a, refresh);
+    refresh();
+  });
 }
 
 /**
@@ -3453,7 +3479,7 @@ function renderBrief(el) {
  * untouched because none of this is page state — it is a lookup somebody is
  * doing, and it lives and dies inside this tile.
  */
-function wireBriefSearch(el, audience) {
+function wireBriefSearch(el, audience, refreshNames) {
   const q = el.querySelector("#br-" + audience + "-q");
   const go = el.querySelector("#br-" + audience + "-go");
   const out = el.querySelector("#br-" + audience + "-res");
@@ -3473,6 +3499,10 @@ function wireBriefSearch(el, audience) {
     // the only place the name and the id are visible together.
     out.innerHTML = '<div class="br-added">Added <b>' + esc(displayName) +
       "</b>. Save to apply it.</div>";
+    // The field changed without a `change` event, because it was changed from
+    // here. Told rather than detected: the names list beside it now describes
+    // one id fewer than the field holds.
+    if (refreshNames) refreshNames();
     users.focus();
   };
 
@@ -3513,6 +3543,73 @@ function wireBriefSearch(el, audience) {
   q.addEventListener("keydown", e => {
     if (e.key === "Enter") { e.preventDefault(); search(); }
   });
+}
+
+/**
+ * The names behind the ids already in one audience's field.
+ *
+ * The search stops anybody needing to *know* an account id. This stops the
+ * field being unreadable to whoever opens the tile next: a recipient list is a
+ * disclosure control, and one that cannot be checked is not doing its job.
+ *
+ * **Nothing here calls `render()` either**, for the same reason as above — this
+ * runs while somebody is part-way through the form. It writes into one element
+ * and touches nothing else on the page.
+ *
+ * Returns its refresher so the search can call it after appending an id,
+ * rather than the two functions reaching into each other's elements.
+ */
+function wireBriefNames(el, audience) {
+  const users = el.querySelector("#br-" + audience + "-u");
+  const out = el.querySelector("#br-" + audience + "-names");
+  if (!users || !out) return function () {};
+
+  // Every request is numbered and only the newest may write its answer. Two
+  // edits in quick succession leave two lookups in flight, and the slower one
+  // landing second would paint names for ids the field no longer holds — a
+  // list describing something other than what the reader is looking at.
+  let latest = 0;
+
+  const refresh = () => {
+    const ids = briefList(users.value);
+    const mine = ++latest;
+    // An empty field has no names to show and nothing to say about it. Saying
+    // "no recipients resolved" over a field somebody has not filled in yet
+    // reads as a failure rather than a blank.
+    if (!ids.length) { out.innerHTML = ""; return; }
+    out.innerHTML = '<div class="note">Reading names&hellip;</div>';
+    LIVE.get("namesFor", { ids: ids }).then(res => {
+      if (mine !== latest) return;
+      const b = (res && res.body) || {};
+      // The server's own sentence, verbatim. It separates a deactivated account
+      // from an id that names nobody from a site with no directory to ask, and
+      // those have three different answers.
+      const note = b.note ? '<div class="cap">' + esc(b.note) + "</div>" : "";
+      const rows = (b.people || []).map(p => {
+        const name = p.state === "unknown"
+          ? "<i>No account with this id</i>"
+          : (p.displayName ? esc(p.displayName) : "<i>Name not returned</i>");
+        const mark = p.state === "deactivated"
+          ? '<span class="br-state">deactivated</span>' : "";
+        // The id is shown beside the name, not instead of it. What gets saved
+        // stays visible; the name is the gloss on it.
+        return '<li><span class="br-nm">' + name + "</span>" + mark +
+          '<span class="br-id">' + esc(p.accountId) + "</span></li>";
+      }).join("");
+      out.innerHTML = note + (rows ? '<ul class="br-namelist">' + rows + "</ul>" : "");
+    }).catch(() => {
+      if (mine !== latest) return;
+      out.innerHTML = '<div class="cap">The server could not be reached, so ' +
+        "these ids were not looked up.</div>";
+    });
+  };
+
+  // On leaving the field, not on every keystroke. An account id is thirty-odd
+  // characters and looking one up half-typed would ask about ids that do not
+  // exist and then say so, which reads as the field being wrong while it is
+  // still being filled in.
+  users.addEventListener("change", refresh);
+  return refresh;
 }
 
 function renderSequence(el, ctrl) {
@@ -4365,7 +4462,12 @@ const ROUTES = {
     (p.date ? "&date=" + encodeURIComponent(p.date) : ""),
   recipients: () => "api/recipients",
   saveRecipients: () => "api/recipients",
-  searchUsers: p => "api/users?query=" + encodeURIComponent(p.query)
+  searchUsers: p => "api/users?query=" + encodeURIComponent(p.query),
+  // The ids go over as an array either way; only the encoding differs, and
+  // that is what this map is for. ADR 0009 — the caller does not learn
+  // which transport answered.
+  namesFor: p => "api/names?ids=" +
+    encodeURIComponent((p.ids || []).join(","))
 };
 
 /* `saveRecipients` is the one route that changes something, and the only place
