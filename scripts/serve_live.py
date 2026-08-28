@@ -626,7 +626,8 @@ def series_for(backend, cid):
         got = backend.context(c["id"]) or {}
         issues.extend(got.get("issues") or [])
     cfg = backend.org_config()
-    rows = MT.history_series(mine, issues)
+    got = MT.history_series(mine, issues)
+    rows, skipped = got["rows"], got["skipped"]
 
     stored = read_series(board)
     fingerprint = series_fingerprint(cfg)
@@ -654,7 +655,11 @@ def series_for(backend, cid):
                               for r in MT.series_upto(rows, cid)],
                              fingerprint)
     return {"available": True, "rows": merged["rows"],
-            "note": MT.series_note(merged), "problems": []}
+            "offered": len(rows) + len(skipped), "sprints": len(rows),
+            "skipped": skipped,
+            "note": " ".join(x for x in (MT.series_note(merged),
+                                         MT.skipped_note(skipped)) if x),
+            "problems": []}
 
 
 def series_fingerprint(cfg):

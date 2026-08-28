@@ -2579,10 +2579,21 @@ function seriesRefusalHtml(thin) {
     return '<div class="fc-refusal"><b>No trend for this board.</b> The server ' +
       "could not be reached, so its sprints were not read.</div>";
   }
+  // The board offered sprints and fewer of them produced a row. That is not
+  // thin data, it is sprints this could not measure, and the server says which
+  // and why — the difference between "you have not run enough sprints" and
+  // "one of your sprints has no end date" is the whole of somebody's afternoon.
+  if (s && s.available && s.offered != null && s.offered > (s.sprints || 0)) {
+    return '<div class="fc-refusal"><b>Not enough of this board could be ' +
+      "measured.</b> " + esc(s.note || "") + "</div>";
+  }
   // Genuinely too few sprints. The only branch entitled to say so — this
-  // sentence stood for all four causes when the route was first wired, and one
-  // of them was a series truncated to a single row by a sort order.
-  return '<div class="note">' + esc(thin) + "</div>";
+  // sentence stood for four causes when the route was first wired, and the one
+  // that actually happened was none of them.
+  return '<div class="note">' + esc(thin) +
+    (s && s.available && s.offered != null
+      ? " This board offers " + s.offered + (s.offered === 1 ? " sprint." : " sprints.")
+      : "") + "</div>";
 }
 
 /** What the page says above a trend, once, from the tool that counted it.

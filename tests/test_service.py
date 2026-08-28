@@ -3297,7 +3297,7 @@ def series_checks():
     served = SVC.route_history({"dataset": {"contexts": bundle["contexts"],
                                             "issues": proj,
                                             "orgConfig": bundle.get("orgConfig")}})
-    direct = MT.history_series(bundle["contexts"], proj)
+    direct = MT.history_series(bundle["contexts"], proj)["rows"]
 
     # ---- the order is the data's, not the caller's ----
     #
@@ -3313,8 +3313,8 @@ def series_checks():
     # loopback bodies, so an ordering the resolver alone produces is invisible
     # to it.
     bundle_ctx = [c for c in bundle["contexts"] if str(c.get("boardId")) == "42"]
-    oldest_first = MT.history_series(bundle_ctx, proj)
-    newest_first = MT.history_series(list(reversed(bundle_ctx)), proj)
+    oldest_first = MT.history_series(bundle_ctx, proj)["rows"]
+    newest_first = MT.history_series(list(reversed(bundle_ctx)), proj)["rows"]
     check("the series is ordered by the sprints, not by the caller",
           oldest_first == newest_first,
           {"asc": [r["contextId"] for r in oldest_first][:3],
@@ -3333,8 +3333,30 @@ def series_checks():
         bundle_ctx + [{"id": "BLC/42/SX", "kind": "sprint", "sprintName": "No dates",
                        "asOfDate": None, "endDate": None, "startDate": None}], proj)
     check("a context with no dates does not sort to the head of the series",
-          not undated or undated[0]["contextId"] != "BLC/42/SX",
-          [r["contextId"] for r in undated][:2])
+          not undated["rows"] or undated["rows"][0]["contextId"] != "BLC/42/SX",
+          [r["contextId"] for r in undated["rows"]][:2])
+    # And it is named rather than lost. This is the bug that reached the tenant:
+    # a sprint with no end date left the series with nothing saying so, and the
+    # tile reported "needs at least two sprints of history" on a board with two.
+    check("a sprint that cannot be dated is named, not silently dropped",
+          [x["contextId"] for x in undated["skipped"]] == ["BLC/42/SX"],
+          undated["skipped"])
+    check("and the reason says it is a missing date, not missing sprints",
+          "no end date" in MT.skipped_note(undated["skipped"])
+          and "No dates" in MT.skipped_note(undated["skipped"]),
+          MT.skipped_note(undated["skipped"]))
+    check("nothing skipped means nothing said",
+          MT.skipped_note([]) == "" and MT.skipped_note(None) == "",
+          MT.skipped_note([]))
+    # A window is not a point on a trend, and is reported as excluded rather
+    # than quietly absent — ADR 0011.
+    windowed = MT.history_series(
+        bundle_ctx + [{"id": "BLC/42/w30", "kind": "window", "sprintName": "30 days",
+                       "endDate": "2026-08-10"}], proj)
+    check("a flow window is excluded from a sprint trend, and says so",
+          [x["contextId"] for x in windowed["skipped"]] == ["BLC/42/w30"]
+          and "window is not a point" in MT.skipped_note(windowed["skipped"]),
+          windowed["skipped"])
 
     check("the service's rows are the tool's rows, called directly",
           served["rows"] == direct, (len(served["rows"]), len(direct)))

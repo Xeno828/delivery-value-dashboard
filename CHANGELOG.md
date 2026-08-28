@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.39.2
+
+**A sprint the series could not date left it silently, and the tile blamed thin data.** The tenant still showed *"needs at least two sprints of history"* on a board with two after 1.39.1. The sort order fixed in 1.39.1 was real and was not this: `history_series` skipped any context it could not put a date on and said nothing, so two sprints in produced one row out and the page reported the only thing it could see.
+
+The comment on that `continue` read *"dropped and countable by the caller"*. **Nothing counted it.** That is the silent cap `CLAUDE.md` forbids, written by somebody who had described the correct behaviour and then not implemented it.
+
+**Every context that produces no row is now named, with its reason.** A sprint with no end date and no as-of; a flow window, which is not a point on a trend (ADR 0011); a context with no id at all. `skipped_note()` says which and why, and the route reports `offered` beside `sprints` — what the board had against what could be measured — both read off the lists they describe.
+
+**The page distinguishes "could not measure" from "not enough sprints".** Where the board offered more sprints than produced rows, the tile says *"Not enough of this board could be measured"* and prints the server's sentence naming the sprint. Where it genuinely has too few, it says so **and states how many the board offers**, so the reader can tell the two apart without opening anything. The difference between *"you have not run enough sprints"* and *"one of your sprints has no end date"* is somebody's afternoon.
+
+**Why this was invisible on Forge and not over loopback.** `contextEntry` sets `asOfDate: null` and never carries `completeDate`, so a Forge series rests entirely on `endDate` — while the fetcher fills the as-of from `completeDate` for a closed sprint and today for an active one. A bundle therefore always has a date and a tenant may not. That divergence is left standing rather than fixed here, because changing what `contextEntry` reports as its as-of moves every elapsed-percentage on the page relative to loopback, and that is a separate change with its own test.
+
 ## 1.39.1
 
 **The trend was empty in the tenant, and the cause was a sort order.** 1.38.0 shipped a series that worked over loopback and returned a single row on Forge, so the tile said *"needs at least two sprints of history"* on a board that had two. Found by opening it in a tenant, which is the only place it could have been found.

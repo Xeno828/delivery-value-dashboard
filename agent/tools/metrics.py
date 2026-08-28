@@ -230,20 +230,33 @@ def history_series(contexts, issues):
     def when(c):
         return (c.get("startDate") or c.get("endDate") or c.get("asOfDate") or "9999-12-31")
 
-    out = []
+    out, skipped = [], []
     for c in sorted(contexts or [], key=when):
-        if (c.get("kind") or "sprint") != "sprint":
-            continue
         cid = c.get("id")
+        if (c.get("kind") or "sprint") != "sprint":
+            skipped.append({"contextId": cid, "sprintName": c.get("sprintName"),
+                            "why": "it is a window rather than a sprint, and a "
+                                   "window is not a point on a trend"})
+            continue
         if not cid:
+            skipped.append({"contextId": None, "sprintName": c.get("sprintName"),
+                            "why": "it has no id, so nothing could be lined up "
+                                   "against it"})
             continue
         mine = [i for i in issues or [] if i.get("contextId") == cid]
         as_of = c.get("asOfDate") or c.get("endDate")
         if not as_of:
-            # No moment to be a statement about. Dropped and countable by the
-            # caller rather than dated to today, which would report a closed
-            # sprint's figures as of now — the 1.36.0 bug, re-entered by a
-            # different door.
+            # No moment to be a statement about, so no row — and **named**, not
+            # dropped. This said "countable by the caller" and nothing counted
+            # it, which is the silent cap CLAUDE.md forbids: a sprint with no
+            # end date vanished from the series and the tile reported thin data
+            # on a board that had plenty. Dating it to today instead would
+            # report a closed sprint's figures as of now, which is the 1.36.0
+            # bug re-entered by a different door.
+            skipped.append({
+                "contextId": cid, "sprintName": c.get("sprintName"),
+                "why": "it has no end date and no as-of date, so there is no "
+                       "moment its figures would be about"})
             continue
         out.append({
             "contextId": cid,
@@ -259,7 +272,7 @@ def history_series(contexts, issues):
             "asOf": as_of,
             "row": history_row(mine, c.get("sprintName") or cid, as_of),
         })
-    return out
+    return {"rows": out, "skipped": skipped}
 
 
 
@@ -401,6 +414,27 @@ def series_upto(rows, context_id):
             if r.get("boardId") == board] if board is not None else all_rows
     ids = [r.get("contextId") for r in mine]
     return mine[:ids.index(context_id) + 1]
+
+
+def skipped_note(skipped):
+    """What the page says about sprints that produced no row at all.
+
+    Separate from `series_note`, which is about the rows that exist. This is
+    about the ones that do not, and it is the sentence whose absence turned a
+    datable-sprint problem into "needs at least two sprints of history" on a
+    board with two.
+    """
+    items = [x for x in (skipped or []) if x]
+    if not items:
+        return ""
+    named = ", ".join(str(x.get("sprintName") or x.get("contextId") or "one sprint")
+                      for x in items)
+    whys = sorted({str(x.get("why") or "") for x in items if x.get("why")})
+    return ("%d sprint%s on this board produced no row and %s left out of the "
+            "trend — %s. %s"
+            % (len(items), "" if len(items) == 1 else "s",
+               "was" if len(items) == 1 else "were", named,
+               " ".join(w[0].upper() + w[1:] + "." for w in whys)))
 
 
 def series_note(merged):

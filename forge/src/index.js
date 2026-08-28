@@ -993,6 +993,11 @@ resolver.define('history', answering(async ({ payload, context }) => {
         available: true,
         rows: result.merged ?? [],
         note: result.note ?? '',
+        // What the board offered against what produced a row. The two differing
+        // is the fact that was invisible when a sprint with no end date left
+        // the series and the tile reported thin data on a board with two.
+        offered: result.offered ?? null,
+        sprints: result.sprints ?? null,
         problems: [...stored.problems, ...refused],
       },
     };
@@ -1019,6 +1024,8 @@ resolver.define('history', answering(async ({ payload, context }) => {
       available: true,
       rows: again.result?.merged ?? [],
       note: again.result?.note ?? '',
+      offered: again.result?.offered ?? null,
+      sprints: again.result?.sprints ?? null,
       // The store's own complaints, verbatim and separate from the note: a row
       // this app declined to keep is a fact about this app, not about the team,
       // and collapsing the two would put an internal problem into a sentence

@@ -656,7 +656,8 @@ def route_history(body):
         raise Refused('send {"dataset": {"contexts": [...], "issues": [...]}} — '
                       "a row is per sprint, and the sprints come from the contexts. "
                       "Nothing was calculated.")
-    rows = MT.history_series(contexts, ds.get("issues") or [])
+    got = MT.history_series(contexts, ds.get("issues") or [])
+    rows, skipped = got["rows"], got["skipped"]
 
     # Every row is returned to the caller, because what may be *recorded* is
     # every sprint this look could see. What is *shown* stops at the selected
@@ -676,10 +677,16 @@ def route_history(body):
                              body.get("statuses"))
     return {
         "rows": rows,
+        # Read off the lists they describe, never computed beside them. `offered`
+        # is what the caller sent; `sprints` is what produced a row. The two
+        # differing is the fact a reader needs and the one that was invisible.
+        "offered": len(rows) + len(skipped),
         "sprints": len(rows),
+        "skipped": skipped,
         "merged": merged["rows"],
         "orphaned": merged["orphaned"],
-        "note": MT.series_note(merged),
+        "note": " ".join(x for x in (MT.series_note(merged),
+                                     MT.skipped_note(skipped)) if x),
     }
 
 
