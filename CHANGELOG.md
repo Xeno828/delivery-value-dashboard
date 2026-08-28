@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.39.0
+
+**The calculator image takes Debian's security updates at build time, and deploys move again.** Every push since 2026-08-28 failed `service/scan.sh`, and the deploy workflow stopped before it reached Google — so roadmap item 4b was finished, tested and unable to reach a tenant. [ADR 0016](docs/adr/0016-the-image-takes-debians-security-updates-at-build-time.md) has the measurements.
+
+**The failure was misread twice, and the correction is the useful part.** It was described in a handoff, and then repeated by an assistant who had not read `service/scan.sh`, as *"the gate blocks on findings with no fix, so it is a policy question."* It is not, and it never was: the gate already runs `--ignore-unfixed`, and §11 of `docs/hosting-the-calculator.md` argued that policy at length when it was set. Of nineteen HIGH and CRITICAL findings, sixteen blocked nothing. The three that blocked were one CVE in OpenSSL with a published fix. **The gate was working and telling the truth**, and a red build that is telling the truth is the one case where loosening the policy is the worst move available.
+
+**No base image could have fixed it, which is why the fix is in the build.** `python:3.12-slim` still shipped the vulnerable OpenSSL, so a rebuild produced the same image; no patched digest existed to pin; `python:3.13-slim` carried five fixable findings; **`python:3.12-alpine` failed the same gate on the same CVE**; and `distroless/python3-debian12` scanned at 46 HIGH/CRITICAL with 18 fixable, which is the opposite of the intuition about distroless and worth writing down. The CVE had landed recently and no base of any distribution had been rebuilt for it. Debian had published the patch to `trixie-security`; only upgrading inside the build could take it.
+
+**Measured on the real Dockerfile: three fixable findings before, none after.** `service/scan.sh` exits 0, `service/smoke.sh` passes unchanged, and the image grows from 52.6 MB to 56.5 MB. `upgrade` and never `dist-upgrade` — patched versions of what is already there, never a new package set — with the apt lists deleted in the same layer.
+
+**Suppressing the finding was considered and refused.** Trivy takes an ignore entry with an expiry, and the exposure argument was good: the CVE is unbounded memory growth in OpenSSL's QUIC *server*, and this service is stateless HTTP behind Cloud Run and never speaks QUIC. It is still wrong. The policy blocks on fixable findings so that they get fixed, and the first one waved through for a good reason is where the gate becomes advisory.
+
+**What this does not do**, said here rather than discovered later: it does not touch the sixteen unfixable findings, including a CRITICAL in `perl-base`. They are printed on every run and block nothing, which is the policy working as designed. And it is a mitigation for a lag, not a substitute for the weekly rebuild in §10 — if the `python` image ever stops being rebuilt, this line hides the symptom of a base that should have been abandoned.
+
+**§11 gains a section on what a red scan means**, because the misreading cost a day and will otherwise cost the next reader another one.
+
 ## 1.38.1
 
 **The fetcher is importable again without a tracker dependency, and CI is what found it.** `fetch_delivery_data.py` called `sys.exit()` at import time when `requests` was absent, and 1.38.0 made `tests/test_agent.py` import it to check one function. Every developer machine has `requests`; the CI runner does not, and `make test-agent` is promised to need nothing but Python 3. So the suite passed everywhere it was run and failed the moment it was pushed.

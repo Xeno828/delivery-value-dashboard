@@ -106,6 +106,7 @@ These are product decisions, not style. Violating one is a bug even when the tes
 | Why the scheduled brief is written inside the tenant | `docs/adr/0013-the-brief-is-written-inside-the-tenant.md` |
 | Why Jira sends the brief, and which scopes are not read-only | `docs/adr/0014-jira-sends-the-brief-and-the-read-only-rule-bends.md` |
 | Why the durable series stores so little, and what a reconstructed sprint may not claim | `docs/adr/0015-a-durable-series-stores-what-jira-forgets.md` |
+| Why the image upgrades its own base packages, and what the scan gate does and does not block | `docs/adr/0016-the-image-takes-debians-security-updates-at-build-time.md` |
 | Which commercial roadmap item something is, and what is done | `docs/roadmap.md` |
 | What the dashboard does for a board with no sprints | `docs/kanban-boards.md` |
 | Finishing the Forge route — the three unfinished pieces | `docs/forge-deployment.md` |

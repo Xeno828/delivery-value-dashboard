@@ -361,7 +361,17 @@ The line is **actionability, not severity**. A `CRITICAL` with a patched version
 
 Trivy over `docker scout` because it runs in a container with no account, no login and no vendor-side rate limit, which matters for a weekly scheduled job that must not fail for reasons unrelated to the image.
 
-**One thing this policy does not claim:** it scans the image, and the image is a base plus `PyJWT[crypto]`. It says nothing about `agent/tools/`, which is stdlib-only Python this repository wrote, and nothing about the Forge app's `@forge/*` dependencies, which CI audits separately. Naming the boundary here so a green scan is not read as a claim about the whole product.
+**One thing this policy does not claim:** it scans the image, and the image is a base plus `PyJWT[crypto]` — with the base's own packages upgraded to Debian's current security versions rather than left at whatever the base image was published with (see below). It says nothing about `agent/tools/`, which is stdlib-only Python this repository wrote, and nothing about the Forge app's `@forge/*` dependencies, which CI audits separately. Naming the boundary here so a green scan is not read as a claim about the whole product.
+
+### What a red scan means, and what it does not
+
+Written down because this failure has now been misread twice, both times by somebody who had not run the second pass.
+
+**A red gate means a finding with a fix available.** Unfixable findings never block; `--ignore-unfixed` is already in the gate command above. So the first question is never *"should the policy be looser?"* — it is *"which finding, and what version fixes it?"*, and `bash service/scan.sh <image>` prints exactly that under **the gate: fixable HIGH and CRITICAL**.
+
+On 2026-08-28 the image carried nineteen HIGH and CRITICAL findings, sixteen of which blocked nothing. The three that did were one CVE in OpenSSL with a published fix, and every push failed until the fix was taken. Reading that as "the gate is too strict" would have loosened a gate that was working.
+
+**The base image lags Debian, and the build closes the gap.** Debian publishes a patched package to `trixie-security` before the `python` image is rebuilt to include it, and deploys stop for the whole of that lag. So the Dockerfile applies `apt-get upgrade` as its first layer. It is a mitigation for the lag, not a substitute for the weekly rebuild in §10 — and swapping the base is not an alternative, because on that occasion alpine failed the same gate on the same CVE and `distroless/python3-debian12` scanned at 46 HIGH/CRITICAL. [ADR 0016](adr/0016-the-image-takes-debians-security-updates-at-build-time.md) has the measurements.
 
 ---
 

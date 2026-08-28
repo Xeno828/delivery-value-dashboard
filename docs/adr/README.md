@@ -1,6 +1,6 @@
 # Decision records
 
-Fifteen decisions that explain why the product is shaped the way it is. Each one exists because the alternative was tried, argued for, or nearly shipped — none of them is a statement of general principle.
+Sixteen decisions that explain why the product is shaped the way it is. Each one exists because the alternative was tried, argued for, or nearly shipped — none of them is a statement of general principle.
 
 Read these before proposing a change that a constraint in `CLAUDE.md` appears to block. The constraint is the rule; the record is the reason, and the reason is what tells you whether your case is the exception.
 
@@ -21,6 +21,7 @@ Read these before proposing a change that a constraint in `CLAUDE.md` appears to
 | [0013](0013-the-brief-is-written-inside-the-tenant.md) | The scheduled brief is written by Forge LLMs in the tenant; only the file leaves | An API key, a third party, and every issue title going through it weekly |
 | [0014](0014-jira-sends-the-brief-and-the-read-only-rule-bends.md) | Jira sends the brief; non-read scopes are allow-listed with reasons | A mail provider, recipients as email addresses, and a rule kept by memory |
 | [0015](0015-a-durable-series-stores-what-jira-forgets.md) | Sprint rows are recorded when a sprint closes; re-derivation is a labelled fallback | A cache of Jira, a reconstruction written in as a recording, and a disagreement resolved quietly |
+| [0016](0016-the-image-takes-debians-security-updates-at-build-time.md) | The calculator image applies Debian's security updates at build time | Loosening a gate that is telling the truth, and a suppression list as the first answer |
 
 ## Writing a new one
 

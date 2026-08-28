@@ -3341,6 +3341,68 @@ def _refuses(fn):
     return False
 
 
+def test_the_image_takes_debians_security_updates():
+    """The base lags Debian, and the build has to close the gap.
+
+    `service/scan.sh` blocks on HIGH and CRITICAL findings that have a fix
+    available. Debian publishes a patched package before the `python` image is
+    rebuilt to include it, so for the length of that lag every build produces an
+    image the gate correctly refuses — and deploys stop. That happened on
+    2026-08-28: CVE-2026-14456 in OpenSSL, fixed in 3.5.7-1~deb13u2, with
+    python:3.12-slim still shipping 3.5.6-1~deb13u2 and no newer digest to pin.
+
+    Checked here rather than only in CI because CI needs Docker and this is
+    where the Dockerfile is edited. What CI proves is that the resulting image
+    scans clean; what this proves is that the line is still there and still says
+    why. ADR 0016.
+    """
+    df = (ROOT / "service" / "Dockerfile").read_text()
+    # The instructions, not the prose around them. Half this file is a comment
+    # explaining why `dist-upgrade` is the wrong verb, and a check that greps
+    # the whole text fails on the sentence saying not to do the thing.
+    steps = "\n".join(l for l in df.splitlines() if not l.lstrip().startswith("#"))
+
+    check("the image applies Debian's security updates",
+          "apt-get upgrade" in steps,
+          [l.strip() for l in steps.splitlines() if "apt-get" in l])
+
+    # `upgrade`, never `dist-upgrade`: this takes patched versions of packages
+    # already present and must not add or remove one. A dist-upgrade can change
+    # what is in a calculator image without anybody deciding to.
+    check("it upgrades what is there rather than resolving a new package set",
+          "dist-upgrade" not in steps,
+          [l.strip() for l in steps.splitlines() if "upgrade" in l])
+
+    # In the same layer, or the lists sit in the published image for no reason.
+    check("and deletes the apt lists in the same layer",
+          "rm -rf /var/lib/apt/lists/*" in steps,
+          [l.strip() for l in df.splitlines() if "apt/lists" in l])
+
+    # Before the wheel and the source, so everything above is built on the
+    # patched base and the layer caches independently of the app changing.
+    check("the upgrade runs before anything is installed on top of it",
+          steps.index("apt-get upgrade") < steps.index("COPY"),
+          (steps.index("apt-get upgrade"), steps.index("COPY")))
+
+    # The reason, in the file. A bare `apt-get upgrade` reads as belt-and-braces
+    # and is the first line somebody removes when trimming an image; the CVE and
+    # the record are what make it a decision rather than a habit.
+    check("the line says which lag it exists for, and names the record",
+          "CVE-2026-14456" in df and "ADR 0016" in df,
+          [l.strip() for l in df.splitlines() if "CVE-" in l or "ADR " in l])
+
+    # The policy itself, which this does not change and must not be read as
+    # changing. Unfixable findings have never blocked, and the failure of
+    # 2026-08-28 was misread twice as though they had.
+    scan = (ROOT / "service" / "scan.sh").read_text()
+    check("the gate still blocks only on findings that have a fix",
+          "--ignore-unfixed" in scan and "--exit-code 1" in scan,
+          [l.strip() for l in scan.splitlines() if "ignore-unfixed" in l])
+    check("and still prints everything HIGH and CRITICAL, fixable or not",
+          "--exit-code 0" in scan,
+          [l.strip() for l in scan.splitlines() if "exit-code 0" in l])
+
+
 if __name__ == "__main__":
     import os
     os.environ["SERVICE_SHARED_SECRET"] = SECRET
@@ -3406,6 +3468,7 @@ if __name__ == "__main__":
     series_checks()
     print("the container image")
     test_dockerfile_copies_everything_the_service_imports()
+    test_the_image_takes_debians_security_updates()
     print("startup")
     test_refuses_to_start_unauthenticated()
 
