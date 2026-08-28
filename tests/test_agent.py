@@ -775,7 +775,7 @@ def test_history_row_is_as_of_a_moment():
          "addedMidSprint": True, "businessValue": 50},
     ]
 
-    row = FD.history_row(issues, "Sprint 1", END)
+    row = M.history_row(issues, "Sprint 1", END)
 
     check("committed counts what was planned, not what survived",
           row["committedItems"] == 3, row)
@@ -792,9 +792,9 @@ def test_history_row_is_as_of_a_moment():
                    for i in issues]
     check("an item never started is not work in progress; one that started is",
           row["wipItems"] == 1
-          and FD.history_row(started_too, "Sprint 1", END)["wipItems"] == 2,
+          and M.history_row(started_too, "Sprint 1", END)["wipItems"] == 2,
           {"never_started": row["wipItems"],
-           "if_it_had_started": FD.history_row(started_too, "Sprint 1", END)["wipItems"]})
+           "if_it_had_started": M.history_row(started_too, "Sprint 1", END)["wipItems"]})
     check("unplanned work is counted from the changelog, not from status",
           row["unplannedItems"] == 1, row)
     check("points follow the same boundary as the counts",
@@ -804,7 +804,7 @@ def test_history_row_is_as_of_a_moment():
 
     # The regression itself. Re-reading the same closed sprint later must not
     # improve it — and under the old derivation it did, by exactly this much.
-    later = FD.history_row(issues, "Sprint 1", LATER)
+    later = M.history_row(issues, "Sprint 1", LATER)
     check("the fixture actually distinguishes the two readings",
           later["completedItems"] > row["completedItems"],
           "a fixture where both readings agree would pin nothing")
@@ -819,8 +819,10 @@ def test_history_row_is_as_of_a_moment():
     # file and the bundle path rebuilds from Jira; they used to compute this row
     # separately, and two implementations of one fact disagree eventually.
     appended = FD.build_history(issues, {"sprintName": "Sprint 1", "asOfDate": END}, None)
-    check("both fetch paths build the row with one function",
+    check("the fetcher builds its row with the tool's function, not its own",
           appended[-1] == row, {"appended": appended[-1], "direct": row})
+    check("and it is the tool's, so the calculator can produce the same row",
+          FD.history_row is M.history_row, (FD.history_row, M.history_row))
 
 
 if __name__ == "__main__":

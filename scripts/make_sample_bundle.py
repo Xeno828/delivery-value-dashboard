@@ -20,11 +20,11 @@ import random
 import sys
 from datetime import date, timedelta
 
-# One derivation of a sprint's trend row, shared with the fetcher. A history row
-# is a statement about the moment a sprint ended, and reading it off current
-# issue status silently flatters every closed sprint — see `history_row`.
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from fetch_delivery_data import history_row  # noqa: E402
+# One derivation of a sprint's trend row, shared with the fetcher and with the
+# Forge route. A history row is a statement about the moment a sprint ended, and
+# reading it off current issue status silently flatters every closed sprint.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "agent" / "tools"))
+from metrics import history_row  # noqa: E402
 
 TYPES = ["Story", "Bug", "Task"]
 PRIOS = ["Highest", "High", "Medium", "Medium", "Low"]

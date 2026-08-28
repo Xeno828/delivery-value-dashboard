@@ -3062,6 +3062,181 @@ def test_a_name_can_be_looked_up_without_the_directory_leaking():
           "asUser()" in block and "jira(" not in block, block[:200])
 
 
+def series_checks():
+    """The durable sprint series — ADR 0015.
+
+    A history row re-derives correctly from Jira at any distance; that was
+    established in 1.36.0 and it is why this store is small. Rows are recorded
+    because four things can make a later re-derivation disagree with what was
+    true and none of them announces itself. This module's whole job is to keep
+    a recorded row and a reconstruction apart, and to say so when they differ —
+    so the cases that matter here are the disagreements, not the happy path.
+    """
+    print("the durable sprint series")
+    node = subprocess.run(["node", str(ROOT / "tests" / "forge_shapes.mjs")],
+                          cwd=str(ROOT), capture_output=True, text=True, timeout=60)
+    if node.returncode != 0:
+        check("the Forge shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    S = json.loads(node.stdout)["series"]
+
+    # ---- the store holds counts, never issue text ----
+    #
+    # The property that keeps item 4 off item 5's critical path: nothing in this
+    # store is something a reader could be denied sight of. An allow-list rather
+    # than a deny-list, for the same reason as the projections in people.js —
+    # a deny-list is one upstream change away from storing an issue summary.
+    check("a stored row carries only counts, a name and a currency total",
+          S["projected"] == S["fields"], S["projected"])
+    check("issue text handed to the projection does not survive it",
+          not any(f in S["projected"] for f in ("summary", "assignee", "issues")),
+          S["projected"])
+    check("and a row that carries any is refused rather than trimmed",
+          any("never anything derived from issue text" in x
+              for x in S["problems"]["extra"]), S["problems"]["extra"])
+
+    # ---- a bad row is caught before it is written, not after it is read ----
+    check("an honest row has nothing wrong with it", S["problems"]["good"] == [],
+          S["problems"]["good"])
+    check("a missing figure is refused, not defaulted to zero",
+          any("wipItems is missing" in x for x in S["problems"]["missing"]),
+          S["problems"]["missing"])
+    check("a figure that is not a number is refused",
+          len(S["problems"]["notANumber"]) == 1, S["problems"]["notANumber"])
+    # The one null the derivation itself produces: no lead time to divide by is
+    # a refusal to state a ratio, not a gap in the row.
+    check("a null flow efficiency is the derivation refusing, and is allowed",
+          S["problems"]["nullEfficiency"] == [], S["problems"]["nullEfficiency"])
+    # The wrong-slice check. A row claiming more completed than the sprint ever
+    # held was computed over different issues than it says, which is this
+    # repository's most expensive class of bug.
+    check("completing more than the sprint contained is refused as a wrong slice",
+          any("different set of issues" in x for x in S["problems"]["impossible"]),
+          S["problems"]["impossible"])
+    check("something that is not a row at all is refused readably",
+          S["problems"]["notAnObject"] == ["the row is not an object."],
+          S["problems"]["notAnObject"])
+
+    # ---- the status fingerprint ----
+    #
+    # The fourth hazard, and the only one this product can detect: `started` is
+    # the changelog replayed through today's idea of "in progress", so
+    # recategorising a status moves every wipItems in the series at once.
+    fp = S["fingerprint"]
+    check("reordering and recasing the same statuses is not a change",
+          fp["now"] == fp["reordered"], (fp["now"], fp["reordered"]))
+    check("dropping a status from 'in progress' is",
+          fp["now"] != fp["moved"], (fp["now"], fp["moved"]))
+    check("no configuration at all still fingerprints, rather than throwing",
+          isinstance(fp["empty"], str), fp["empty"])
+
+    # ---- what may be written ----
+    #
+    # The rule the whole record turns on. A row is recorded when the app saw the
+    # sprint run; a row derived afterwards is a reconstruction and is never
+    # written, because writing it would launder one warrant into the other and
+    # make the series look complete from the day of install.
+    r = S["recordable"]
+    check("an active sprint may always be observed", r["active"]["record"] is True, r["active"])
+    check("and observed again, replacing the last look",
+          r["activeAgain"]["record"] is True, r["activeAgain"])
+    check("a sprint we were already watching may be recorded when it closes",
+          r["closedWithPrior"]["record"] is True, r["closedWithPrior"])
+    check("a sprint that closed before we ever saw it is NOT recorded",
+          r["closedNoPrior"]["record"] is False, r["closedNoPrior"])
+    check("...and says it is a reconstruction rather than refusing silently",
+          "reconstruction" in r["closedNoPrior"]["why"], r["closedNoPrior"]["why"])
+    check("a row already recorded after the close is never rewritten",
+          r["alreadyFinal"]["record"] is False, r["alreadyFinal"])
+    check("a sprint state this does not understand is refused, not assumed",
+          r["nonsenseState"]["record"] is False, r["nonsenseState"])
+
+    # ---- an unreadable store is absent, not half-read ----
+    check("a store from a version this cannot read is used for nothing",
+          S["read"]["wrongVersion"]["sprints"] == {}
+          and len(S["read"]["wrongVersion"]["problems"]) == 1,
+          S["read"]["wrongVersion"])
+    check("and no store at all is not a problem, it is an empty series",
+          S["read"]["empty"] == {"sprints": {}, "problems": []}, S["read"]["empty"])
+
+    # ---- disagreement, which is the point of the module ----
+    d = S["disagree"]
+    check("a row compared against itself disagrees about nothing",
+          d["none"] == [], d["none"])
+    check("a commitment that shrank is reported by field",
+          [x["field"] for x in d["commitment"]] == ["committedItems"], d["commitment"])
+    check("a rounded ratio differing in the last place is not a disagreement",
+          d["roundingOnly"] == [], d["roundingOnly"])
+    check("a flow efficiency that really moved is",
+          [x["field"] for x in d["efficiency"]] == ["flowEfficiency"], d["efficiency"])
+
+    # ---- the merge: one series, two kinds of evidence in it ----
+    m = S["merged"]
+    check("a recorded row substitutes at its own position, never appends",
+          [row["source"] for row in m["rows"]]
+          == ["reconstructed", "recorded", "reconstructed"],
+          [row["source"] for row in m["rows"]])
+    check("and the sprints stay in the order the board runs them",
+          [row["sprint"] for row in m["rows"]]
+          == ["Sprint 21", "Sprint 22", "Sprint 23"],
+          [row["sprint"] for row in m["rows"]])
+    check("every row says which kind of evidence it is",
+          all(row.get("source") in ("recorded", "reconstructed") for row in m["rows"]),
+          [row.get("source") for row in m["rows"]])
+
+    stripped = S["mergedStripped"]["rows"][1]
+    check("a recorded row that no longer matches Jira keeps its own figures",
+          stripped["committedItems"] == 13, stripped)
+    check("...and names the fields that moved rather than picking a winner",
+          sorted(stripped["differs"]) == ["committedItems", "committedSP"],
+          stripped["differs"])
+
+    moved = S["mergedMoved"]["rows"][1]
+    check("a row recorded under different 'in progress' statuses says so",
+          moved["statusesMoved"] is True, moved)
+    check("and one recorded under the same statuses does not",
+          S["merged"]["rows"][1]["statusesMoved"] is False, S["merged"]["rows"][1])
+
+    mid = S["mergedMidFlight"]["rows"][1]
+    check("a row last seen mid-sprint is not claimed as the sprint's end",
+          mid["atSprintEnd"] is False and m["rows"][1]["atSprintEnd"] is True,
+          (mid["atSprintEnd"], m["rows"][1]["atSprintEnd"]))
+
+    # A recorded sprint the board no longer offers. Dropped rather than spliced
+    # in at a guessed position — a point on a chart at a date nothing else
+    # agrees with is worse than a point that is missing and counted.
+    check("a recorded sprint the board no longer offers is dropped and counted",
+          S["orphaned"]["orphaned"] == ["19"]
+          and len(S["orphaned"]["rows"]) == 3, S["orphaned"]["orphaned"])
+
+    # ---- the note: silent unless there is something a chart cannot show ----
+    n = S["notes"]
+    check("a fully recorded series says nothing at all", n["allRecorded"] == "",
+          n["allRecorded"])
+    check("a mixed series says how much of it was rebuilt",
+          "rebuilt from Jira" in n["mixed"], n["mixed"])
+    check("a disagreement is stated with the fields, and which figures are shown",
+          "no longer match" in n["stripped"]
+          and "committedItems" in n["stripped"]
+          and "recorded figures are shown" in n["stripped"], n["stripped"])
+    check("a recategorised status is named as a change of measurement",
+          "not quite the same measurement" in n["moved"], n["moved"])
+    check("a mid-flight last look is not passed off as a sprint end",
+          "still running" in n["midFlight"], n["midFlight"])
+    check("a dropped sprint is counted rather than left unmentioned",
+          "no longer offered by this board" in n["orphaned"], n["orphaned"])
+
+    # No silent caps: every count in the note is read off the rows it describes.
+    check("the note counts what it can see, not what it was told",
+          n["mixed"].startswith("2 of these 3 sprints"), n["mixed"][:40])
+
+    check("one key per board, so two boards closing at once are two writers",
+          S["key"] == "series:42", S["key"])
+    check("the store states its own version",
+          S["version"] == 1 and S["entry"]["statuses"], S["entry"])
+
+
 if __name__ == "__main__":
     import os
     os.environ["SERVICE_SHARED_SECRET"] = SECRET
@@ -3124,6 +3299,7 @@ if __name__ == "__main__":
     test_nothing_is_sent_that_the_guards_would_have_stopped()
     print("the deploy trigger")
     test_the_deploy_trigger_covers_everything_the_image_ships()
+    series_checks()
     print("the container image")
     test_dockerfile_copies_everything_the_service_imports()
     print("startup")

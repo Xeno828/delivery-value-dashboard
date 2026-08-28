@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.37.0
+
+**The durable series has a module and a shape, and neither of them stores an issue.** Roadmap item 4b. `forge/src/series.js` owns what is kept, what may be written, and how a recorded row and a re-derived one are presented side by side. It is pure — no Forge, no network, no storage — so `tests/test_service.py` runs it over the shapes a tenant will actually produce, including the ones where the two disagree, which is the case the module exists for. Forty-four checks.
+
+**A stored row is nine numbers and a sprint name, through an allow-list.** `ROW_FIELDS` and `rowProjection` follow `people.js`: hand the projection an issue summary or an assignee and none of it survives, and `problemsInRow` refuses the row rather than trimming it. That is what keeps item 4 off item 5's critical path — nothing in this store is anything a reader could be denied sight of, so a permission model is not a prerequisite for having one.
+
+**A reconstruction is never written into the store.** The rule ADR 0015 turns on, and `recordable()` is it: an active sprint may always be observed, a sprint we were already watching may be recorded when it closes, and a sprint that closed before the app first saw the board is shown and not stored. The two rows are usually identical; what differs is the warrant, and writing one in as the other would make the series look complete from the day of install. A row already recorded after a close is never rewritten, because a later look has less to go on rather than more.
+
+**Where a recorded row and Jira's answer today disagree, both are kept and the fields are named.** No winner is picked. A disagreement is one of ADR 0015's four hazards having happened to that sprint, and which field moved says which: commitment falling is a stripped sprint membership or a deleted issue, work in progress moving with commitment unchanged is a status recategorised underneath it. The recorded figures are the ones drawn, and the note says so.
+
+**Every row carries a fingerprint of the statuses it was computed under.** `started` is not a field Jira keeps — it is an issue's changelog replayed through whichever statuses the configuration in force calls In Progress — so recategorising one moves every `wipItems` and `flowEfficiency` in the series at once, retroactively, with no event marking it. The fingerprint cannot prevent that. It makes it visible, which is the only handle this product will ever have on it. Order- and case-insensitive, so re-saving a config in a different order does not read as a change of meaning.
+
+**`history_row` moved from the fetcher into `agent/tools/metrics.py`.** Not tidying: a Forge tenant has no Python, so its rows have to come from the hosted calculator, and the calculator ships `agent/tools/` and nothing else. Leaving the derivation in `scripts/` would have meant the resolver computing a row itself, which is the one thing `CLAUDE.md` says nothing between a tool and a reader may do. The fetcher and both bundle generators import it from there, and a test asserts the fetcher's is the tool's rather than a copy that agrees today.
+
+**The note is silent when there is nothing to say.** A fully recorded series prints nothing — six visible points do not need a sentence saying there are six. It speaks only for what a chart cannot show: how much was rebuilt, a row last seen mid-sprint rather than at the end, a measurement taken under a different word, a disagreement, and a recorded sprint the board no longer offers, which is dropped and counted rather than placed at a guessed position.
+
+**Not wired yet.** Nothing reads or writes this store: the resolver, the loopback server and the page are untouched, and a Forge tenant still sees `history: []`. That is the next slice, and it is the one that needs a deploy and a tenant to validate.
+
 ## 1.36.0
 
 **A closed sprint got better the longer ago it was, and nothing on screen said so.** Roadmap item 4 begins here, with a bug found on the way in. Every history row — the series behind the predictability chart and the Team load card — was derived from an issue's **current** status: `statusCategory == "Done"` for completion, `== "In Progress"` for work in progress. Both are facts about the fetch, not about the sprint. Three months after Sprint 23 closed nothing in it is in progress and everything anyone ever finished is done, so the row reported **no work in progress and a commitment met in full**, and the further back a reader looked the better the team appeared. This is the class `CLAUDE.md` says to shout about rather than the kind that fails: the output is plausible, and there is nothing about it to check.
