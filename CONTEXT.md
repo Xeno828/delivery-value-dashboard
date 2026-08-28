@@ -130,6 +130,18 @@ _Avoid_: Archive, backup
 The change between two snapshots, with the direction that counts as good stated for each figure.
 _Avoid_: Delta, trend (which implies more than two points)
 
+**Durable series**:
+The per-sprint rows the product keeps rather than re-derives. Deliberately small: it holds only what Jira stops being able to answer once the sprint's issues move on. Everything Jira can still be asked for is asked for. ADR 0015.
+_Avoid_: History store, cache, archive (all three imply a copy of Jira, which is what it is not)
+
+**Recorded row**:
+A sprint's row written at the moment that sprint closed, when every figure in it was still observable.
+_Avoid_: Real row, true row (they imply a reconstruction is false, and it is not — it is narrower)
+
+**Reconstructed row**:
+A sprint's row re-derived from Jira after the fact, for a sprint that closed before the app was there to record it. Complete except for the figures that were only true at the time: those are **absent, not zero**. A chart carrying both kinds says which are which, because a reader comparing them is comparing two different sorts of evidence.
+_Avoid_: Backfilled, estimated, historical row
+
 **Health score**:
 A single weighted band that always shows its full working. There are two, one per board kind, and they are never the same quantity — see **Sprint health** and **Flow health**. Say which one is meant; a figure that says only "health" invites comparing two boards measured on different evidence.
 _Avoid_: Rating, grade, RAG status (as the primary term)

@@ -105,6 +105,7 @@ These are product decisions, not style. Violating one is a bug even when the tes
 | Why Forge reaches the calculator by `invokeRemote`, region-pinned | `docs/adr/0012-the-calculator-is-reached-by-invokeremote.md` |
 | Why the scheduled brief is written inside the tenant | `docs/adr/0013-the-brief-is-written-inside-the-tenant.md` |
 | Why Jira sends the brief, and which scopes are not read-only | `docs/adr/0014-jira-sends-the-brief-and-the-read-only-rule-bends.md` |
+| Why the durable series stores so little, and what a reconstructed sprint may not claim | `docs/adr/0015-a-durable-series-stores-what-jira-forgets.md` |
 | Which commercial roadmap item something is, and what is done | `docs/roadmap.md` |
 | What the dashboard does for a board with no sprints | `docs/kanban-boards.md` |
 | Finishing the Forge route — the three unfinished pieces | `docs/forge-deployment.md` |

@@ -102,7 +102,12 @@ Nothing is picked here. The order is by dependency, and the dependencies are
 these:
 
 - **4, durable sprint history** and **5, permission mirroring** are both
-  unblocked. Either can start today.
+  unblocked. **Item 4 is in progress** — [ADR 0015](adr/0015-a-durable-series-stores-what-jira-forgets.md)
+  settles what it stores and why that is much less than the item's one-line
+  description implies. It has three parts, in this order: record the figures
+  Jira forgets, then lift the six-sprint window, then write the forecast log
+  that `score_calibration` has always been able to read and nothing has ever
+  produced.
 - **7** is blocked on both of them.
 - The **audit log** in item 6 is blocked on **5** alone. **SSO**, the other
   third of item 6, is blocked on nothing; item 6's 6–10 weeks covered all three
