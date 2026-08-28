@@ -673,9 +673,27 @@ def picker_checks():
     check("no name, note or id is interpolated without it", not raw, raw)
 
     # Same rule as the search: nothing about a person travels through a DOM
-    # attribute where markup could reach it.
+    # attribute where markup could reach it. The remove button is bound by index
+    # into the array this code just rendered.
     check("no part of a person is carried in a DOM attribute",
           "data-account" not in names and "data-name" not in names, names[:200])
+    check("the remove button is bound by index, like the search's",
+          "data-i=" in names, names[:200])
+
+    # The row's remove button names who it removes, which puts a display name
+    # into an *attribute* — a context the five-character escape covers only
+    # because it escapes both quote characters as well as the angle brackets.
+    check("the name in the remove button's label is escaped too",
+          'esc(p.displayName || p.accountId)' in names,
+          [ln.strip() for ln in names.split("\n") if "aria-label" in ln])
+    check("and the escaper covers the quote characters an attribute needs",
+          "&quot;" in js and "&#39;" in js,
+          [ln.strip() for ln in js.split("\n") if "&quot;" in ln][:1])
+    # The sentence naming who was just removed is the same untrusted string
+    # again, on a third render path.
+    check("and so is the name in the sentence that confirms the removal",
+          "Removed <b>' + esc(" in names,
+          [ln.strip() for ln in names.split("\n") if "Removed" in ln])
 
 
 def main():

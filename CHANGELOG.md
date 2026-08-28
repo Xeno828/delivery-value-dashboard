@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.34.0
+
+**The account-ID field is folded away, and the named list is where recipients are edited.** 1.33.0 put names under the field and left the field as the thing you typed into. Seen in a tenant, that is the wrong way round: an administrator meets a box demanding `712020:5ad8ac88-…` before they meet anything they can read, and taking somebody off the list means finding their id inside a comma-separated string and deleting exactly that span of it. The list is now the primary view and the editable one — each row has a **×** that removes that person — and the field sits behind an *Account IDs* disclosure.
+
+**Folded, not removed, and the distinction is the whole design.** `docs/forge-deployment.md` records why the field exists: an id must be pasteable where there is no directory to search, and a reader must be able to see exactly what will be stored. The second reason survives the fold, because each row still shows the id beside the name. The first does not — so **both lookups open the disclosure themselves the moment either is told there is no directory**, which is the state every loopback connection is in and the state a reader without "Browse users and groups" is in. Neither ever closes it: somebody who folded it away again meant it. The messages that used to say *"account ids can be entered directly"* now say where.
+
+**Removal is by account id, not by position.** The field is free text and a list typed by hand repeats an id sooner or later; removing one of two identical entries by index leaves a recipient who looks removed and still receives the brief. Every copy of the id goes.
+
+**Nothing here calls `render()` either.** The removal edits one field's value and rewrites one element. The tile is still a form somebody is part-way through, and the sentence naming who was removed says *"Save to apply it"* — the click changes the form, not the stored config.
+
+The list is no longer inside the live region. A region that holds the rows reads all of them back on every refresh; the sentence above it is announced and the list is not, and focus lands on the button that took the removed row's place — or on the search box once the list is empty — rather than on nothing.
+
+**A third render path for the same untrusted string.** A display name now reaches an *attribute* as well as text, in the remove button's `aria-label`, and the sentence confirming a removal is a fourth. `picker_checks()` covers all of them, and asserts the one `esc()` escapes both quote characters, which is the only reason it is safe in an attribute at all.
+
+**Not changed: the read-only view.** A reader who cannot edit this board's recipients still sees raw ids in the summary table. Same problem, different surface, not fixed here.
+
 ## 1.33.0
 
 **The recipient field shows who those ids are.** 1.32.0 gave the picker a name search, which stops anybody needing to *know* an account id to add one. It did nothing for the administrator who opens the tile next and finds `712020:5ad8ac88-…, 60ad2eb506bf0c006a432a17` in the field. A recipient list is a disclosure control, and one nobody can check is not doing its job — the only way to audit it was to paste an id into a user search by hand.

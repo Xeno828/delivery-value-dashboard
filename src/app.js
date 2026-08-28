@@ -2485,22 +2485,16 @@ function briefAudienceFields(audience, who) {
   const g = (who && who.groups || []).join(", ");
   const l = audience === "exec" ? "Executive" : "Team";
   return '<fieldset class="br-set"><legend>' + l + '</legend>' +
-    '<label class="br-lab" for="br-' + audience + '-u">Account IDs</label>' +
-    '<input class="br-in" id="br-' + audience + '-u" type="text" value="' + esc(u) +
-      '" placeholder="5b10a2844c20165700ede21g, 712020:…" ' +
-      'aria-describedby="br-' + audience + '-hint">' +
-    '<div class="cap" id="br-' + audience + '-hint">Jira account IDs, comma separated. ' +
-      'Not email addresses &mdash; Jira&rsquo;s notification API has no field for one. ' +
-      'Search below rather than typing one out.</div>' +
-    // Who those ids actually are, in the field's own order. Written here rather
-    // than into the field itself: what is saved must stay visibly the ids.
-    '<div class="br-names" id="br-' + audience + '-names" role="status" ' +
+    // The named list is the primary view and the editable one: rows carry an
+    // account id nobody can read, so removing somebody used to mean finding
+    // their id in a comma-separated string and deleting the right span of it.
+    '<div class="br-lab">Recipients</div>' +
+    // Two elements, not one. Only the sentence is announced; a live region
+    // holding the list itself would read every row back on every refresh, and
+    // it is a region focus moves into after a removal.
+    '<div class="br-nnote" id="br-' + audience + '-nnote" role="status" ' +
       'aria-live="polite"></div>' +
-    // The field above stays, and stays the thing that is saved. The search only
-    // appends to it. Two reasons: an id can still be pasted where there is no
-    // directory to search — over a local connection there is none — and a
-    // reader can always see exactly what will be stored, rather than a set of
-    // chips standing in for it.
+    '<div class="br-names" id="br-' + audience + '-names"></div>' +
     '<div class="br-find">' +
       '<label class="br-lab" for="br-' + audience + '-q">Find someone by name</label>' +
       '<div class="br-findrow">' +
@@ -2509,9 +2503,28 @@ function briefAudienceFields(audience, who) {
         '<button type="button" class="btn" id="br-' + audience + '-go">Search</button>' +
       "</div>" +
       '<div class="cap" id="br-' + audience + '-fnote">Looks up people on this site and adds ' +
-        'the account ID above. Only you can see who you are allowed to see.</div>' +
+        'them above. Only you can see who you are allowed to see.</div>' +
       '<div class="br-hits" id="br-' + audience + '-res" role="status" aria-live="polite"></div>' +
     "</div>" +
+    // **The field stays, and stays the only thing that is saved.** It is folded
+    // away rather than removed, because both reasons it exists still hold: an
+    // id must be pasteable where there is no directory to search — over a local
+    // connection there is none — and a reader must be able to see exactly what
+    // will be stored. The rows above show each id beside its name, so the
+    // second reason survives the fold; the first does not, which is why
+    // `wireBriefNames` and `wireBriefSearch` both open this by themselves the
+    // moment either is told there is no directory. It is never closed by code.
+    '<details class="br-raw" id="br-' + audience + '-raw">' +
+      "<summary>Account IDs</summary>" +
+      '<label class="br-lab" for="br-' + audience + '-u">Account IDs, comma separated</label>' +
+      '<input class="br-in" id="br-' + audience + '-u" type="text" value="' + esc(u) +
+        '" placeholder="5b10a2844c20165700ede21g, 712020:…" ' +
+        'aria-describedby="br-' + audience + '-hint">' +
+      '<div class="cap" id="br-' + audience + '-hint">Not email addresses &mdash; ' +
+        'Jira&rsquo;s notification API has no field for one. Searching by name is ' +
+        'easier and stores the same thing; this is here for pasting an id where ' +
+        'there is nobody to search for.</div>' +
+    "</details>" +
     '<label class="br-lab" for="br-' + audience + '-g">Groups</label>' +
     '<input class="br-in" id="br-' + audience + '-g" type="text" value="' + esc(g) +
       '" placeholder="leadership, ops-team">' +
@@ -2701,6 +2714,11 @@ function wireBriefSearch(el, audience, refreshNames) {
     LIVE.get("searchUsers", { query: query }).then(res => {
       const b = (res && res.body) || {};
       const people = b.people || [];
+      // Nowhere to search means the folded field is the only way anybody gets a
+      // recipient in, so it is unfolded. Opened, never closed by code: a reader
+      // who folded it away again meant it.
+      const raw = el.querySelector("#br-" + audience + "-raw");
+      if (b.available === false && raw) raw.open = true;
       // The server's own sentence. It distinguishes "nobody matched" from "you
       // may not browse users on this site" from "there is no directory here",
       // and those have different answers.
@@ -2735,23 +2753,30 @@ function wireBriefSearch(el, audience, refreshNames) {
 }
 
 /**
- * The names behind the ids already in one audience's field.
+ * The recipients of one audience, by name, and the only place they are removed.
  *
- * The search stops anybody needing to *know* an account id. This stops the
- * field being unreadable to whoever opens the tile next: a recipient list is a
- * disclosure control, and one that cannot be checked is not doing its job.
+ * The search stops anybody needing to *know* an account id to add one. This is
+ * the other half: a recipient list is a disclosure control, and one shown as
+ * `712020:5ad8ac88-…` is one nobody can audit or correct. Each row names who it
+ * is, shows the id that will actually be stored beside it, and carries the
+ * button that takes them off — removal used to mean finding the right span of a
+ * comma-separated string and deleting exactly that.
  *
- * **Nothing here calls `render()` either**, for the same reason as above — this
- * runs while somebody is part-way through the form. It writes into one element
- * and touches nothing else on the page.
+ * **Nothing here calls `render()`**, for the same reason as the search: this
+ * runs while somebody is part-way through the form, and re-rendering to show a
+ * name would discard every unsaved edit in it. It writes into two elements and
+ * changes one field's value; the page's state is untouched, because none of
+ * this is page state.
  *
- * Returns its refresher so the search can call it after appending an id,
- * rather than the two functions reaching into each other's elements.
+ * Returns its refresher so the search can call it after appending an id.
  */
 function wireBriefNames(el, audience) {
   const users = el.querySelector("#br-" + audience + "-u");
   const out = el.querySelector("#br-" + audience + "-names");
-  if (!users || !out) return function () {};
+  const say = el.querySelector("#br-" + audience + "-nnote");
+  const raw = el.querySelector("#br-" + audience + "-raw");
+  const q = el.querySelector("#br-" + audience + "-q");
+  if (!users || !out || !say) return function () {};
 
   // Every request is numbered and only the newest may write its answer. Two
   // edits in quick succession leave two lookups in flight, and the slower one
@@ -2759,45 +2784,90 @@ function wireBriefNames(el, audience) {
   // list describing something other than what the reader is looking at.
   let latest = 0;
 
-  const refresh = () => {
+  /** After a removal, focus the button that took the removed one's place, or
+   *  the last if it was last, or the search box once the list is empty. A
+   *  deleted control that leaves focus on nothing sends a keyboard reader back
+   *  to the top of the document. */
+  const settle = (at) => {
+    if (at == null) return;
+    const btns = out.querySelectorAll(".br-rm");
+    const target = btns.length ? btns[Math.min(at, btns.length - 1)] : q;
+    if (target) target.focus();
+  };
+
+  const refresh = (removed, focusAt) => {
     const ids = briefList(users.value);
     const mine = ++latest;
-    // An empty field has no names to show and nothing to say about it. Saying
-    // "no recipients resolved" over a field somebody has not filled in yet
-    // reads as a failure rather than a blank.
-    if (!ids.length) { out.innerHTML = ""; return; }
+    // Said before the lookup, not after: the removal already happened, and a
+    // sentence that waits for the network reads as the click not having landed.
+    say.innerHTML = removed
+      ? '<div class="br-added">Removed <b>' + esc(removed) +
+        "</b>. Save to apply it.</div>"
+      : "";
+    // An empty audience has no names to show and nothing to say about it.
+    // "Nobody resolved" over a field somebody has not filled in yet reads as a
+    // failure rather than a blank.
+    if (!ids.length) {
+      out.innerHTML = '<div class="note">Nobody yet. Search by name below to ' +
+        "add someone.</div>";
+      settle(focusAt);
+      return;
+    }
     out.innerHTML = '<div class="note">Reading names&hellip;</div>';
     LIVE.get("namesFor", { ids: ids }).then(res => {
       if (mine !== latest) return;
       const b = (res && res.body) || {};
+      const people = b.people || [];
+      // Nowhere to look a name up, so the ids are all anybody has. Opened, never
+      // closed: a reader who folded it away meant it.
+      if (b.available === false && raw) raw.open = true;
       // The server's own sentence, verbatim. It separates a deactivated account
       // from an id that names nobody from a site with no directory to ask, and
       // those have three different answers.
       const note = b.note ? '<div class="cap">' + esc(b.note) + "</div>" : "";
-      const rows = (b.people || []).map(p => {
+      const rows = people.map((p, i) => {
         const name = p.state === "unknown"
           ? "<i>No account with this id</i>"
           : (p.displayName ? esc(p.displayName) : "<i>Name not returned</i>");
         const mark = p.state === "deactivated"
           ? '<span class="br-state">deactivated</span>' : "";
-        // The id is shown beside the name, not instead of it. What gets saved
-        // stays visible; the name is the gloss on it.
+        // The id stays beside the name. The field it came from is folded away
+        // now, so this is the only place a reader can see what will be stored.
         return '<li><span class="br-nm">' + name + "</span>" + mark +
-          '<span class="br-id">' + esc(p.accountId) + "</span></li>";
+          '<span class="br-id">' + esc(p.accountId) + "</span>" +
+          '<button type="button" class="br-rm" data-i="' + i + '" aria-label="Remove ' +
+          esc(p.displayName || p.accountId) + '">&times;</button></li>';
       }).join("");
       out.innerHTML = note + (rows ? '<ul class="br-namelist">' + rows + "</ul>" : "");
+
+      // Bound by index against the array just rendered, so nothing about a
+      // person travels through a DOM attribute where markup could reach it.
+      out.querySelectorAll(".br-rm").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const p = people[Number(btn.getAttribute("data-i"))];
+          if (!p) return;
+          // By id rather than by position: the field is free text and a list
+          // typed by hand repeats an id sooner or later, and removing one of
+          // two identical entries leaves a recipient who looks removed.
+          users.value = briefList(users.value)
+            .filter(x => x !== p.accountId).join(", ");
+          refresh(p.displayName || p.accountId, Number(btn.getAttribute("data-i")));
+        });
+      });
+      settle(focusAt);
     }).catch(() => {
       if (mine !== latest) return;
       out.innerHTML = '<div class="cap">The server could not be reached, so ' +
         "these ids were not looked up.</div>";
+      settle(focusAt);
     });
   };
 
   // On leaving the field, not on every keystroke. An account id is thirty-odd
-  // characters and looking one up half-typed would ask about ids that do not
-  // exist and then say so, which reads as the field being wrong while it is
-  // still being filled in.
-  users.addEventListener("change", refresh);
+  // characters, and looking one up half-typed asks about ids that do not exist
+  // and then says so, which reads as the field being wrong while it is still
+  // being filled in.
+  users.addEventListener("change", () => refresh());
   return refresh;
 }
 

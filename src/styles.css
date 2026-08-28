@@ -453,12 +453,15 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 .br-hitlist{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
 .br-hit{padding:4px 10px;font-size:13px}
 .br-added{margin-top:6px;font-size:13px;color:var(--text-primary)}
-/* The names behind the ids in the field above. The id stays visible beside the
-   name: what is saved is the id, and a row that showed only a name would hide
-   the thing the reader came to check. */
+/* The named recipient list. It is the primary view of an audience and the only
+   place a recipient is removed; the account-ID field it is built from is folded
+   away behind .br-raw. The id stays on the row because that field is now
+   hidden, and a reader must still be able to see exactly what will be stored. */
 .br-names{margin-top:6px}
-.br-namelist{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}
-.br-namelist li{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;font-size:13px}
+.br-namelist{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:2px}
+.br-namelist li{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;font-size:13px;
+  padding:3px 4px;border-radius:6px}
+.br-namelist li:hover{background:var(--plane)}
 .br-nm{font-weight:600;color:var(--text-primary)}
 .br-nm i{font-weight:400;color:var(--muted)}
 .br-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--muted);word-break:break-all}
@@ -466,5 +469,25 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
    validated for colour-vision deficiency separately and stays out of here. */
 .br-state{
   font-size:11px;font-weight:600;padding:1px 6px;border-radius:10px;
-  background:var(--accent-bg);color:var(--info-ink);white-space:nowrap;
+  background:var(--info-wash);color:var(--info-ink);white-space:nowrap;
 }
+/* Pushed to the end of the row rather than sized to the text beside it, so the
+   buttons line up down the list and none of them is a moving target. 24px is
+   below the 44px pointer target of WCAG 2.5.5 AAA and meets 2.5.8 AA (24px),
+   which is the level the rest of this page is held to. */
+.br-rm{
+  margin-left:auto;flex:none;width:24px;height:24px;line-height:1;font-size:15px;
+  display:inline-flex;align-items:center;justify-content:center;padding:0;
+  border:1px solid transparent;border-radius:6px;background:none;color:var(--muted);
+}
+.br-rm:hover{border-color:var(--border);background:var(--surface-1);color:var(--crit-ink)}
+.br-rm:focus-visible{outline:2px solid var(--link);outline-offset:1px}
+/* The raw field, folded. Not removed: an id must still be pasteable where there
+   is no directory to search, and both lookups open this by themselves the
+   moment either is told there is none. */
+.br-raw{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)}
+.br-raw > summary{
+  cursor:pointer;font-size:.82rem;font-weight:600;color:var(--text-secondary);
+  list-style:revert;
+}
+.br-raw > summary:focus-visible{outline:2px solid var(--link);outline-offset:2px;border-radius:4px}

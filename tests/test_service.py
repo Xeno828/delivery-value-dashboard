@@ -2451,6 +2451,43 @@ def test_a_stored_id_can_be_shown_as_a_name():
           "latest" in names_fn and names_fn.count("mine !== latest") >= 2,
           names_fn[:200])
 
+    # The list is the editable view now: the account-ID field is folded away
+    # behind a disclosure so an administrator never meets it. Folded, not
+    # removed — an id must still be pasteable where there is no directory to
+    # search, and it is still the only thing the save reads.
+    fields = app.split("function briefAudienceFields", 1)[-1].split("\n}", 1)[0]
+    check("the account-ID field is still in the form",
+          '-u" type="text"' in fields, fields[-400:])
+    check("and is folded behind a disclosure rather than dropped",
+          "<details" in fields and fields.index("<details")
+          < fields.index('-u" type="text"'), "")
+    check("and is still the only thing the save reads",
+          'briefList(val("#br-" + a + "-u"))' in app, "")
+
+    # A folded field with no directory to search is a tile nobody can configure
+    # at all, so both lookups unfold it themselves. Never the other way: a
+    # reader who folded it away again meant it.
+    search_fn = app.split("function wireBriefSearch", 1)[-1].split("\n}", 1)[0]
+    for who, body in (("the name list", names_fn), ("the search", search_fn)):
+        check("%s unfolds the field when there is no directory" % who,
+              "raw.open = true" in body, body[:200])
+        check("and never folds it back", "raw.open = false" not in body, "")
+
+    # Removing somebody used to mean deleting the right span of a comma
+    # separated string. It is a button on their row now.
+    check("each row carries a control that removes that person",
+          "br-rm" in names_fn and "aria-label=\"Remove " in names_fn,
+          names_fn[:200])
+    check("and the removal is by account id, not by position",
+          "filter(x => x !== p.accountId)" in names_fn,
+          [ln.strip() for ln in names_fn.split("\n") if "filter(x" in ln])
+    check("and it says what it removed, because saving is still a separate act",
+          "Removed <b>" in names_fn, "")
+    # A deleted control that leaves focus on nothing sends a keyboard reader
+    # back to the top of the document.
+    check("and focus lands somewhere after the button it was on is gone",
+          "settle" in names_fn and ".focus()" in names_fn, "")
+
 
 
 def test_a_boards_recipients_are_validated_before_anyone_is_told():

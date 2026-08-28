@@ -1079,7 +1079,7 @@ resolver.define('searchUsers', answering(async ({ payload }) => {
         note: res.status === 403
           ? 'You do not have permission to browse users on this site, so names '
             + 'cannot be looked up. A site administrator grants "Browse users '
-            + 'and groups". Account ids can still be entered directly.'
+            + 'and groups". Account ids can still be pasted under Account IDs.'
           : `Jira returned ${res.status} looking up names.`,
       },
     };

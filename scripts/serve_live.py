@@ -608,7 +608,8 @@ class Handler(SimpleHTTPRequestHandler):
                 "people": [],
                 "note": "Looking a name up needs the site's user directory, and "
                         "there is none over a local connection. Account ids can "
-                        "be entered directly; on Jira the name search works.",
+                        "be pasted under Account IDs below; on Jira the name "
+                        "search works.",
             })
         if path in ("api/names", "dist/api/names"):
             # Names for ids already stored, and the same answer as api/users for
@@ -622,8 +623,8 @@ class Handler(SimpleHTTPRequestHandler):
                 "people": [],
                 "note": "Showing a stored account id as a name needs the site's "
                         "user directory, and there is none over a local "
-                        "connection. The ids below are what will be sent to; on "
-                        "Jira they are shown as names.",
+                        "connection. The ids under Account IDs are what will be "
+                        "sent to; on Jira they are shown as names.",
             })
         if path in ("api/recipients", "dist/api/recipients"):
             config = read_recipients()
