@@ -356,12 +356,26 @@ def server_checks():
         # The sample is the team's whole history; the outstanding count is only
         # the selected sprint's. Conflating them is the 1.8.0 bug, and sampling
         # the sprint alone drops under the thresholds and refuses outright.
-        check("the forecast samples the team but counts only the sprint's remaining work",
-              d_sc.get("available") is True and d_sc.get("remaining_items") == 4
-              and direct.get("inputs", {}).get("throughput_observations") == 55,
-              (d_sc.get("available"), d_sc.get("remaining_items"),
-               direct.get("inputs", {}).get("throughput_observations"),
+        #
+        # Both figures are read off the fixture rather than written down as
+        # literals. They were literals — 4 outstanding and 55 observations —
+        # and regenerating the bundle moved the first, which failed this check
+        # for a reason that had nothing to do with what it is guarding. A
+        # constant copied out of a generated file pins the generator, not the
+        # property.
+        outstanding = len([i for i in bundle["issues"]
+                           if i.get("contextId") == "BLC/42/S24"
+                           and (i.get("statusCategory") or "") != "Done"])
+        sprint_days = len(next(c for c in bundle["contexts"]
+                               if c["id"] == "BLC/42/S24")["workingDays"])
+        obs = direct.get("inputs", {}).get("throughput_observations") or 0
+        check("the forecast counts only the selected sprint's remaining work",
+              d_sc.get("available") is True
+              and d_sc.get("remaining_items") == outstanding,
+              (d_sc.get("available"), d_sc.get("remaining_items"), outstanding,
                d_sc.get("reason")))
+        check("...and samples the whole team, not that sprint",
+              obs > sprint_days * 3, (obs, sprint_days))
 
         # ---- asked-for overrides on the endpoint ----
         def fjson(q):
@@ -370,8 +384,9 @@ def server_checks():
         thirty = fjson("items=30")
         check("an asked-for item count is used, and the sprint's own is still reported",
               thirty["sprint_completion"]["remaining_items"] == 30
-              and thirty["asked"]["default_items"] == 4,
-              (thirty["sprint_completion"]["remaining_items"], thirty["asked"]["default_items"]))
+              and thirty["asked"]["default_items"] == outstanding,
+              (thirty["sprint_completion"]["remaining_items"],
+               thirty["asked"]["default_items"], outstanding))
         bydate = fjson("date=2026-10-31")
         check("an asked-for date is used for the capacity question",
               bydate["capacity_to_target"]["target_date"] == "2026-10-31",
@@ -456,8 +471,12 @@ def server_checks():
             pg.fill("#fc-items", "30"); pg.dispatch_event("#fc-items", "change")
             pg.wait_for_timeout(3000)
             asked = " ".join((pg.text_content("#forecast-body") or "").split())
+            # "not this sprint's N" — read off the fixture for the same reason
+            # as above, rather than written down as the 4 it happened to be.
             check("an asked-for item count is labelled as asked for",
-                  "30 items asked for" in asked and "not this sprint's 4" in asked, asked[:120])
+                  "30 items asked for" in asked
+                  and ("not this sprint's %d" % outstanding) in asked,
+                  (asked[:120], outstanding))
             pg.fill("#fc-items", "0"); pg.dispatch_event("#fc-items", "change")
             pg.wait_for_timeout(1500)
             rejected = " ".join((pg.text_content("#forecast-body") or "").split())

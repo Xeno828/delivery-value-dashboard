@@ -21,10 +21,13 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "agent" / "tools"))
 
+sys.path.insert(0, str(ROOT / "scripts"))
+
 import forecast as F          # noqa: E402
 import intake as I            # noqa: E402
 import metrics as M           # noqa: E402
 import orgconfig as OC        # noqa: E402
+import fetch_delivery_data as FD   # noqa: E402
 
 failures = []
 
@@ -727,6 +730,99 @@ def test_org_config():
           "working week" in (f["meta"].get("calendar") or ""), f["meta"].get("calendar"))
 
 
+# =====================================================================
+# 6. the trend series is a statement about a moment
+# =====================================================================
+def test_history_row_is_as_of_a_moment():
+    """A history row read off *current* status flatters the team, silently.
+
+    This is the bug this section exists for, and it shipped. The bundle path
+    derived each closed sprint's row from `statusCategory` at fetch time:
+    everything anyone had ever finished counted as completed *in that sprint*,
+    and nothing was in progress, because months later nothing is. The further
+    back a sprint was, the better it looked — a predictability chart showing a
+    commitment met in full, and a Team load card showing no work in progress,
+    both computed from data that was never asked the right question.
+
+    Nothing about the output looked wrong, which is what makes it the class
+    `CLAUDE.md` says to shout about rather than a rounding error.
+
+    The sprint below is arranged so the two readings disagree by construction:
+    one item was still in flight when the sprint closed and was finished five
+    weeks later. It is completed today and it was not completed then.
+    """
+    END = "2026-01-16"          # the sprint closed here
+    LATER = "2026-03-01"        # and this is when somebody re-read it
+
+    issues = [
+        # finished inside the sprint
+        {"key": "A-1", "storyPoints": 3, "statusCategory": "Done",
+         "created": "2026-01-02", "started": "2026-01-06", "resolved": "2026-01-10",
+         "addedMidSprint": False, "businessValue": 100},
+        # started inside the sprint, finished five weeks after it closed.
+        # Its status *today* is Done; at the sprint's end it was in progress.
+        {"key": "A-2", "storyPoints": 5, "statusCategory": "Done",
+         "created": "2026-01-02", "started": "2026-01-12", "resolved": "2026-02-20",
+         "addedMidSprint": False, "businessValue": 500},
+        # committed and never picked up. Not done, and not work in progress
+        # either — absent is not zero.
+        {"key": "A-3", "storyPoints": 2, "statusCategory": "To Do",
+         "created": "2026-01-02", "started": None, "resolved": None,
+         "addedMidSprint": False, "businessValue": 0},
+        # arrived after planning and finished before the end
+        {"key": "A-4", "storyPoints": 1, "statusCategory": "Done",
+         "created": "2026-01-13", "started": "2026-01-14", "resolved": "2026-01-15",
+         "addedMidSprint": True, "businessValue": 50},
+    ]
+
+    row = FD.history_row(issues, "Sprint 1", END)
+
+    check("committed counts what was planned, not what survived",
+          row["committedItems"] == 3, row)
+    check("completed counts what finished by the sprint's end",
+          row["completedItems"] == 2, row)
+    check("throughput is the same figure, not a second opinion",
+          row["throughput"] == row["completedItems"], row)
+    check("an item still in flight at the end is work in progress",
+          row["wipItems"] == 1, row)
+    # Proved by moving the one variable rather than asserted: the item that was
+    # never picked up becomes work in progress the moment it has a start date,
+    # and nothing else about the sprint changes.
+    started_too = [dict(i, started="2026-01-09") if i["key"] == "A-3" else i
+                   for i in issues]
+    check("an item never started is not work in progress; one that started is",
+          row["wipItems"] == 1
+          and FD.history_row(started_too, "Sprint 1", END)["wipItems"] == 2,
+          {"never_started": row["wipItems"],
+           "if_it_had_started": FD.history_row(started_too, "Sprint 1", END)["wipItems"]})
+    check("unplanned work is counted from the changelog, not from status",
+          row["unplannedItems"] == 1, row)
+    check("points follow the same boundary as the counts",
+          row["completedSP"] == 4.0 and row["committedSP"] == 10.0, row)
+    check("value follows it too",
+          row["valueDelivered"] == 150, row)
+
+    # The regression itself. Re-reading the same closed sprint later must not
+    # improve it — and under the old derivation it did, by exactly this much.
+    later = FD.history_row(issues, "Sprint 1", LATER)
+    check("the fixture actually distinguishes the two readings",
+          later["completedItems"] > row["completedItems"],
+          "a fixture where both readings agree would pin nothing")
+    check("so the row is keyed to the sprint's end, not to the fetch",
+          row["completedItems"] == 2 and later["completedItems"] == 3,
+          {"at_end": row["completedItems"], "re-read": later["completedItems"]})
+    check("and the work in progress a late reader sees is none of it",
+          row["wipItems"] == 1 and later["wipItems"] == 0,
+          {"at_end": row["wipItems"], "re-read": later["wipItems"]})
+
+    # One derivation, not two. The single-board path appends to the previous
+    # file and the bundle path rebuilds from Jira; they used to compute this row
+    # separately, and two implementations of one fact disagree eventually.
+    appended = FD.build_history(issues, {"sprintName": "Sprint 1", "asOfDate": END}, None)
+    check("both fetch paths build the row with one function",
+          appended[-1] == row, {"appended": appended[-1], "direct": row})
+
+
 if __name__ == "__main__":
     print("facts pack vs the dashboard")
     test_facts()
@@ -764,6 +860,8 @@ if __name__ == "__main__":
     test_backtest()
     print("organisation config")
     test_org_config()
+    print("the trend series is about a moment")
+    test_history_row_is_as_of_a_moment()
 
     print()
     if failures:

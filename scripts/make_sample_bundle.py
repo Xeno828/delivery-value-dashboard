@@ -17,7 +17,14 @@ import argparse
 import json
 import pathlib
 import random
+import sys
 from datetime import date, timedelta
+
+# One derivation of a sprint's trend row, shared with the fetcher. A history row
+# is a statement about the moment a sprint ended, and reading it off current
+# issue status silently flatters every closed sprint — see `history_row`.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from fetch_delivery_data import history_row  # noqa: E402
 
 TYPES = ["Story", "Bug", "Task"]
 PRIOS = ["Highest", "High", "Medium", "Medium", "Low"]
@@ -108,6 +115,14 @@ def build(seed=42, sprints=6, as_of="2026-08-10", scale=1):
             ctx_id = "%s/%s/S%d" % (b["projectKey"], b["boardId"], num)
             days = working_days(start, end)
             ctx_asof = as_of if active else end.isoformat()
+            # The latest date anything in this sprint can have happened by. For
+            # a closed sprint that is its end; for the active one it is today,
+            # and the two differ — which is how issues came to be written as
+            # done with a resolution date in the future. Nothing read the dates
+            # until the trend row started counting completion by them, and a
+            # fixture whose status and dates disagree puts two different
+            # completion figures on one screen.
+            cap = min(end, date.fromisoformat(ctx_asof))
 
             planned = rng.randint(9, 16)
             ctx_issues = []
@@ -120,7 +135,7 @@ def build(seed=42, sprints=6, as_of="2026-08-10", scale=1):
                 done = rng.random() < finish_p
                 started = add_wd(max(created, start), rng.randint(0, 4))
                 resolved = add_wd(started, rng.randint(1, 8)) if done else None
-                if resolved and resolved > end:
+                if resolved and resolved > cap:
                     resolved, done = None, False
                 if started > date.fromisoformat(ctx_asof):
                     started = None
@@ -150,7 +165,7 @@ def build(seed=42, sprints=6, as_of="2026-08-10", scale=1):
                 cday = date.fromisoformat(rng.choice(days[1:]))
                 done = rng.random() < 0.5
                 resolved = add_wd(cday, rng.randint(1, 4)) if done else None
-                if resolved and resolved > end:
+                if resolved and resolved > cap:
                     resolved, done = None, False
                 ctx_issues.append({
                     "key": key, "summary": "Unplanned: " + rng.choice(SUMMARIES),
@@ -190,19 +205,11 @@ def build(seed=42, sprints=6, as_of="2026-08-10", scale=1):
         hist = []
         for c in board_ctxs:
             mine = [i for i in issues if i["contextId"] == c["id"]]
-            done = [i for i in mine if i["statusCategory"] == "Done"]
-            planned_i = [i for i in mine if not i["addedMidSprint"]]
-            hist.append({
-                "sprint": c["sprintName"],
-                "committedSP": sum(i["storyPoints"] for i in planned_i),
-                "completedSP": sum(i["storyPoints"] for i in done),
-                "committedItems": len(planned_i), "completedItems": len(done),
-                "throughput": len(done),
-                "wipItems": len([i for i in mine if i["statusCategory"] == "In Progress"]),
-                "unplannedItems": len([i for i in mine if i["addedMidSprint"]]),
-                "flowEfficiency": None,
-                "valueDelivered": 0,
-            })
+            # The fetcher's own derivation, not a copy of it. This generator had
+            # its own, and so did the demo generator, and both read work in
+            # progress off *current* status — which for a closed sprint is
+            # none of it. Four implementations of one fact; now one.
+            hist.append(history_row(mine, c["sprintName"], c["asOfDate"]))
         for c in board_ctxs:
             upto = [h for h in hist if h["sprint"] <= c["sprintName"]]
             by_ctx[c["id"]]["history"] = upto[-6:]

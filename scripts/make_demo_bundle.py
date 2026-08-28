@@ -31,7 +31,14 @@ import argparse
 import json
 import pathlib
 import random
+import sys
 from datetime import date, timedelta
+
+# One derivation of a sprint's trend row, shared with the fetcher. A history row
+# is a statement about the moment a sprint ended, and reading it off current
+# issue status silently flatters every closed sprint — see `history_row`.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from fetch_delivery_data import history_row  # noqa: E402
 
 AS_OF = "2026-08-10"
 CURRENT_START = date(2026, 8, 3)
@@ -168,6 +175,8 @@ def build():
             cid = "%s/%s/S%d" % (b["projectKey"], b["boardId"], num)
             committed, completed, injected, wait = b["plan"][ix]
             as_of = AS_OF if active else end.isoformat()
+            # The latest date anything in this sprint can have happened by.
+            cap = min(end, date.fromisoformat(as_of))
             days = wdays(start, end)
             mine = []
 
@@ -186,8 +195,16 @@ def build():
                 started = add_wd(start, n % 4)
                 created = started - timedelta(days=queue_days)
                 resolved = add_wd(started, active_days) if done else None
-                if resolved and resolved > end:
-                    resolved = end
+                # Clamped to the as-of date, not just to the sprint's end. In
+                # the active sprint those differ, and three issues were being
+                # written as `statusCategory: "Done"` with a resolution date
+                # the day *after* the demo's as-of — work finished tomorrow.
+                # Nothing read the dates, so it never showed; the trend row now
+                # counts completion by date and the tile counts it by status,
+                # and a fixture that disagrees with itself puts the two on
+                # screen together saying different numbers.
+                if resolved and resolved > cap:
+                    resolved = cap
                 if started > date.fromisoformat(as_of):
                     started = None
                 mine.append(dict(
@@ -260,16 +277,14 @@ def build():
             contexts.append(ctx)
             board_ctxs.append(ctx)
 
-            board_hist.append(dict(
-                sprint=ctx["sprintName"],
-                committedSP=sum(i["storyPoints"] for i in planned_items),
-                completedSP=sum(i["storyPoints"] for i in done_items),
-                committedItems=len(planned_items), completedItems=len(done_items),
-                throughput=len(done_items),
-                wipItems=len([i for i in mine if i["statusCategory"] == "In Progress"]),
-                unplannedItems=len([i for i in mine if i["addedMidSprint"]]),
-                flowEfficiency=round(1 - b["plan"][ix][3], 2),
-                valueDelivered=sum(i["businessValue"] for i in done_items)))
+            # Counted by the fetcher's own derivation rather than a third copy
+            # of it, which is what this was. Flow efficiency is the one figure
+            # the demo scripts rather than derives — the plan above sets the
+            # story it tells — so it is written over the derived one, named
+            # here rather than left as a silent difference.
+            row = history_row(mine, ctx["sprintName"], ctx["asOfDate"])
+            row["flowEfficiency"] = round(1 - b["plan"][ix][3], 2)
+            board_hist.append(row)
 
             by_ctx[cid] = dict(burndown=[], history=[], releases=[], dora=dict(
                 deploymentFrequencyPerWeek=11 if b["boardId"] == "42" else 16,

@@ -125,7 +125,13 @@ Holidays shorten **working** time only. Reported elapsed time stays in calendar 
 
 `committedItems` / `completedItems` drive the predictability chart in items mode; `throughput` is kept as their alias for older files.
 
-`wipItems` (started but unfinished at sprint end) and `unplannedItems` (arrived after planning) drive the **Team load** card. Both come from issue status.
+`wipItems` (started but unfinished at sprint end) and `unplannedItems` (arrived after planning) drive the **Team load** card.
+
+**Every count in a row is a statement about one moment, and the moment is the sprint's `asOfDate`** — its completion date once it is closed, today while it is running. Rows are derived from issue *dates*, never from an issue's current status, and `history_row()` in `scripts/fetch_delivery_data.py` is the single implementation all three producers call.
+
+The distinction is not pedantry. Read off current status, a closed sprint reports every item anyone ever finished as completed *in that sprint* and reports no work in progress at all, because months later there is none — so a team's predictability improves the further back you look and the Team load card flatlines. That shipped, in the bundle path and in both fixture generators, and nothing about the output looked wrong. `tests/test_agent.py` pins it with a sprint whose two readings disagree by construction.
+
+One consequence worth stating: **`wipItems` is the only field here that cannot be recovered from Jira later.** Completion, commitment and unplanned arrivals all re-derive correctly at any distance, because the dates and the changelog behind them do not move. What was in flight at 17:00 on the day a sprint closed is gone the moment the issue moves on, which is the case for storing a series rather than re-deriving one.
 
 **There is no hours or overtime field, deliberately.** The organisation does not operate overtime, and carrying such a field would imply a time-tracking regime that does not exist. An earlier version of this dashboard charted output-per-person against recorded overtime; both were removed. Output per person, with no counterweight, is a productivity-per-head number, and this dashboard does not measure people.
 

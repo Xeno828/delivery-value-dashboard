@@ -467,19 +467,10 @@ def jira_bundle(args):
             ctx["workingDays"] = working_days(ctx["startDate"], ctx["endDate"])
             contexts.append(ctx)
 
-            done = [i for i in iss if i["statusCategory"] == "Done"]
-            planned = [i for i in iss if not i.get("addedMidSprint")]
-            board_history.append({
-                "sprint": ctx["sprintName"],
-                "committedSP": round(sum(i["storyPoints"] for i in planned), 1),
-                "completedSP": round(sum(i["storyPoints"] for i in done), 1),
-                "committedItems": len(planned), "completedItems": len(done),
-                "throughput": len(done),
-                "wipItems": len([i for i in iss if i["statusCategory"] == "In Progress"]),
-                "unplannedItems": len([i for i in iss if i.get("addedMidSprint")]),
-                "flowEfficiency": None,
-                "valueDelivered": round(sum(i.get("businessValue") or 0 for i in done)),
-            })
+            # As of the sprint's own end, never as of this fetch. `asOfDate` is
+            # today for the active sprint and the completion date for a closed
+            # one, which is exactly the boundary each row is a statement about.
+            board_history.append(history_row(iss, ctx["sprintName"], ctx["asOfDate"]))
             by_ctx[cid] = {"burndown": build_burndown(iss, ctx),
                            "history": [], "releases": [], "dora": None}
 
@@ -544,32 +535,93 @@ def build_burndown(issues, meta):
     return out
 
 
-def build_history(issues, meta, previous):
-    """Append this sprint to whatever history the previous file held, so the
-    six-sprint trends survive across refreshes."""
-    hist = list((previous or {}).get("history") or [])
-    done = [i for i in issues if i["statusCategory"] == "Done"]
-    lead = [(i, (date.fromisoformat(i["resolved"]) - date.fromisoformat(i["created"])).days)
+def history_row(issues, sprint_name, as_of):
+    """One sprint's row of the trend series, as it stood at `as_of`.
+
+    **Every count here is a statement about a moment, and the moment is
+    `as_of` — not the moment this ran.** That distinction is the whole reason
+    this function exists, and getting it wrong produced numbers that looked
+    right and flattered the team more the older the sprint was.
+
+    The bundle path used to read each closed sprint's row off *current* issue
+    status: `statusCategory == "Done"` for completion and `== "In Progress"`
+    for work in progress. Both are true of the fetch, not of the sprint. Three
+    months after Sprint 23 closed, nothing in it is in progress and everything
+    anyone ever finished is done — so it reported **zero WIP and a commitment
+    met in full**, and the further back you looked the better the team got.
+    A predictability chart is a claim about what was true when the sprint
+    ended; answering it with today's status is the plausible-wrong-number
+    failure this repository is most afraid of, because nothing about the output
+    looks wrong.
+
+    Every field below is therefore derived from a *date* rather than a status:
+
+    - **completed** — resolved on or before `as_of`. An issue carried into the
+      next sprint and finished there belongs to the sprint that finished it.
+    - **work in progress** — started on or before `as_of` and not resolved by
+      then. This is the one figure that cannot be recovered later from Jira at
+      all once the issue moves on, which is what makes a stored series worth
+      having rather than a re-derivation.
+    - **committed** and **unplanned** — from `addedMidSprint`, which the puller
+      reads out of the changelog. Those two are properties of the record and do
+      not move, so they re-derive correctly at any distance.
+
+    `started` is absent on an issue that never entered an In Progress status,
+    and absent is not zero: it was never work in progress, so it is not counted
+    as such.
+    """
+    # ISO dates compare correctly as strings, which is the comparison used
+    # throughout the tools; `d()` has already normalised every one of these.
+    def resolved_by(i):
+        r = i.get("resolved")
+        return bool(r and r <= as_of)
+
+    def started_by(i):
+        st = i.get("started")
+        return bool(st and st <= as_of)
+
+    done = [i for i in issues if resolved_by(i)]
+    planned = [i for i in issues if not i.get("addedMidSprint")]
+    wip = [i for i in issues if started_by(i) and not resolved_by(i)]
+
+    lead = [(date.fromisoformat(i["resolved"]) - date.fromisoformat(i["created"])).days
             for i in done if i.get("resolved") and i.get("created")]
-    cyc = [(i, (date.fromisoformat(i["resolved"]) - date.fromisoformat(i["started"])).days)
+    cyc = [(date.fromisoformat(i["resolved"]) - date.fromisoformat(i["started"])).days
            for i in done if i.get("resolved") and i.get("started")]
-    tot_lead, tot_cyc = sum(v for _, v in lead), sum(v for _, v in cyc)
-    row = {
-        "sprint": meta.get("sprintName") or date.today().isoformat(),
-        "committedSP": round(sum(i["storyPoints"] for i in issues
-                                 if not i.get("addedMidSprint")), 1),
+    tot_lead, tot_cyc = sum(lead), sum(cyc)
+
+    return {
+        "sprint": sprint_name,
+        "committedSP": round(sum(i["storyPoints"] for i in planned), 1),
         "completedSP": round(sum(i["storyPoints"] for i in done), 1),
-        "committedItems": len([i for i in issues if not i.get("addedMidSprint")]),
+        "committedItems": len(planned),
         "completedItems": len(done),
         "throughput": len(done),
-        # Work in progress and interruption, both from issue status. No hours
-        # field: the organisation does not operate overtime, and carrying one
-        # would imply a time-tracking regime that does not exist.
-        "wipItems": len([i for i in issues if i["statusCategory"] == "In Progress"]),
+        # Work in progress and interruption, both from issue status and dates.
+        # No hours field: the organisation does not operate overtime, and
+        # carrying one would imply a time-tracking regime that does not exist.
+        "wipItems": len(wip),
         "unplannedItems": len([i for i in issues if i.get("addedMidSprint")]),
+        # Calendar days on both sides of the ratio, so the unit cancels. Stated
+        # because a working-day cycle over a calendar-day lead is the shape of
+        # the 25%-versus-22% disagreement that shipped once.
         "flowEfficiency": round(tot_cyc / tot_lead, 2) if tot_lead else None,
         "valueDelivered": round(sum(i.get("businessValue") or 0 for i in done), 0),
     }
+
+
+def build_history(issues, meta, previous):
+    """Append this sprint to whatever history the previous file held, so the
+    six-sprint trends survive across refreshes.
+
+    The single-board path fetches the *active* sprint, so its as-of is today —
+    which is why this one was very nearly right where the bundle path was not.
+    It is stated rather than assumed all the same: the row is about a moment
+    and the moment has a name.
+    """
+    hist = list((previous or {}).get("history") or [])
+    row = history_row(issues, meta.get("sprintName") or date.today().isoformat(),
+                      meta.get("asOfDate") or date.today().isoformat())
     hist = [h for h in hist if h.get("sprint") != row["sprint"]]
     hist.append(row)
     return hist[-6:]
