@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.35.0
+
+**The read-only view of the recipients tile shows names too, which is the surface 1.34.0 said it had not fixed.** A reader who is not a project administrator sees the configuration and cannot change it — that is deliberate, and 1.28.0 records why: hiding it would make a misconfigured board and an unconfigured one look identical, and the person most likely to notice a wrong recipient is whoever is reading the panel. That argument only works if the recipients are legible. Until now they were a comma-separated run of `712020:5ad8ac88-…`, which is a list nobody can notice anything in. It resolves the stored ids exactly as the editable branch does, one row per id, name and state and id together.
+
+**Users and groups are two facts and are no longer one cell.** They were concatenated into a single comma-separated list, which read as one kind of thing; only one of them is an account id, and only one of them can be dead. The groups are already human-readable and stay as text under the names.
+
+**The ids are never lost when the lookup cannot answer.** The editable branch has a fallback for this — it unfolds the *Account IDs* field, which holds them. This branch has no such field, so it renders the ids themselves under the server's own sentence, verbatim: no directory over a local connection, or a reader without "Browse users and groups". An id is a poor answer to *who receives this*; a blank cell is a wrong one.
+
+**A separate function rather than a flag on the existing one.** `wireBriefNames` does four things this does not — it owns removal, re-reads the field the ids came from, races its own requests, and unfolds the disclosure — and sharing it would have meant three parameters that switch its own behaviour off. What is left is the projection, and `showBriefNames` is it. Like the editable branch it never calls `render()`: a re-render on arrival would redraw the tile and fire the same lookup again.
+
+**Structurally tested, and honestly so.** Over a local connection `canEdit` is always true, so no browser suite reaches this branch at all — it exists only on Forge, behind a permission. `picker_checks()` gains the fourth render path for the same attacker-set display name and asserts every name, note and id in it passes through the one `esc()`, plus that the branch calls the resolver rather than printing what it was given.
+
+**`docs/roadmap.md` no longer has a section headed "Item 3, which is next".** Item 3 landed on 2026-08-26 and the table above that section said so, while the section body still described it as unstarted. The body is kept — it holds the correction that item 3 touched item 5, which the original plan did not record, and it now also records that sending through Jira narrowed that dependency without closing it. A section naming what is open replaces the plan-shaped part, and states the dependency facts without ranking them, for the same reason the product refuses to score competing asks.
+
 ## 1.34.0
 
 **The account-ID field is folded away, and the named list is where recipients are edited.** 1.33.0 put names under the field and left the field as the thing you typed into. Seen in a tenant, that is the wrong way round: an administrator meets a box demanding `712020:5ad8ac88-…` before they meet anything they can read, and taking somebody off the list means finding their id inside a comma-separated string and deleting exactly that span of it. The list is now the primary view and the editable one — each row has a **×** that removes that person — and the field sits behind an *Account IDs* disclosure.
@@ -14,7 +28,7 @@ The list is no longer inside the live region. A region that holds the rows reads
 
 **A third render path for the same untrusted string.** A display name now reaches an *attribute* as well as text, in the remove button's `aria-label`, and the sentence confirming a removal is a fourth. `picker_checks()` covers all of them, and asserts the one `esc()` escapes both quote characters, which is the only reason it is safe in an attribute at all.
 
-**Not changed: the read-only view.** A reader who cannot edit this board's recipients still sees raw ids in the summary table. Same problem, different surface, not fixed here.
+**Not changed: the read-only view.** A reader who cannot edit this board's recipients still sees raw ids in the summary table. Same problem, different surface, not fixed here. *(Fixed in 1.35.0.)*
 
 ## 1.33.0
 

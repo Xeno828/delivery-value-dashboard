@@ -62,37 +62,63 @@ logic to get wrong. ADR 0012, `docs/hosting-the-calculator.md` §5. **SSO and th
 audit log are untouched**, and the audit log still depends on item 5 — a log over
 data with no permission model records the wrong thing convincingly.
 
-## Item 3, which is next
+## Item 3 — how it landed, and what it moved
 
-Next by the roadmap's own rule rather than anyone's judgement: its only stated
-dependency is item 1, and the whole of phase 3 sits behind it.
+Delivered 2026-08-26, and kept here rather than deleted because the two things
+it changed about the *plan* are not recorded anywhere else.
 
 *"Monday at nine: the executive view to the leadership channel, the team view to
 the team's. Both carry the narrative and the agent's written brief."*
 
-Four-fifths of the **content** exists — both presets in `src/app.js`, both report
-templates in `agent/templates/`. The delivery is wired but does not deliver: the
-`weekly-brief` trigger now has its own function and handler, the `llm` module is
-declared, and the handler refuses with three sentences naming what is missing —
-no board configured to report on, no recipients, no mail transport.
+It reads that way now, with one substitution the plan did not anticipate: there
+is no channel and no mail provider. Jira sends the brief itself, as a
+notification about an anchor issue, so the audience is whoever may already
+browse that issue. ADR 0014 has the argument and the two non-read scopes it
+cost. `CHANGELOG.md` 1.25.0 through 1.34.0 is the running account.
 
 **One correction to the plan, found by wiring it.** The roadmap gives item 3 a
 single dependency, item 1. It also touches **item 5** — narrowed since, not
-resolved. A scheduled trigger
-runs with no user principal, so it cannot read Jira as the viewer the way the
-panel does — and reading as the viewer is exactly what makes permission
-mirroring hold for free today. A brief composed by the app and mailed to a list
-asserts that every recipient may see every issue the app can, which nothing here
-establishes. ADR 0013 has the detail. The ordering was already right; the
-dependency was not written down.
+resolved. A scheduled trigger runs with no user principal, so it cannot read
+Jira as the viewer the way the panel does — and reading as the viewer is exactly
+what makes permission mirroring hold for free today. A brief composed by the app
+and mailed to a list asserts that every recipient may see every issue the app
+can, which nothing here establishes. ADR 0013 has the detail. Sending through
+Jira narrowed it — the notification is delivered against an issue, so a
+recipient who cannot browse it gets nothing — but it did not close it: the
+*content* is still composed against everything the app can read. The ordering
+was already right; the dependency was not written down.
 
-It is also the first item that sends customer issue text out of the tenant — to
-a mail provider, once. It nearly sent it twice: the brief is written by a model,
-and the obvious way to do that is an API key and a third party. Forge LLMs
+**The egress it nearly had.** It is the first item that sends customer issue
+text anywhere, and it nearly sent it twice: the brief is written by a model, and
+the obvious way to do that is an API key and a third party. Forge LLMs
 (`@forge/llm`, GA July 2026) runs Atlassian-hosted Claude inside the platform
 with no egress, so the model reads the tenant's issue titles without them
 leaving the boundary the customer already agreed to. ADR 0013 records both — the
 crossing that was avoided and the one that remains.
+
+## What is open, and what the order says
+
+Nothing is picked here. The order is by dependency, and the dependencies are
+these:
+
+- **4, durable sprint history** and **5, permission mirroring** are both
+  unblocked. Either can start today.
+- **7** is blocked on both of them.
+- The **audit log** in item 6 is blocked on **5** alone. **SSO**, the other
+  third of item 6, is blocked on nothing; item 6's 6–10 weeks covered all three
+  features and was never split between them, so it is not a size this file can
+  quote for SSO alone.
+
+So 4 and 5 each unblock 7, and only 5 also unblocks the audit log. That is a
+dependency fact, not a recommendation — where two items could swap, the choice
+is the reader's, and the original states why the sequence it gives is the one it
+gives. What this file will not do is score them; that is the same refusal the
+product makes about competing asks (ADR 0004), and a backlog is not a better
+place for it than a roadmap.
+
+The one figure worth carrying into that choice: **item 5 is the item the
+original itself flags as under-estimated**, at 5–8 weeks and untested. Plan
+against the upper bound.
 
 ## Assets held but unclaimed
 

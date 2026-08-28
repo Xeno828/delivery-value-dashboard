@@ -695,6 +695,40 @@ def picker_checks():
           "Removed <b>' + esc(" in names,
           [ln.strip() for ln in names.split("\n") if "Removed" in ln])
 
+    # A third render path for the same string, reached by a fourth route: the
+    # permission-gated read-only view of the tile, which resolves the stored ids
+    # too. It is the branch a reader who cannot edit sees, and the one the
+    # browser suite reaches least — over a local connection `canEdit` is always
+    # true, so nothing executes it at all.
+    if "function showBriefNames" not in js:
+        check("the read-only name list exists to be checked", False,
+              "showBriefNames missing")
+        return
+    ro = js.split("function showBriefNames", 1)[1].split("\n}", 1)[0]
+
+    check("a name in the read-only view is escaped where it is rendered",
+          "esc(p.displayName)" in ro, ro[:200])
+    check("the server's own note is escaped there too", "esc(b.note)" in ro,
+          [ln.strip() for ln in ro.split("\n") if "b.note" in ln])
+    check("and so is every id it shows, resolved or not",
+          "esc(p.accountId)" in ro and "esc(x)" in ro,
+          [ln.strip() for ln in ro.split("\n") if "accountId" in ln or "esc(x)" in ln])
+    raw = [ln.strip() for ln in ro.split("\n")
+           if ("displayName" in ln or "b.note" in ln or "accountId" in ln)
+           and "+" in ln and "esc(" not in ln]
+    check("no name, note or id is interpolated without it there either",
+          not raw, raw)
+    check("and nothing about a person travels through a DOM attribute",
+          "data-account" not in ro and "data-name" not in ro, ro[:200])
+
+    # The reason this branch exists at all: a reader who cannot fix a wrong
+    # recipient is the one most likely to notice it, and an unresolvable id is
+    # still the only handle they have on which recipient it was.
+    brief = js.split("function renderBrief", 1)[1].split("\nfunction ", 1)[0]
+    check("the read-only view resolves its ids rather than printing them",
+          "showBriefNames(el," in brief,
+          [ln.strip() for ln in brief.split("\n") if "canEdit" in ln])
+
 
 def main():
     if not DIST.exists():

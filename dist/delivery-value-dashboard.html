@@ -3420,15 +3420,35 @@ function renderBrief(el) {
   }
 
   if (!r.canEdit) {
-    const ex = entry.exec || {}, tm = entry.team || {};
-    const line = (label, who) => "<tr><th>" + label + "</th><td>" +
-      (((who.users || []).concat(who.groups || [])).map(esc).join(", ") || "&mdash;") +
-      "</td></tr>";
+    // The same list, for a reader who cannot change it — and the reason they
+    // are shown it at all is that a wrong recipient is most likely to be
+    // spotted by whoever is reading the panel. A row reading
+    // `712020:5ad8ac88-…` is one nobody can spot anything in, so the ids are
+    // resolved here exactly as they are under the editable fields. Users and
+    // groups were one comma-separated cell before this; they are two facts
+    // with two different shapes, and only one of them is an id.
+    const audiences = [["exec", "Executive", entry.exec || {}],
+                       ["team", "Team", entry.team || {}]];
+    const row = (a, label, who) => {
+      const groups = who.groups || [];
+      return "<tr><th>" + label + "</th><td>" +
+        '<div class="br-names" id="br-ro-' + a + '-names"></div>' +
+        (groups.length
+          ? '<div class="cap">Group' + (groups.length === 1 ? "" : "s") + ": " +
+            groups.map(esc).join(", ") + "</div>"
+          : "") + "</td></tr>";
+    };
     html += '<div class="tv-wrap"><table class="tv"><tbody>' +
       "<tr><th>Anchor issue</th><td>" + (esc(entry.anchorIssue) || "&mdash;") + "</td></tr>" +
-      line("Executive", ex) + line("Team", tm) + "</tbody></table></div>" +
+      audiences.map(a => row(a[0], a[1], a[2])).join("") + "</tbody></table></div>" +
       '<div class="note">' + esc(r.why || "You cannot change this.") + "</div>";
     el.innerHTML = html;
+    // After the markup, into the elements it just made. Like the editable
+    // branch, nothing here calls `render()` — the answer is written straight
+    // into one element per audience. A re-render on arrival would redraw the
+    // tile, which would fire the same lookup again, and again.
+    audiences.forEach(a => showBriefNames(el, "br-ro-" + a[0] + "-names",
+                                          a[2].users || []));
     return;
   }
 
@@ -3703,6 +3723,65 @@ function wireBriefNames(el, audience) {
   // being filled in.
   users.addEventListener("change", () => refresh());
   return refresh;
+}
+
+/**
+ * The names behind a stored audience, for a reader who cannot edit it.
+ *
+ * `wireBriefNames` above does this for the editable form, and it does four
+ * other things with it: it owns removal, it re-reads the field the ids were
+ * typed into, it races its own requests against each other, and it opens the
+ * folded Account IDs field when there is nowhere to look a name up. None of
+ * those exist here. There is no field, nothing is removed, one request is made
+ * once, and there is nothing to unfold. What is left is the projection — ids
+ * in, rows out — and it is small enough that sharing the other function would
+ * mean passing it three flags to switch its own behaviour off.
+ *
+ * **The ids are never lost.** When the lookup cannot answer — no directory over
+ * a local connection, or a reader without "Browse users and groups" — the
+ * editable branch can fall back on unfolding the field that holds them. This
+ * one has no such field, so it renders the ids themselves and prints the
+ * server's sentence above them. An id is a poor answer to "who receives this";
+ * a blank cell is a wrong one.
+ */
+function showBriefNames(el, id, ids) {
+  const out = el.querySelector("#" + id);
+  if (!out) return;
+  // Honestly nil: nobody is configured for this audience, which is a fact about
+  // the config and not a lookup that failed.
+  if (!ids.length) {
+    out.innerHTML = '<div class="note">Nobody is configured.</div>';
+    return;
+  }
+  out.innerHTML = '<div class="note">Reading names&hellip;</div>';
+  const list = rows => '<ul class="br-namelist">' + rows.join("") + "</ul>";
+  LIVE.get("namesFor", { ids: ids }).then(res => {
+    const b = (res && res.body) || {};
+    const people = b.people || [];
+    const note = b.note ? '<div class="cap">' + esc(b.note) + "</div>" : "";
+    // Nowhere to ask. The stored ids are all there is, and they are shown.
+    if (!people.length) {
+      out.innerHTML = note + list(ids.map(x =>
+        '<li><span class="br-id">' + esc(x) + "</span></li>"));
+      return;
+    }
+    out.innerHTML = note + list(people.map(p => {
+      const name = p.state === "unknown"
+        ? "<i>No account with this id</i>"
+        : (p.displayName ? esc(p.displayName) : "<i>Name not returned</i>");
+      const mark = p.state === "deactivated"
+        ? '<span class="br-state">deactivated</span>' : "";
+      // The id stays beside the name here too. This reader cannot correct a
+      // wrong recipient themselves — they have to tell somebody which one it
+      // is, and the id is what that person will search the config for.
+      return '<li><span class="br-nm">' + name + "</span>" + mark +
+        '<span class="br-id">' + esc(p.accountId) + "</span></li>";
+    }));
+  }).catch(() => {
+    out.innerHTML = '<div class="cap">The server could not be reached, so these ' +
+      "ids were not looked up.</div>" + list(ids.map(x =>
+        '<li><span class="br-id">' + esc(x) + "</span></li>"));
+  });
 }
 
 function renderSequence(el, ctrl) {
