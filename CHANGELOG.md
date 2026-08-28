@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.38.1
+
+**The fetcher is importable again without a tracker dependency, and CI is what found it.** `fetch_delivery_data.py` called `sys.exit()` at import time when `requests` was absent, and 1.38.0 made `tests/test_agent.py` import it to check one function. Every developer machine has `requests`; the CI runner does not, and `make test-agent` is promised to need nothing but Python 3. So the suite passed everywhere it was run and failed the moment it was pushed.
+
+The dependency is needed to reach a tracker and for nothing else, so the import no longer exits — `need_requests()` prints the same sentence at the point of use, which is where somebody can act on it. A module that exits while being imported is a module nothing can test.
+
+**Pinned by behaviour, not by symbol.** The check runs the import in a subprocess with `requests` genuinely blocked, because a `need_requests` function existing says nothing about whether importing the module still exits, and that was the bug.
+
 ## 1.38.0
 
 **A Forge tenant has a trend at last.** Roadmap item 4b, wired. `history` in a Forge context body has been `[]` since the app existed — the resolver computes nothing — so the predictability chart and the Team load card have said *"needs at least two sprints"* in every tenant, with nothing on screen saying why. The rows now come from a route of their own on both transports: the `history` resolver over the bridge, `api/history` over loopback, one set of body shapes (ADR 0009).

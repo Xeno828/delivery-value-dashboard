@@ -72,10 +72,24 @@ import sys
 from collections import defaultdict
 from datetime import date, datetime
 
+# Imported, but not required to import *this*. `requests` is needed to talk to a
+# tracker and for nothing else, and a module that calls sys.exit() at import
+# time is a module nothing can import to test — which is exactly what happened:
+# `tests/test_agent.py` pulled this in to check one function and broke the
+# promise that `make test-agent` needs nothing but Python 3. The message it used
+# to print at import is printed by `need_requests()` at the point of use, which
+# is where somebody can act on it.
 try:
     import requests
-except ImportError:
-    sys.exit("Install the dependency first:  pip install requests")
+except ImportError:                                     # pragma: no cover
+    requests = None
+
+
+def need_requests():
+    """The dependency, or the sentence that says how to get it."""
+    if requests is None:
+        sys.exit("Install the dependency first:  pip install requests")
+    return requests
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "agent" / "tools"))
@@ -167,7 +181,7 @@ class _TokenTransport:
 
     def __init__(self, url, email, token):
         self.url = url.rstrip("/")
-        self.s = requests.Session()
+        self.s = need_requests().Session()
         self.s.auth = (email, token)
         self.s.headers.update({"Accept": "application/json"})
 
@@ -359,7 +373,7 @@ def asana_pull(args):
     token = os.environ.get("ASANA_TOKEN")
     if not token:
         sys.exit("Set ASANA_TOKEN before using --asana-project")
-    s = requests.Session()
+    s = need_requests().Session()
     s.headers.update({"Authorization": "Bearer " + token})
 
     fields = ("gid,name,completed,completed_at,created_at,due_on,start_on,assignee.name,"

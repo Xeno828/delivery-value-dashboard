@@ -16,6 +16,7 @@ Two jobs:
 import json
 import pathlib
 import random
+import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -823,6 +824,36 @@ def test_history_row_is_as_of_a_moment():
           appended[-1] == row, {"appended": appended[-1], "direct": row})
     check("and it is the tool's, so the calculator can produce the same row",
           FD.history_row is M.history_row, (FD.history_row, M.history_row))
+    # This suite is promised to need nothing but Python 3, and importing the
+    # fetcher above broke that: it called sys.exit() at import time when
+    # `requests` was absent, so CI failed on a machine that had never installed
+    # it while every developer machine passed. The dependency is needed to reach
+    # a tracker and for nothing else.
+    #
+    # Proved in a subprocess with the import genuinely blocked, rather than by
+    # looking for a `need_requests` symbol — the symbol existing says nothing
+    # about whether importing the module still exits, which was the bug.
+    blocked = subprocess.run(
+        [sys.executable, "-c",
+         "import sys\n"
+         "class Block:\n"
+         "    def find_spec(self, name, path=None, target=None):\n"
+         "        if name == 'requests': raise ImportError('blocked for this test')\n"
+         "sys.meta_path.insert(0, Block())\n"
+         "sys.path[:0] = ['scripts', 'agent/tools']\n"
+         "import fetch_delivery_data as F\n"
+         "print('imported')\n"
+         "try:\n"
+         "    F.need_requests()\n"
+         "except SystemExit as e:\n"
+         "    print(e)\n"],
+        cwd=str(ROOT), capture_output=True, text=True, timeout=60)
+    check("the fetcher imports with no tracker dependency installed",
+          "imported" in blocked.stdout,
+          (blocked.stdout.strip()[:120], blocked.stderr.strip()[-160:]))
+    check("and still says how to install it at the point it is needed",
+          "pip install requests" in blocked.stdout,
+          " / ".join(blocked.stdout.split())[:160])
 
 
 if __name__ == "__main__":
