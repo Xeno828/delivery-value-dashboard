@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.39.1
+
+**The trend was empty in the tenant, and the cause was a sort order.** 1.38.0 shipped a series that worked over loopback and returned a single row on Forge, so the tile said *"needs at least two sprints of history"* on a board that had two. Found by opening it in a tenant, which is the only place it could have been found.
+
+`series_upto` truncates by position, so the order of the rows is load-bearing — and the two callers disagreed about it. A bundle lists a board's sprints **oldest first**; the Forge resolver gets them from `recentSprints`, which sorts **newest first** so the picker offers the current sprint at the top. Selecting the newest sprint therefore truncated the series to one row down one transport and to six down the other. A page behaving differently depending on how it was reached is precisely what [ADR 0009](docs/adr/0009-one-contract-two-transports.md) exists to prevent.
+
+**The order is now a property of the data, not of the caller.** `history_series` sorts by start date before building anything, so both transports get the same series whichever way their contexts arrived. A context carrying no dates sorts last rather than first — an undated row at the head of a trend silently shifts every point after it.
+
+**`series_upto` also narrows to the selected context's board.** A trend is per board and both real callers pass one, but the function truncates by position, so a caller passing two boards would have got a series interleaved by date and cut in the middle of the wrong one. Documenting that trap was the alternative; closing it was cheaper.
+
+**And the sentence that reported it was wrong four ways.** *"Needs at least two sprints of history"* was printed for a truncated series, for a transport that refused with a reason, for a lookup still in flight, and for a transport that could not be reached — four causes, one sentence, which is the failure `CLAUDE.md` names and this page has now made three times. Each has its own words: the server's own sentence where there is one, *"Reading the trend…"* while it is still being asked, an unreachable-server refusal, and the thin-data sentence only from the branch entitled to say it. Both tiles hand their sentence in rather than printing it, so neither can drift.
+
+**The parity check could not have caught this**, and it is worth saying why rather than adding a check that pretends otherwise. `tests/e2e.py` renders a Forge-shaped body against a loopback one, but it feeds both the same loopback *contexts* — so an ordering the resolver alone produces is invisible to it. The ordering is pinned in `tests/test_service.py` instead, by running one board's contexts through in both directions and requiring the same series.
+
 ## 1.39.0
 
 **The calculator image takes Debian's security updates at build time, and deploys move again.** Every push since 2026-08-28 failed `service/scan.sh`, and the deploy workflow stopped before it reached Google — so roadmap item 4b was finished, tested and unable to reach a tenant. [ADR 0016](docs/adr/0016-the-image-takes-debians-security-updates-at-build-time.md) has the measurements.

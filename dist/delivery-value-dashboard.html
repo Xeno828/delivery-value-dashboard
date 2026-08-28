@@ -2802,9 +2802,10 @@ function renderPred(m) {
   const host = $("#pred-chart"), h = S.view.history || [];
   // The served reason first, where there is one. Below it, thin data is the
   // honest sentence — but only once nothing else has explained the absence.
-  const refused = seriesRefusalHtml();
-  if (refused) { host.innerHTML = refused; return; }
-  if (h.length < 2) { host.innerHTML = '<div class="note">Needs at least two sprints of history.</div>'; return; }
+  if (h.length < 2) {
+    host.innerHTML = seriesRefusalHtml("Needs at least two sprints of history.");
+    return;
+  }
   const W = cw(host), H = 208, P = { t: 16, r: 12, b: 44, l: 34 };
   const iw = W - P.l - P.r, ih = H - P.t - P.b;
   const hc = U().hist("committed"), hd = U().hist("completed");
@@ -2943,9 +2944,10 @@ function renderDora(m) {
    ================================================================== */
 function renderLoad() {
   const h = S.view.history || [], host = $("#load-body");
-  const refusedLoad = seriesRefusalHtml();
-  if (refusedLoad) { host.innerHTML = refusedLoad; return; }
-  if (h.length < 2) { host.innerHTML = '<div class="note">Needs sprint history.</div>'; return; }
+  if (h.length < 2) {
+    host.innerHTML = seriesRefusalHtml("Needs sprint history.");
+    return;
+  }
 
   const mk = (title, key, fmt, col, note) => {
     const vals = h.map(d => d[key]).filter(v => v != null);
@@ -3415,10 +3417,25 @@ function fetchSeries(cid) {
  * unreachable calculator sends somebody to look for sprints that are already
  * there.
  */
-function seriesRefusalHtml() {
+function seriesRefusalHtml(thin) {
   const s = S.series;
-  if (!s || s.available !== false || !s.why) return "";
-  return '<div class="fc-refusal"><b>No trend for this board.</b> ' + esc(s.why) + "</div>";
+  // The transport answered and said no. Its sentence, verbatim.
+  if (s && s.available === false && s.why) {
+    return '<div class="fc-refusal"><b>No trend for this board.</b> ' + esc(s.why) + "</div>";
+  }
+  // Still being asked. Not a refusal and not thin data — saying either would be
+  // a verdict on evidence that has not arrived.
+  if (s === undefined && LIVE) return '<div class="note">Reading the trend&hellip;</div>';
+  // Asked, and the transport could not be reached at all. Distinct from a
+  // transport that refused, which has a reason worth printing.
+  if (s === null && LIVE) {
+    return '<div class="fc-refusal"><b>No trend for this board.</b> The server ' +
+      "could not be reached, so its sprints were not read.</div>";
+  }
+  // Genuinely too few sprints. The only branch entitled to say so — this
+  // sentence stood for all four causes when the route was first wired, and one
+  // of them was a series truncated to a single row by a sort order.
+  return '<div class="note">' + esc(thin) + "</div>";
 }
 
 /** What the page says above a trend, once, from the tool that counted it.

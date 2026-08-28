@@ -772,20 +772,38 @@ def series_refusal_checks():
     check("the server's own sentence is what is printed",
           "esc(s.why)" in body, body[:200])
     check("and it is escaped, like every other string from a transport",
-          "s.why" not in body.replace("esc(s.why)", "").replace("!s.why", ""),
+          "s.why" not in body.replace("esc(s.why)", "").replace("!s.why", "")
+          .replace("s.why) {", ""),
           [ln.strip() for ln in body.split("\n") if "why" in ln])
-    check("silence when the series is fine, rather than an empty refusal box",
-          "s.available !== false" in body, body[:200])
 
-    # Both trend tiles, because the reason is the same and printing it in one
-    # would leave the other saying the wrong thing.
+    # Four causes, four sentences. This printed one sentence for all of them
+    # when the route was first wired, and the cause that actually occurred in a
+    # tenant — a series truncated to one row by a sort order — was reported as
+    # "needs at least two sprints of history" on a board that had plenty.
+    # `CLAUDE.md`: say which cause it was.
+    check("a transport that refused is distinguished from thin data",
+          "s.available === false" in body, body[:240])
+    check("a lookup still in flight is not called thin data either",
+          "s === undefined" in body,
+          [ln.strip() for ln in body.split("\n") if "undefined" in ln])
+    check("nor is a transport that could not be reached at all",
+          "s === null" in body,
+          [ln.strip() for ln in body.split("\n") if "null" in ln])
+    check("and the thin-data sentence is passed in, so only one branch says it",
+          "seriesRefusalHtml(thin)" in js and "esc(thin)" in body,
+          [ln.strip() for ln in body.split("\n") if "thin" in ln])
+    # Both tiles route through it, or one of them keeps the old single sentence.
+    check("both trend tiles get their sentence from the one place",
+          js.count("seriesRefusalHtml(") >= 3, js.count("seriesRefusalHtml("))
+
+    # Neither tile may print the thin-data sentence directly any more: it goes
+    # in as an argument and comes back only from the branch entitled to it.
     for fn, thin in (("function renderPred", "Needs at least two sprints"),
                      ("function renderLoad", "Needs sprint history")):
         block = js.split(fn, 1)[1].split("\n}", 1)[0] if fn in js else ""
-        check("%s asks for the reason before blaming thin data" % fn.split()[-1],
-              block.index("seriesRefusalHtml") < block.index(thin)
-              if ("seriesRefusalHtml" in block and thin in block) else False,
-              fn)
+        check("%s hands its thin-data sentence over rather than printing it"
+              % fn.split()[-1],
+              ("seriesRefusalHtml(\"%s" % thin) in block, block[:200])
 
 
 def main():

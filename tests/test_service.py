@@ -3298,6 +3298,44 @@ def series_checks():
                                             "issues": proj,
                                             "orgConfig": bundle.get("orgConfig")}})
     direct = MT.history_series(bundle["contexts"], proj)
+
+    # ---- the order is the data's, not the caller's ----
+    #
+    # The bug this pins reached a tenant. A bundle lists a board's sprints
+    # oldest first; the Forge resolver gets them from `recentSprints`, which
+    # sorts newest first so the picker offers the current sprint at the top.
+    # `series_upto` truncates by position, so on Forge the newest sprint
+    # truncated the series to one row and the tile said "needs at least two
+    # sprints of history" on a board with plenty — while the same board over
+    # loopback drew six. A page behaving differently depending on how it was
+    # reached is what ADR 0009 exists to prevent, and the parity check in
+    # tests/e2e.py could not see it: it feeds both transports the same
+    # loopback bodies, so an ordering the resolver alone produces is invisible
+    # to it.
+    bundle_ctx = [c for c in bundle["contexts"] if str(c.get("boardId")) == "42"]
+    oldest_first = MT.history_series(bundle_ctx, proj)
+    newest_first = MT.history_series(list(reversed(bundle_ctx)), proj)
+    check("the series is ordered by the sprints, not by the caller",
+          oldest_first == newest_first,
+          {"asc": [r["contextId"] for r in oldest_first][:3],
+           "desc": [r["contextId"] for r in newest_first][:3]})
+    check("and it runs oldest first, which is the direction a chart reads",
+          [r["contextId"] for r in oldest_first]
+          == sorted(r["contextId"] for r in oldest_first),
+          [r["contextId"] for r in oldest_first])
+    check("so the newest sprint sees the whole series down either route",
+          len(MT.series_upto(oldest_first, "BLC/42/S24")) == len(bundle_ctx)
+          and len(MT.series_upto(newest_first, "BLC/42/S24")) == len(bundle_ctx),
+          (len(MT.series_upto(newest_first, "BLC/42/S24")), len(bundle_ctx)))
+    # A context with no dates at all sorts last rather than first: an undated
+    # row at the head of a trend silently shifts every point after it.
+    undated = MT.history_series(
+        bundle_ctx + [{"id": "BLC/42/SX", "kind": "sprint", "sprintName": "No dates",
+                       "asOfDate": None, "endDate": None, "startDate": None}], proj)
+    check("a context with no dates does not sort to the head of the series",
+          not undated or undated[0]["contextId"] != "BLC/42/SX",
+          [r["contextId"] for r in undated][:2])
+
     check("the service's rows are the tool's rows, called directly",
           served["rows"] == direct, (len(served["rows"]), len(direct)))
     check("and its merged view is the tool's merge of them",

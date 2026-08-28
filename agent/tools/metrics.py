@@ -211,9 +211,27 @@ def history_series(contexts, issues):
     Returns the context id beside each row rather than a bare list, because the
     caller has to line these up against a store keyed by sprint and a positional
     match would silently slip the day a board gains a sprint.
+
+    **Ordered oldest first, here, rather than trusting the caller's order.** A
+    series is a chart's x-axis and `series_upto` truncates by position, so the
+    order is load-bearing twice over — and the two callers disagreed about it.
+    A bundle lists a board's sprints oldest first; the Forge resolver gets them
+    from `recentSprints`, which sorts newest first so the picker offers the
+    current sprint at the top. Under the caller's order, selecting the newest
+    sprint on Forge truncated the series to one row and the tile said *"needs at
+    least two sprints of history"* on a board with plenty, while the same board
+    over loopback drew six. That is a page behaving differently depending on how
+    it was reached, which is the thing ADR 0009 exists to prevent.
+
+    Sorted by start date, falling back to the as-of — a context that carries
+    neither sorts last rather than first, because an undated row at the head of
+    a trend silently shifts every point after it.
     """
+    def when(c):
+        return (c.get("startDate") or c.get("endDate") or c.get("asOfDate") or "9999-12-31")
+
     out = []
-    for c in contexts or []:
+    for c in sorted(contexts or [], key=when):
         if (c.get("kind") or "sprint") != "sprint":
             continue
         cid = c.get("id")
@@ -229,6 +247,10 @@ def history_series(contexts, issues):
             continue
         out.append({
             "contextId": cid,
+            # Carried so `series_upto` can narrow to one board without parsing
+            # an id. `selection.py` identifies a board the same way, off the
+            # context rather than out of the string.
+            "boardId": c.get("boardId"),
             "sprintState": c.get("sprintState"),
             # The moment the row is a statement about, returned rather than left
             # for the caller to recover from the contexts it sent. A caller that
@@ -362,11 +384,23 @@ def series_upto(rows, context_id):
     moment two sprints share an end. An id that is not in the list leaves the
     rows alone: the caller is looking at something this series is not about, and
     silently returning an empty trend would read as a team with no history.
+
+    **Narrowed to the selected context's board first.** A trend is per board;
+    both real callers pass one board's contexts, and this truncates by position,
+    so a caller that passed two boards would get a series interleaved by date
+    and cut in the middle of the wrong one. That is not a call anybody should
+    make, and it is also not a call that should quietly return something
+    plausible — so rather than documenting the trap, the function closes it.
     """
-    ids = [r.get("contextId") for r in rows or []]
-    if context_id not in ids:
-        return list(rows or [])
-    return list(rows)[:ids.index(context_id) + 1]
+    all_rows = list(rows or [])
+    here = next((r for r in all_rows if r.get("contextId") == context_id), None)
+    if here is None:
+        return all_rows
+    board = here.get("boardId")
+    mine = [r for r in all_rows
+            if r.get("boardId") == board] if board is not None else all_rows
+    ids = [r.get("contextId") for r in mine]
+    return mine[:ids.index(context_id) + 1]
 
 
 def series_note(merged):
