@@ -825,6 +825,11 @@ def transports(b):
                       phrase in txt, txt[-220:])
                 check("and does not claim %r it does not have" % wrong,
                       wrong not in txt, txt[-220:])
+                # The same average, described again two clauses later. The first
+                # fix corrected the phrase carrying the figure and left this one
+                # saying "a mean of three numbers" beside it.
+                check("nor a mean of three numbers, in the clause after it",
+                      "mean of three numbers" not in txt, txt[-220:])
                 page.close()
             finally:
                 short.unlink(missing_ok=True)

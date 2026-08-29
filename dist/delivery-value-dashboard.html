@@ -2892,7 +2892,13 @@ function renderPred(m) {
     '<div class="note" style="margin-top:8px">Average hit rate <b>' + pct(avg) + "</b>; completed output swings by <b>" +
     U().fmt(spread) + " " + U().label + "</b> between the best and worst sprint. A commitment set from " + sprintsBasis(m.recentAvgN) + " (<b>" +
     (m.recentAvg ? U().fmt(m.recentAvg) + " " + U().label : "—") + "</b>) would be met far more often than one set from ambition." +
-    (U().isItems ? " The forecasting agent sizes this properly — a distribution over simulated sprints rather than a mean of three numbers." : "") + "</div>" +
+    // The same count again, in the clause that describes the same average. This
+    // said "a mean of three numbers" beside a figure the line above had just
+    // correctly called the last completed sprint — the false basis fixed in one
+    // half of a sentence and left standing in the other.
+    (U().isItems ? " The forecasting agent sizes this properly — a distribution over simulated sprints rather than " +
+      (m.recentAvgN === 1 ? "the mean of a single sprint"
+        : "a mean of " + (m.recentAvgN === 2 ? "two" : "three") + " numbers") + "." : "") + "</div>" +
     seriesNoteHtml();
   S.tables.pred = { cols: ["Sprint", "Committed items", "Completed items", "Committed pts", "Completed pts",
       "Hit rate (" + U().short + ")", "Flow efficiency"],

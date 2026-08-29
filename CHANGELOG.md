@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.40.1
+
+**The same false basis, in the next clause of the same sentence.** 1.40.0 fixed the phrase carrying the figure — *"a commitment set from the last completed sprint (2 items)"* — and left the clause two lines later saying *"rather than a mean of three numbers"* about that same one-sprint average. Seen in the tenant, in the screenshot of the fix.
+
+Worth recording rather than folding into 1.40.0, because the miss has a shape: the search was for the wrong *number*, and this clause states the same claim without stating the number. Both now read off `recentAvgN`, and `tests/e2e.py` asserts the phrase is absent as well as the figure being right — a check on what the tile must not say, not only on what it must.
+
 ## 1.40.0
 
 Three things a two-sprint board made visible. None was caused by roadmap item 4; the trend route just put a new board on screen for the first time, and all three had been sitting in front of every reader of a young board since long before it.
