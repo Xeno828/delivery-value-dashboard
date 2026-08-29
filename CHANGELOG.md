@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.47.0
+
+**The anchor issue is the brief's access control, and saying so closes item 5's first pass.** [ADR 0020](docs/adr/0020-the-anchor-issue-is-the-brief-s-access-control.md). This is not a new mechanism — it names the one that already existed. An administrator chooses the anchor, Jira enforces browse permission on it at send time, and ADR 0014 already told them what they were choosing: *"whoever may browse this issue may receive the brief, so choose one whose audience is the audience."* What was missing was that being the stated permission model rather than a side effect of how the send works.
+
+**The residual leak is accepted on the same terms as the stores.** A recipient who may browse the anchor and not everything counted receives aggregates over the rest. It is a count and never an identity; on project-level permissions it discloses nothing; and it is **strictly weaker than the exposure already accepted** — a brief recipient has been vouched for twice, by an administrator putting them on the list and by Jira confirming the anchor, where a panel reader has been vouched for once. Answering this more strictly than the stores would have been incoherent.
+
+**And the investigation corrected something this repository had written down twice as impossible.** ADR 0018 called composing the brief per recipient *"a different product"*. It is a feature Forge already has: `api.asUser(accountId)` is **offline user impersonation**, enabled by declaring scopes as a map with `allowImpersonation: true`, and impersonating a user from a scheduled trigger is its documented motivating case — exactly the brief's situation. That sentence was written from memory rather than documentation, which is the one thing a survey is supposed not to do, and ADR 0018 now says so where it said the opposite.
+
+It is **deferred rather than rejected**, and for reasons that could change: an app cannot impersonate a user who lacks access to it, which on a non-Marketplace app means contributors only and makes it untestable against a real recipient today; every send would multiply by the number of recipients; and whether `asUser(accountId)` works inside a scheduled trigger's own runtime is **unverified** — the documentation describes it for events and for remote backends, and this record does not assume the third case. The three things that would change the decision are written down.
+
+**Checking recipients' permissions instead was considered and refused.** `POST /rest/api/3/permissions/check` takes an `accountId`, but checking another user's permissions requires the **Administer Jira** global permission — the largest grant discussed anywhere in this repository — and its own documentation warns that a user shown as having a permission in project context *"may not have the permission for any or all issues"*. Having paid that price, the answer would still not be the one being asked.
+
+**A deferral needs a guard.** `tests/test_service.py` fails if the manifest declares `allowImpersonation`, or asks for an administer-Jira grant, so either one means somebody revisited ADR 0020 rather than a line being added to get something working.
+
+**Item 5 is a first pass and is not done.** Three exposures, all answered by accepting a disclosure and naming it. That is a coherent position and it is not a permission model, and the roadmap's 5–8 weeks was for building one.
+
 ## 1.46.0
 
 **The forecast log is the board's too, and the asymmetry with a sprint row decided the design.** A row is observed repeatedly and can be widened. **A claim is made once and resolved once, and is never rescored** — so the irreversible hazard is not publishing a narrow claim, it is *resolving* a good one from a view that cannot see the work, which marks a correct forecast wrong with no second chance to correct it. That, rather than the disclosure, is what shapes this.

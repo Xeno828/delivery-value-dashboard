@@ -24,7 +24,7 @@ references are wrong.
 | 2 | Organisation configuration | 1 — make it connectable | 2–3 wk | **Done** |
 | 3 | Scheduled delivery of the two views | 2 — make it arrive | 3–4 wk | **Done** — delivered 2026-08-26 |
 | 4 | Durable sprint history | 3 — make it defensible | 3–4 wk | **Done** — 2026-08-29 |
-| 5 | Permission mirroring | 3 — make it defensible | 5–8 wk | **Started** — surveyed; the two stores answered, the brief open |
+| 5 | Permission mirroring | 3 — make it defensible | 5–8 wk | **First pass done** — three exposures answered by accepting and naming them; no permission model built |
 | 6 | SSO, audit log, data residency | 3 — make it defensible | 6–10 wk | **Residency done**, SSO and audit open |
 | 7 | Cross-team roll-up and intake sequencing | 4 — sell it upward | 4–6 wk | Open, blocked on 4 and 5 |
 
@@ -116,9 +116,20 @@ these:
   is answered the same day and not the same way: a claim is made once and
   resolved once and never rescored, so the gate that matters there is
   *resolution* — a narrow view leaves a claim pending rather than scoring a
-  good forecast wrong with no second chance. What remains open is the
-  **brief**, which ADR 0018 found leaks least. The estimate is still untested;
-  nothing here prices it.
+  good forecast wrong with no second chance. The **brief** is answered by
+  [ADR 0020](adr/0020-the-anchor-issue-is-the-brief-s-access-control.md): the
+  anchor issue *is* its access control, administrator-chosen and Jira-enforced,
+  and the residual aggregate leak is accepted for the same reasons as the
+  stores'.
+
+  **That is a first pass, not the item.** All three exposures were answered by
+  accepting a disclosure and naming it, which is a coherent position and is not
+  a permission model — and the 5–8 weeks was for building one. The research
+  that would start it is in ADR 0020: Forge supports offline user
+  impersonation, so composing a brief per recipient is possible and was twice
+  written down here as impossible. It is deferred, with the three things that
+  would change that decision written down and a test that fails if the
+  manifest quietly enables it.
 - **7** is blocked on both of them.
 - The **audit log** in item 6 is blocked on **5** alone. **SSO**, the other
   third of item 6, is blocked on nothing; item 6's 6–10 weeks covered all three

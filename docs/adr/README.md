@@ -1,6 +1,6 @@
 # Decision records
 
-Nineteen decisions that explain why the product is shaped the way it is. Each one exists because the alternative was tried, argued for, or nearly shipped — none of them is a statement of general principle.
+Twenty decisions that explain why the product is shaped the way it is. Each one exists because the alternative was tried, argued for, or nearly shipped — none of them is a statement of general principle.
 
 Read these before proposing a change that a constraint in `CLAUDE.md` appears to block. The constraint is the rule; the record is the reason, and the reason is what tells you whether your case is the exception.
 
@@ -25,6 +25,7 @@ Read these before proposing a change that a constraint in `CLAUDE.md` appears to
 | [0017](0017-a-forecast-is-logged-as-a-count-not-a-promise.md) | A published forecast is logged as a count by a date, holding no issue identity | Recording issue keys to score "all of it lands by the 14th", and scoring a forecast the tool refused to make |
 | [0018](0018-permission-mirroring-holds-by-accident-and-where-it-does-not.md) | Where reading as the viewer stops being enough, surveyed before anything is built | Fixing the brief first, and treating "we hold only counts" as a permission model |
 | [0019](0019-a-recorded-row-is-a-fact-about-the-board.md) | A recorded row belongs to the board; a narrow view may not write one and a wider one repairs it | Re-deriving per reader, and letting whoever opened the panel last write the row |
+| [0020](0020-the-anchor-issue-is-the-brief-s-access-control.md) | The anchor issue is the brief's permission model; offline impersonation is deferred, not rejected | Administer Jira to check recipients, and claiming item 5 is finished |
 
 ## Writing a new one
 

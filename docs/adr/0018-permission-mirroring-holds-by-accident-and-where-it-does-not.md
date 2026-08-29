@@ -122,8 +122,14 @@ ADR 0013 gives.
   offer, in which case the honest answer is a refusal rather than a guess.
 - **Is `restrict` against a set of issues possible?** ADR 0014 says the notify
   endpoint takes one issue. If a brief cannot be restricted against everything
-  it counts, the alternative is composing per recipient, which is a different
-  product.
+  it counts, the alternative is composing per recipient — *which this record
+  called "a different product", and which turned out to be a feature Forge
+  already has.* [ADR 0020](0020-the-anchor-issue-is-the-brief-s-access-control.md)
+  has the research: `api.asUser(accountId)` with `allowImpersonation: true` is
+  offline user impersonation, and impersonating a user from a scheduled trigger
+  is its documented motivating case. The sentence above was written from
+  memory rather than from the documentation, which is the one thing a survey
+  is supposed not to do.
 
 ## What this rules out
 

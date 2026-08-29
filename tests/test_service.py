@@ -3888,6 +3888,26 @@ def permission_mirroring_checks():
                                                  "summary", "assignee")),
           list(FC.CLAIM_FIELDS))
 
+    # ---- impersonation is deferred, and a deferral needs a guard ----
+    #
+    # ADR 0020: composing the brief per recipient would mirror permissions
+    # exactly, and Forge can do it — `asUser(accountId)` with
+    # `allowImpersonation: true` on the scopes. It is deferred rather than
+    # rejected, for reasons that could change. So the manifest declaring one
+    # must mean somebody revisited that record, not that a line got added to
+    # get something working.
+    manifest = (ROOT / "forge" / "manifest.yml").read_text()
+    check("the app declares no offline user impersonation",
+          "allowImpersonation" not in manifest,
+          [l.strip() for l in manifest.splitlines() if "mpersonat" in l])
+    # And the largest grant this repository has ever discussed, refused in the
+    # same record: checking another user's permissions needs Administer Jira.
+    check("and asks for no administer-Jira grant to check recipients",
+          not any(w in manifest for w in ("manage:jira-configuration",
+                                          "ADMINISTER", "admin:jira")),
+          [l.strip() for l in manifest.splitlines()
+           if "manage:" in l or "admin" in l.lower()])
+
     # ---- the brief names no issue, and neither does its prompt ----
     #
     # ADR 0014 records that `restrict` filters against the anchor issue alone,
