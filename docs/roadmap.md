@@ -24,7 +24,7 @@ references are wrong.
 | 2 | Organisation configuration | 1 — make it connectable | 2–3 wk | **Done** |
 | 3 | Scheduled delivery of the two views | 2 — make it arrive | 3–4 wk | **Done** — delivered 2026-08-26 |
 | 4 | Durable sprint history | 3 — make it defensible | 3–4 wk | **Done** — 2026-08-29 |
-| 5 | Permission mirroring | 3 — make it defensible | 5–8 wk | Open |
+| 5 | Permission mirroring | 3 — make it defensible | 5–8 wk | **Started** — exposures surveyed 2026-08-29; nothing fixed |
 | 6 | SSO, audit log, data residency | 3 — make it defensible | 6–10 wk | **Residency done**, SSO and audit open |
 | 7 | Cross-team roll-up and intake sequencing | 4 — sell it upward | 4–6 wk | Open, blocked on 4 and 5 |
 
@@ -101,8 +101,14 @@ crossing that was avoided and the one that remains.
 Nothing is picked here. The order is by dependency, and the dependencies are
 these:
 
-- **4, durable sprint history** is **part done** — see the three parts below.
-  **5, permission mirroring** is unblocked and unstarted.
+- **4, durable sprint history** is **done** — see the three parts below.
+  **5, permission mirroring** is started: [ADR 0018](adr/0018-permission-mirroring-holds-by-accident-and-where-it-does-not.md)
+  surveys where reading as the viewer stops being enough and fixes none of it,
+  which for an item whose failure is a disclosure is the right first move. It
+  found three exposures, **two of them created by item 4** — the series store
+  and the forecast log both keep figures computed from whichever viewer's read
+  produced them and show those figures to every later reader. The estimate is
+  still untested; this record surveys, it does not price.
 - **7** is blocked on both of them.
 - The **audit log** in item 6 is blocked on **5** alone. **SSO**, the other
   third of item 6, is blocked on nothing; item 6's 6–10 weeks covered all three

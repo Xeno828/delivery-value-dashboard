@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.44.0
+
+**Roadmap item 5 is started, and it starts by finding two exposures this repository created yesterday.** Item 5's failure is a *disclosure* — a reader told something about work they may not see — and the first thing to get right about a disclosure is knowing where it can happen. [ADR 0018](docs/adr/0018-permission-mirroring-holds-by-accident-and-where-it-does-not.md) surveys that and deliberately fixes none of it.
+
+**The panel mirrors permissions for free, and that is a property rather than a design.** Every Jira read on the panel path is `api.asUser()`, so Jira decides what comes back and no figure was ever computed over an issue the reader cannot browse. That holds only as long as nothing is *kept* — and item 4 kept two things.
+
+**The durable series stores what one viewer could see and shows it to everyone.** `resolver.define('history')` fetches a board's issues as the **viewer**, and the rows are written to app storage and shown to every later reader. A viewer who can browse forty issues records *"committed 40"*; a viewer who can browse ten is then shown it. Before 4a, that second reader's trend was re-derived from their own visible issues on every load and mirroring held for free. **Item 4a converted a property into an assumption, and 1.36.0 through 1.43.0 did not notice.** The forecast log has the identical shape.
+
+What leaks is an *aggregate* — a count, never a key or a title, because ADR 0015 and ADR 0017 both refused issue identity for exactly this reason — and on the common Jira setup, where board access implies issue access, it discloses nothing at all. It is still a figure computed over work the reader was not granted, presented as fact.
+
+**And it collides with a decision ADR 0015 already took.** That record says a recorded row and a re-derivation that disagree are both kept and the recorded figure is shown. Issue-level security is a fifth cause of exactly that disagreement, and for *that* cause showing the recorded figure is the wrong answer. Item 5 will have to reopen it; written down now so it is a reversal taken deliberately rather than a contradiction found later.
+
+**The brief leaks less than its own record implied, and checking it corrected two documents.** ADR 0014 says `restrict` filters recipients against the anchor issue alone — true, and it matters only to the extent the brief says anything about the other issues. Every section is counts, dates and units, and `briefMessages` hands the model **only those figures**. No issue key or summary reaches a recipient, and none reaches the model. ADR 0013 and `docs/roadmap.md` both describe the model as reading the tenant's issue titles; whatever was intended, **that is not what shipped**, and anyone reasoning about item 5 from those sentences would start from a worse position than the code is in.
+
+**Every app-level store is now declared with what it exposes**, in the shape of the non-read scope allow-list: listed *and* justified, so a fourth cannot appear silently. Writing the check found a fourth immediately — `orgConfig`, which is a Jira project property rather than app storage, so Jira enforces who may read it. It is listed anyway, because an inventory with a silent exception is not an inventory.
+
+**Two of the checks were wrong before they were right, and both failed loudly.** The first followed key names back from `kvs` call sites and resolved the *function* `forecastLogKey` instead of the `forecastlog:` it builds — a check passing by matching the wrong thing. The second scanned only `index.js` and found two stores of three while reporting success; the guard asserting it had found at least as many as were declared is what showed it.
+
 ## 1.43.0
 
 **The trend window is a setting, and both of its truncations now say what they cut. Roadmap item 4 is done.** 4b was the obvious first slice and ADR 0015 deliberately put it last, because a twelve-month trend is where the hazards the store exists for have had the most time to happen. The footing went in first; this is the window on top of it.

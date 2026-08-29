@@ -3699,6 +3699,143 @@ def window_checks():
           MT.window_note(None, 6, 6))
 
 
+#: Every app-level store, with the authority its contents were computed under
+#: and what that therefore exposes. Roadmap item 5, ADR 0018.
+#:
+#: The shape is the non-read scope allow-list's: a store must be listed *and*
+#: carry a justification, so a fourth one cannot appear without somebody
+#: writing down what it discloses. Anything in app storage is readable by every
+#: viewer of the tile, so the question for each is always the same — was this
+#: computed over issues that every reader of it may see?
+APP_LEVEL_STORES = {
+    "recipients": {
+        "authority": "admin",
+        "exposes": "who a board's brief goes to. Written by a project "
+                   "administrator and shown to viewers who cannot edit it, "
+                   "which is deliberate (CHANGELOG 1.28.0) — a misconfigured "
+                   "board and an unconfigured one look identical otherwise.",
+        "mirrors": True,
+    },
+    "series:": {
+        "authority": "user",
+        "exposes": "sprint counts computed from whichever viewer's read "
+                   "recorded them, shown to every later reader. Under "
+                   "issue-level security a narrow viewer is shown aggregates "
+                   "over issues they cannot browse. ADR 0018 §1.",
+        "mirrors": False,
+    },
+    # Not app storage at all: a Jira *project property*, so Jira enforces who
+    # may read it and mirroring holds the same way it does for issues. Listed
+    # because the scan finds it and an inventory with a silent exception is not
+    # an inventory — and because "it is not our store" is exactly the reasoning
+    # that should be written down rather than assumed by the next reader.
+    "orgConfig": {
+        "authority": "jira",
+        "exposes": "which statuses mean done, the working week and the "
+                   "holidays — a project property read under the reader's own "
+                   "authority, holding no issue-derived figure at all.",
+        "mirrors": True,
+    },
+    "forecastlog:": {
+        "authority": "user",
+        "exposes": "capacity claims derived from whichever viewer's read "
+                   "published them, scored for every later reader. Same shape "
+                   "as the series. ADR 0018 §2.",
+        "mirrors": False,
+    },
+}
+
+
+def permission_mirroring_checks():
+    """Where reading as the viewer stops being enough — roadmap item 5.
+
+    The panel mirrors permissions for free: every Jira read on that path is
+    `api.asUser()`, so Jira decides what comes back and no figure was ever
+    computed over an issue the reader cannot see. That property survives only
+    as long as nothing is *kept*, and item 4 kept two things.
+
+    This does not test a fix. It pins the inventory, so the exposure is a list
+    somebody maintains rather than something the next session rediscovers.
+    """
+    print("permission mirroring")
+    idx = (ROOT / "forge" / "src" / "index.js").read_text()
+
+    # ---- the default is the safe side ----
+    check("a Jira read is made as the viewer unless it says otherwise",
+          "const jira = (as) => (as === 'app' ? api.asApp() : api.asUser());" in idx,
+          [l.strip() for l in idx.splitlines() if "const jira =" in l])
+
+    # The scheduled brief is the only thing that may read as the app, because it
+    # is the only thing with no user to be. ADR 0013.
+    app_reads = [l.strip() for l in idx.splitlines()
+                 if "'app'" in l and ("issuesForEntry" in l or "projectContexts" in l
+                                      or "orgConfigFor" in l or "boardProject" in l
+                                      or "storyPointFieldFor" in l)]
+    check("app-authority reads exist only on the scheduled path",
+          len(app_reads) == 5, app_reads)
+
+    # ---- every app-level store is declared ----
+    #
+    # kvs.get/set keys, from the source rather than from memory. A store that
+    # appears without an entry here fails this, which is the point.
+    # Read off the key declarations themselves rather than followed back from
+    # the `kvs` call sites: a call site names a local, and resolving locals with
+    # a regex found the *function* `forecastLogKey` instead of the `forecastlog:`
+    # it builds — a check that passed by matching the wrong thing.
+    #
+    # Across all of forge/src, not just index.js: `seriesKey` is declared in
+    # series.js, and scanning one file found two of the three stores while
+    # reporting success. The guard below is why that showed.
+    named = set()
+    for src in sorted((ROOT / "forge" / "src").glob("*.js")):
+        for m in re.finditer(r"(?:export\s+)?const\s+\w*(?:Key|KEY)\s*=\s*"
+                             r"(?:\([^)]*\)\s*=>\s*)?[`'\"]([A-Za-z][\w-]*:?)",
+                             src.read_text()):
+            named.add(m.group(1))
+    check("the key declarations were found at all, or this checks nothing",
+          len(named) >= len(APP_LEVEL_STORES), sorted(named))
+    undeclared = {n for n in named if n not in APP_LEVEL_STORES}
+    check("every app-level store is declared with what it exposes",
+          not undeclared, {"undeclared": sorted(undeclared),
+                           "declared": sorted(APP_LEVEL_STORES)})
+    check("and each declaration says whether it mirrors permissions",
+          all(isinstance(v.get("mirrors"), bool) and v.get("exposes")
+              for v in APP_LEVEL_STORES.values()),
+          sorted(APP_LEVEL_STORES))
+
+    # ---- the two that do not mirror hold aggregates, never identity ----
+    #
+    # This is what keeps the exposure arguable rather than plain. Both were
+    # deliberate (ADR 0015, ADR 0017) and both stay true whatever item 5 does.
+    check("the series store holds counts and a sprint name, nothing else",
+          list(MT.ROW_FIELDS) == ["sprint", "committedSP", "completedSP",
+                                  "committedItems", "completedItems", "throughput",
+                                  "wipItems", "unplannedItems", "flowEfficiency",
+                                  "valueDelivered"], list(MT.ROW_FIELDS))
+    check("and the forecast log holds no issue identity either",
+          not any(f in FC.CLAIM_FIELDS for f in ("key", "keys", "issues",
+                                                 "summary", "assignee")),
+          list(FC.CLAIM_FIELDS))
+
+    # ---- the brief names no issue, and neither does its prompt ----
+    #
+    # ADR 0014 records that `restrict` filters against the anchor issue alone,
+    # which is a disclosure only to the extent the brief says something about
+    # the others. It says counts. Checked because ADR 0013 describes the model
+    # as reading issue titles and the code has never done that.
+    brief = (ROOT / "forge" / "src" / "brief.js").read_text()
+    compose = (ROOT / "forge" / "src" / "compose.js").read_text()
+    prompt = brief.split("export const briefMessages", 1)[1].split("\n};", 1)[0]
+    check("the model is given the figures and nothing else",
+          "Object.entries(figures" in prompt
+          and not any(w in prompt for w in ("summary", "issueKey", "titles")),
+          [l.strip() for l in prompt.splitlines() if "figures" in l][:2])
+    sections = compose.split("export const sectionsFor", 1)[1].split("\n};", 1)[0]
+    check("and no section template names an issue",
+          not any(w in sections for w in ("{{key}}", "{{summary}}", "{{title}}")),
+          [l.strip() for l in sections.splitlines() if "template:" in l])
+
+
 if __name__ == "__main__":
     import os
     os.environ["SERVICE_SHARED_SECRET"] = SECRET
@@ -3764,6 +3901,7 @@ if __name__ == "__main__":
     series_checks()
     forecast_log_checks()
     window_checks()
+    permission_mirroring_checks()
     print("the container image")
     test_dockerfile_copies_everything_the_service_imports()
     test_the_image_takes_debians_security_updates()
