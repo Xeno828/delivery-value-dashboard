@@ -663,7 +663,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
     <div class="card span5" id="c-pred">
       <div class="card-hd">
         <div><h2>Can we trust the forecast? <span class="info" data-tip="pred">i</span></h2>
-        <div class="cap">Committed against completed, last six sprints. Consistency matters more than volume.</div></div>
+        <div class="cap">Committed against completed, sprint by sprint. Consistency matters more than volume.</div></div>
         <div class="hd-tools"><button class="icon-btn" data-table="pred" aria-pressed="false" title="Show as table">▤</button></div>
       </div>
       <div id="pred-chart"></div>
@@ -1059,7 +1059,7 @@ const HELP = {
   wip: "<b>What it is</b><br>Everything not yet finished, plotted against how old it already is, with the percentile lines from the closed items beside it.<br><br><b>Why it is the tile to act on</b><br>Every other chart here describes work that is already done. This one describes work you can still change. An item sitting above the 85th percentile line has already taken longer than 85% of everything this board has ever finished &mdash; and it is not finished.<br><br><b>How to improve it</b><br>Start the stand-up at the top of this chart and work down. Ageing predicts abandonment better than priority does, and an old item is rarely old for a reason anyone can still remember.",
   thr: "<b>What it is</b><br>Items finished in each calendar week. The dashed line is the mean.<br><br><b>Why weeks</b><br>A per-day series on a board without a sprint boundary is mostly zeroes and reads as a team that keeps stopping. Weeks are the smallest honest grain.<br><br><b>Why quiet weeks stay in</b><br>They are part of the distribution, not gaps in it. Dropping them is the most common way a forecast turns optimistic, because a model that never samples a zero will never predict a stall.<br><br><b>What it is for</b><br>This is the series the Monte Carlo forecast samples. It is here so the forecast can be checked rather than taken on trust.",
   cfd: "<b>What it is</b><br>How many items sat in each status category on each day, stacked. The height of the middle band is work in progress; the vertical gap between the top two lines is everything waiting to be started.<br><br><b>How to read it</b><br>Bands that widen are queues forming. The two outer lines diverging means work is arriving faster than it is leaving, which no amount of effort inside the team will fix.<br><br><b>Three bands, not one per column</b><br>A full cumulative flow diagram has a band for every column on the board. Nothing in this dataset records which column an issue sat in on a given day, so these are the three status <i>categories</i> instead. That is a real limitation and it is stated rather than hidden &mdash; a three-band chart labelled as a seven-column one would be a different picture of the same board.",
-  pred: "<b>What it is</b><br>What the team committed to versus what it completed, over the last six sprints.<br><br><b>How to read it</b><br>The number that matters is consistency, not height. A team that reliably delivers 34 points is more useful to a business than one that swings between 20 and 50.<br><br><b>How to improve it</b><br>Set the next commitment from the average of the last three completions, not from optimism.",
+  pred: "<b>What it is</b><br>What the team committed to versus what it completed, one bar pair per sprint. As many sprints as the board has, up to six &mdash; a new board shows two, and the tile says so rather than implying six.<br><br><b>How to read it</b><br>The number that matters is consistency, not height. A team that reliably delivers 34 points is more useful to a business than one that swings between 20 and 50.<br><br><b>How to improve it</b><br>Set the next commitment from the average of the last three completions, not from optimism &mdash; and where there have not been three, the tile names how many it averaged instead of claiming three.",
   forecast: "<b>What it is</b><br>A Monte Carlo simulation run by <code>agent/tools/forecast.py</code> &mdash; the same tool the reporting agent uses, reached over the local live-mode connection. The page does not compute it and does not reimplement it, so the tile and a written brief cannot disagree about the same sprint.<br><br><b>What it samples</b><br>Every recorded day of this <i>team's</i> history, not just the sprint on screen. One sprint offers too few observations to sample and the tool refuses; the team's full record is what makes an answer possible. Only the <i>remaining work</i> comes from the selected sprint.<br><br><b>How to read it</b><br>Quote the 85th percentile, not the median. A median is a coin flip by construction, and a commitment set there misses half the time.<br><br><b>When it refuses</b><br>Below its evidence thresholds it says so rather than widening the range. That sentence is the answer, printed as the tool wrote it.",
   dora: "<b>What it is</b><br>The four DORA measures: how often you release, how often a release breaks something, how long a change takes to reach customers, and how fast you recover.<br><br><b>How to read it</b><br>Deployment frequency and lead time measure speed; change failure rate and recovery time measure safety. Improving one at the cost of the other is not progress.<br><br><b>How to improve it</b><br>Smaller, more frequent releases usually improve all four at once.",
   load: "<b>What it is</b><br>Two load signals, both taken from issue status and nothing else: how much work is started but unfinished, and how much of each sprint arrived after planning.<br><br><b>Why not hours</b><br>This organisation does not operate overtime, and a chart of hours would imply a time-tracking regime that does not exist. Output per person went too &mdash; on its own it is a productivity-per-head number, and this dashboard does not measure people.<br><br><b>How to read it</b><br>Work in progress rising while completion stays flat means more is being started than finished, and every extra item in flight slows the ones already there. Rising unplanned work means the commitment is being displaced after it was agreed.<br><br><b>How to improve it</b><br>Cap work in progress per person, and fix intake at the front rather than asking for more effort at the back.",
@@ -1403,8 +1403,16 @@ function derive(items) {
   const prev = hist.length > 1 ? hist[hist.length - 2] : null;
   const cur = hist.length ? hist[hist.length - 1] : null;
   const hk = U().hist("completed");
-  const last3 = hist.slice(-4, -1).map(h => (h[hk] != null ? h[hk] : h.completedSP)).filter(v => v != null);
-  const avg3 = last3.length ? sum(last3) / last3.length : null;
+  // The completed sprints before this one, at most three. `slice(-4, -1)` yields
+  // three only when there are at least four sprints — on a two-sprint board it
+  // yields one — so the **count travels with the figure**. It was called `avg3`
+  // and printed as "the last three actuals" regardless, which on a new board
+  // presented the average of a single sprint as a three-sprint average. A
+  // figure with a false basis is this repository's worst failure mode: it does
+  // not fail, it reads as computed.
+  const recent = hist.slice(-4, -1).map(h => (h[hk] != null ? h[hk] : h.completedSP)).filter(v => v != null);
+  const recentAvg = recent.length ? sum(recent) / recent.length : null;
+  const recentAvgN = recent.length;
 
   const m = {
     total: items.length,
@@ -1427,7 +1435,7 @@ function derive(items) {
     flowEff: null,
     done, open, closedTimed,
     valueItems: done.filter(i => i.businessValue > 0),
-    prev, cur, avg3
+    prev, cur, recentAvg, recentAvgN
   };
   /* An empty selection is a refusal, not a zero. Everything downstream that
      would state a figure over these items checks this rather than printing the
@@ -1994,12 +2002,12 @@ function renderExec(m) {
       { title: "Completed work with an estimated value", items: m.valueItems });
   }
   const hist = S.view.history || [];
-  if (hist.length >= 4 && m.avg3) {
+  if (hist.length >= 4 && m.recentAvg) {
     const commit = m.cur ? (m.cur[U().hist("committed")] != null ? m.cur[U().hist("committed")] : m.cur.committedSP) : m.totalU;
-    if (commit > m.avg3 * 1.25)
+    if (commit > m.recentAvg * 1.25)
       add("warning", "This sprint committed " + U().fmt(commit) + " " + U().n(commit) +
-        " against a three-sprint average delivery of " + U().fmt(m.avg3) + " " + U().n(m.avg3) + ".",
-        "A commitment " + Math.round((commit / m.avg3 - 1) * 100) + "% above recent actuals is a forecasting problem, not a work-rate problem. It will read as failure whatever the team does.", null);
+        " against a " + sprintsWord(m.recentAvgN) + " average delivery of " + U().fmt(m.recentAvg) + " " + U().n(m.recentAvg) + ".",
+        "A commitment " + Math.round((commit / m.recentAvg - 1) * 100) + "% above recent actuals is a forecasting problem, not a work-rate problem. It will read as failure whatever the team does.", null);
   }
   const wipSeries = hist.slice(-3).map(h => h.wipItems).filter(v => v != null);
   const thrSeries = hist.slice(-3).map(h => (h.completedItems != null ? h.completedItems : h.throughput))
@@ -2795,6 +2803,21 @@ function renderAge(m) {
   drawTable("age");
 }
 
+/** How many sprints a "recent average" is actually an average of, said in
+ *  words. The figure is the same either way; the claim about it is not, and
+ *  "the last three actuals" over one sprint is a false basis rather than a
+ *  rounding. Below one there is no average and the caller shows an em dash. */
+function sprintsWord(n) {
+  return n === 1 ? "one-sprint" : n === 2 ? "two-sprint" : "three-sprint";
+}
+
+/** The same count, as the phrase the predictability tile puts it in. */
+function sprintsBasis(n) {
+  return n === 1 ? "the last completed sprint"
+    : n === 2 ? "the last two actuals"
+    : "the last three actuals";
+}
+
 /* =====================================================================
    CHART: predictability (committed vs completed)
    ================================================================== */
@@ -2867,8 +2890,8 @@ function renderPred(m) {
       ';border:1px solid ' + doneCol + '"></i>Rebuilt from Jira</span>' : "") +
     '<span style="margin-left:auto">% = share of the commitment met</span></div>' + s.out() +
     '<div class="note" style="margin-top:8px">Average hit rate <b>' + pct(avg) + "</b>; completed output swings by <b>" +
-    U().fmt(spread) + " " + U().label + "</b> between the best and worst sprint. A commitment set from the last three actuals (<b>" +
-    (m.avg3 ? U().fmt(m.avg3) + " " + U().label : "—") + "</b>) would be met far more often than one set from ambition." +
+    U().fmt(spread) + " " + U().label + "</b> between the best and worst sprint. A commitment set from " + sprintsBasis(m.recentAvgN) + " (<b>" +
+    (m.recentAvg ? U().fmt(m.recentAvg) + " " + U().label : "—") + "</b>) would be met far more often than one set from ambition." +
     (U().isItems ? " The forecasting agent sizes this properly — a distribution over simulated sprints rather than a mean of three numbers." : "") + "</div>" +
     seriesNoteHtml();
   S.tables.pred = { cols: ["Sprint", "Committed items", "Completed items", "Committed pts", "Completed pts",
@@ -4059,10 +4082,10 @@ function renderRisk(m, items) {
       (m.isFlowBoard ? "should be pulled off the board." : "should be moved out of the sprint."), m.flagged);
 
   const h = S.view.history || [];
-  if (h.length >= 4 && m.avg3 && m.cur && commitU(m) > m.avg3 * 1.25)
-    push("warning", "The commitment is " + Math.round((commitU(m) / m.avg3 - 1) * 100) + "% above recent actual delivery",
+  if (h.length >= 4 && m.recentAvg && m.cur && commitU(m) > m.recentAvg * 1.25)
+    push("warning", "The commitment is " + Math.round((commitU(m) / m.recentAvg - 1) * 100) + "% above recent actual delivery",
       "Committed " + U().fmt(commitU(m)) + " " + U().n(commitU(m)) + " against a three-sprint average of " +
-      U().fmt(m.avg3) + " " + U().n(m.avg3) + ".",
+      U().fmt(m.recentAvg) + " " + U().n(m.recentAvg) + ".",
       "Plan the next sprint from the trailing three-sprint average. Over-committing manufactures a failure narrative around a team that is delivering at its normal rate.", []);
 
   if (m.flowEff != null && m.avgCycle != null && m.avgCycle <= 3 && m.doneCount >= 3)

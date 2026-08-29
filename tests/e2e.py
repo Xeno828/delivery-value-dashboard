@@ -11,6 +11,7 @@ import datetime
 import json
 import pathlib
 import re
+import subprocess
 import sys
 
 from playwright.sync_api import sync_playwright
@@ -778,6 +779,64 @@ def transports(b):
         check("every route the page can ask for is served over loopback too",
               not missing, missing)
         page.close()
+
+        # ---------- a figure may not claim a basis it does not have ----------
+        #
+        # `renderPred` printed "A commitment set from the last three actuals"
+        # whatever the history held. The slice behind it — hist.slice(-4, -1) —
+        # yields three entries only from four sprints or more; on a two-sprint
+        # board it yields one, so the tile presented the average of a single
+        # sprint as a three-sprint average. Two other call sites guard the same
+        # figure with `hist.length >= 4`; this one did not.
+        #
+        # Seen first in a tenant, on a board with two sprints. That is the
+        # failure class this repository is most afraid of: nothing errored and
+        # the sentence read as computed.
+        for n, phrase, wrong in ((2, "the last two actuals", "three actuals"),
+                                 (1, "the last completed sprint", "three actuals")):
+            short = ROOT / "dist" / (".basis-%d.json" % n)
+            page_file = ROOT / "dist" / (".basis-%d.html" % n)
+            hist = [{"sprint": "S%d" % (i + 1), "committedSP": 20, "completedSP": 10,
+                     "committedItems": 10, "completedItems": 4, "throughput": 4,
+                     "wipItems": 1, "unplannedItems": 0, "flowEfficiency": 0.3,
+                     "valueDelivered": 0} for i in range(n + 1)]
+            short.write_text(json.dumps({
+                "schemaVersion": 2,
+                "meta": {"organisation": "T", "team": "T", "sprintName": "S%d" % (n + 1),
+                         "source": "demo", "sourceLabel": "fixture", "currency": "GBP",
+                         "startDate": "2026-01-05", "endDate": "2026-01-16",
+                         "asOfDate": "2026-01-16"},
+                "issues": [], "burndown": [], "history": hist,
+                "releases": [], "dora": None}))
+            subprocess.run([sys.executable, "build.py", "--data", str(short),
+                            "--out", str(page_file)], cwd=str(ROOT), check=True,
+                           capture_output=True)
+            try:
+                page = b.new_page(viewport={"width": 1500, "height": 1000})
+                # `file://`, deliberately: served from the same origin the page
+                # finds the loopback API, switches to live mode and replaces
+                # this history with the bundle's. An emailed copy is also the
+                # honest shape for the case under test — a fixed history with
+                # no transport behind it.
+                page.goto(page_file.as_uri())
+                page.wait_for_timeout(900)
+                txt = page.text_content("#pred-chart") or ""
+                check("with %d sprints of history the tile says %r" % (n, phrase),
+                      phrase in txt, txt[-220:])
+                check("and does not claim %r it does not have" % wrong,
+                      wrong not in txt, txt[-220:])
+                page.close()
+            finally:
+                short.unlink(missing_ok=True)
+                page_file.unlink(missing_ok=True)
+
+        # The label above the chart said "last six sprints" whatever it drew.
+        # Six is the cap, not the count, and a caption stating a number the
+        # chart does not show is the same false-basis failure one level up.
+        html = (ROOT / "src" / "index.html").read_text()
+        check("the predictability caption does not claim a sprint count",
+              "last six sprints" not in html,
+              [l.strip() for l in html.splitlines() if "Committed against" in l])
 
         # ---------- a file with no data of its own ----------
         # This is the path a Forge install really takes: the split build is

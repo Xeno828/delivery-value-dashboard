@@ -568,7 +568,7 @@ const projectContexts = async (projectKey, as) => {
     const recent = recentSprints(got.sprints, SPRINTS_PER_BOARD);
     if (!recent.length) { sprintBoardsWithNoSprints += 1; continue; }
     for (const sprint of recent) {
-      contexts.push(contextEntry(board, sprint, projectKey));
+      contexts.push(contextEntry(board, sprint, projectKey, todayISO()));
     }
   }
   return { boards, contexts, flowBoards, sprintBoardsWithNoSprints };
@@ -752,7 +752,7 @@ resolver.define('context', answering(async ({ payload, context }) => {
           `board ${parsed.boardId} has no open or closed sprint ${parsed.sprintId}`),
       };
     }
-    entry = contextEntry(board, sprint, moduleProject);
+    entry = contextEntry(board, sprint, moduleProject, todayISO());
   }
 
   // The check that matters, and it is against Forge's own module context

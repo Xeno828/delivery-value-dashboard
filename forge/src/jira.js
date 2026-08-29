@@ -131,7 +131,7 @@ const shiftDays = (iso, n) => {
  * "unknown context". Forge's own module context knows the project, and it is
  * the same answer both times.
  */
-export const contextEntry = (board, sprint, fallbackProjectKey) => {
+export const contextEntry = (board, sprint, fallbackProjectKey, today) => {
   const loc = board.location || {};
   const projectKey = loc.projectKey ?? fallbackProjectKey ?? null;
   return {
@@ -152,7 +152,24 @@ export const contextEntry = (board, sprint, fallbackProjectKey) => {
     sprintGoal: sprint.goal || '',
     startDate: (sprint.startDate || '').slice(0, 10),
     endDate: (sprint.endDate || '').slice(0, 10),
-    asOfDate: null,
+    // The moment this sprint's figures are a statement about, resolved exactly
+    // as `scripts/fetch_delivery_data.py` resolves it: today for a running
+    // sprint, the completion date for a finished one, and the planned end only
+    // if Jira recorded no completion.
+    //
+    // This was `null`, and the divergence it caused reached a tenant. A Forge
+    // series therefore rested entirely on `endDate` — so a sprint started
+    // without one produced no row at all, the trend silently lost a point, and
+    // the tile reported thin data on a board that had two sprints. It also
+    // meant a closed sprint was dated to when it was *planned* to end rather
+    // than when it did, which are different days whenever a sprint runs over.
+    //
+    // `today` is passed in rather than read here, because this module has no
+    // clock — the same reason `windowEntry` takes one.
+    asOfDate: sprint.state === 'active'
+      ? (today || null)
+      : ((sprint.completeDate || '').slice(0, 10)
+         || (sprint.endDate || '').slice(0, 10) || null),
     issueCount: 0,
     _sprintId: sprint.id,
   };
@@ -661,9 +678,13 @@ const addedMidSprint = (raw, sprintStart) => {
 export const contextBody = (entry, issues, orgConfig) => ({
   context: {
     ...entry,
-    // What the live server does with an active sprint, quirk included: it has
-    // no as-of date of its own, so the sprint's end stands in. Diverging here
-    // would move every elapsed-percentage on the page relative to loopback.
+    // The entry's own as-of, with the planned end as a last resort. This
+    // comment used to say the fallback *was* the rule and that matching the
+    // live server required it — which was wrong in both directions: a bundle
+    // carries a real as-of (today for a running sprint, the completion date for
+    // a finished one) and `contextEntry` supplied none, so the two transports
+    // were already reporting different elapsed-percentages for the same sprint.
+    // Now the entry resolves it the same way and this is only a fallback.
     asOfDate: entry.asOfDate || entry.endDate || null,
     issueCount: issues.length,
   },

@@ -130,7 +130,8 @@ const fieldList = [
   { id: 'customfield_10099', name: 'Points' },
 ];
 
-const entries = recentSprints(sprints, 6).map((sp) => contextEntry(board, sp, 'SFT'));
+const TODAY = '2026-08-10';
+const entries = recentSprints(sprints, 6).map((sp) => contextEntry(board, sp, 'SFT', TODAY));
 const selected = entries[0];
 
 /* The round trip the page really makes: `contexts` reads boards from the list
@@ -141,7 +142,7 @@ const selected = entries[0];
    both times, so the ids must agree even when the second response has no
    location at all. */
 const bareBoard = { id: 2, name: 'Storefront Delivery' };
-const reread = contextEntry(bareBoard, sprints.find((sp) => sp.id === 43), 'SFT');
+const reread = contextEntry(bareBoard, sprints.find((sp) => sp.id === 43), 'SFT', TODAY);
 
 
 /* ---------------------------------------------------------------------------
@@ -274,6 +275,28 @@ console.log(JSON.stringify({
     verdicts: CASES.map((c) => [c.name, validateOrgConfig(c.config).length === 0]),
   },
   idSurvivesReread: { asked: selected.id, rebuilt: reread.id },
+  // The moment a sprint's figures are about, resolved as the fetcher resolves
+  // it. It was null for every sprint, so a Forge series rested on `endDate`
+  // alone and a sprint started without one produced no row.
+  asOf: {
+    active: contextEntry(board, { id: 9, name: 'Running', state: 'active',
+      startDate: '2026-08-03T00:00:00Z', endDate: '2026-08-14T00:00:00Z' },
+      'SFT', TODAY).asOfDate,
+    // A running sprint nobody gave an end date. This is the shape that reached
+    // a tenant and produced no row at all.
+    activeNoEnd: contextEntry(board, { id: 10, name: 'Open ended', state: 'active',
+      startDate: '2026-08-03T00:00:00Z' }, 'SFT', TODAY).asOfDate,
+    // Closed sprints take the day they actually completed, not the day they
+    // were planned to. The two differ whenever a sprint runs over.
+    closed: contextEntry(board, { id: 11, name: 'Done late', state: 'closed',
+      startDate: '2026-07-06T00:00:00Z', endDate: '2026-07-17T00:00:00Z',
+      completeDate: '2026-07-21T09:12:00Z' }, 'SFT', TODAY).asOfDate,
+    closedNoComplete: contextEntry(board, { id: 12, name: 'Done', state: 'closed',
+      startDate: '2026-07-06T00:00:00Z', endDate: '2026-07-17T00:00:00Z' },
+      'SFT', TODAY).asOfDate,
+    closedNothing: contextEntry(board, { id: 13, name: 'Undated', state: 'closed' },
+      'SFT', TODAY).asOfDate,
+  },
   series: {
     version: SERIES_VERSION,
     key: seriesKey(42),

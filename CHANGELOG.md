@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.40.0
+
+Three things a two-sprint board made visible. None was caused by roadmap item 4; the trend route just put a new board on screen for the first time, and all three had been sitting in front of every reader of a young board since long before it.
+
+**A figure claimed a basis it did not have.** The predictability tile printed *"a commitment set from the last three actuals"* whatever the history held. The slice behind it, `hist.slice(-4, -1)`, yields three entries only from four sprints or more; on a two-sprint board it yields **one**, so the tile presented the average of a single sprint as a three-sprint average. Two other call sites guard the same figure with `hist.length >= 4`; this one did not. Nothing errored and the sentence read as computed, which is the failure class this repository is most afraid of.
+
+The count now travels with the figure — `recentAvg` and `recentAvgN`, renamed from `avg3` because a name that says three when it may be one is the trap rather than a description of it — and every sentence states the basis it actually has: *"the last completed sprint"*, *"the last two actuals"*, *"the last three actuals"*. Pinned in `tests/e2e.py` by rendering one- and two-sprint histories from `file://`, where no transport can replace them.
+
+**A caption claimed a sprint count.** *"Committed against completed, last six sprints"* was fixed text above a chart drawing however many the board had. Six is the cap, not the count. The caption now says *"sprint by sprint"* and the tile's help text explains that a new board shows fewer and the tile says how many.
+
+**And the divergence that started all of this is closed.** `contextEntry` reported `asOfDate: null` for every sprint, so a Forge series rested entirely on `endDate` — which is why a sprint started without one produced no row, the trend lost a point, and the tile reported thin data on a board with two. It also dated a closed sprint to when it was *planned* to end rather than when it did, and those differ whenever a sprint runs over.
+
+It now resolves the as-of exactly as `scripts/fetch_delivery_data.py` does: **today for a running sprint, the completion date for a finished one, the planned end only if Jira recorded no completion.** `tests/test_service.py` runs the fetcher's rule and the resolver's over the same five sprints and requires the same answer, which is the arrangement `validate()` and `orgConfig` already have.
+
+**One comment was wrong and is corrected rather than left.** `contextBody` said its `entry.asOfDate || entry.endDate` fallback existed because the live server had no as-of of its own and diverging "would move every elapsed-percentage on the page relative to loopback". A bundle has always carried a real as-of; `contextEntry` was the one supplying none. The two transports were already reporting different elapsed-percentages for the same sprint, and the comment explaining why they must not diverge was the reason nobody looked.
+
 ## 1.39.2
 
 **A sprint the series could not date left it silently, and the tile blamed thin data.** The tenant still showed *"needs at least two sprints of history"* on a board with two after 1.39.1. The sort order fixed in 1.39.1 was real and was not this: `history_series` skipped any context it could not put a date on and said nothing, so two sprints in produced one row out and the page reported the only thing it could see.

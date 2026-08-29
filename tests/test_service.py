@@ -3085,7 +3085,8 @@ def series_checks():
         check("the Forge shapes can be produced (needs node)", False,
               (node.stderr or node.stdout)[-200:])
         return
-    S = json.loads(node.stdout)["series"]
+    shapes = json.loads(node.stdout)
+    S = shapes["series"]
     cases = json.loads((ROOT / "tests" / "fixtures" / "series-cases.json").read_text())
 
     # ---- the store holds counts, never issue text ----
@@ -3178,6 +3179,50 @@ def series_checks():
           S["read"]["empty"] == {"sprints": {}, "problems": []}, S["read"]["empty"])
     check("what was written reads back", list(S["read"]["good"]["sprints"]) == ["SFT/2/22"],
           S["read"]["good"])
+    # ---- the moment a sprint's figures are about ----
+    #
+    # `contextEntry` reported `asOfDate: null` for every sprint, so a Forge
+    # series rested entirely on `endDate`. A sprint started without one produced
+    # no row, the trend lost a point, and the tile said "needs at least two
+    # sprints of history" on a board with two. It also dated a closed sprint to
+    # when it was *planned* to end rather than when it did.
+    #
+    # Held against the fetcher's rule rather than restated, because the two
+    # producers disagreeing about which day a sprint's figures belong to is the
+    # whole of this bug.
+    a = shapes["asOf"]
+    check("a running sprint is measured as of today",
+          a["active"] == "2026-08-10", a["active"])
+    check("including one nobody gave an end date — the case that produced no row",
+          a["activeNoEnd"] == "2026-08-10", a["activeNoEnd"])
+    check("a closed sprint takes the day it completed, not the day it was due",
+          a["closed"] == "2026-07-21", a["closed"])
+    check("falling back to the planned end only when Jira recorded no completion",
+          a["closedNoComplete"] == "2026-07-17", a["closedNoComplete"])
+    check("and a sprint with no dates at all reports none rather than inventing one",
+          a["closedNothing"] is None, a["closedNothing"])
+
+    # The fetcher's own rule, run over the same four sprints. Two producers, one
+    # answer — the arrangement `validate()` and `orgConfig` already have.
+    def fetcher_as_of(sp, today):
+        """scripts/fetch_delivery_data.py, lines 481-482, as a function."""
+        if sp.get("state") == "active":
+            return today
+        return ((sp.get("completeDate") or "")[:10]
+                or (sp.get("endDate") or "")[:10] or None)
+    cases = [
+        ("active", {"state": "active", "endDate": "2026-08-14T00:00:00Z"}),
+        ("activeNoEnd", {"state": "active"}),
+        ("closed", {"state": "closed", "endDate": "2026-07-17T00:00:00Z",
+                    "completeDate": "2026-07-21T09:12:00Z"}),
+        ("closedNoComplete", {"state": "closed", "endDate": "2026-07-17T00:00:00Z"}),
+        ("closedNothing", {"state": "closed"}),
+    ]
+    for name, sp in cases:
+        check("both producers date %s the same way" % name,
+              a[name] == fetcher_as_of(sp, "2026-08-10"),
+              {"forge": a[name], "fetcher": fetcher_as_of(sp, "2026-08-10")})
+
     check("one key per board, so two boards closing at once are two writers",
           S["key"] == "series:42", S["key"])
 
