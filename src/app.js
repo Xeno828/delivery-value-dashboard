@@ -2666,6 +2666,59 @@ function seriesNoteHtml() {
   return bits.join("");
 }
 
+/**
+ * What this app did, and who asked for it — roadmap item 6, ADR 0021.
+ *
+ * Shown only where the transport sent it, which on Forge is administrators
+ * only: this carries the account id of whoever changed a recipient list, and a
+ * reader who may not change one has no business with it.
+ *
+ * **It says what it is.** An app writing its own log into its own storage,
+ * which it can also rewrite, is not tamper-evident — Jira's audit API is
+ * read-only, so there is no log this app could write to that it cannot alter.
+ * A tile that presented this as a compliance record would be the most
+ * convincing wrong thing in the product.
+ */
+function auditHtml(r) {
+  const rows = (r && r.audit) || [];
+  const dropped = (r && r.auditDropped) || 0;
+  if (!rows.length && !dropped) return "";
+
+  const said = {
+    "recipients.saved": "Recipients changed",
+    "recipients.cleared": "Recipients removed",
+    "brief.sent": "Brief sent",
+    "brief.refused": "Brief not sent",
+  };
+  const detail = d => {
+    const parts = [];
+    if (d && d.exec != null) parts.push(d.exec + " exec");
+    if (d && d.team != null) parts.push(d.team + " team");
+    if (d && d.sent != null) parts.push(d.sent + " sent");
+    if (d && d.refused) parts.push(d.refused + " refused");
+    if (d && d.anchorSet === false) parts.push("no anchor");
+    return parts.join(", ");
+  };
+
+  return '<details class="br-raw br-audit"><summary>Activity (' +
+    (r.auditTotal || rows.length) + ")</summary>" +
+    '<div class="cap">What this app did on this site, and who asked for it. ' +
+    "Written by the app into its own storage, so it is an operational record " +
+    "rather than one anything outside the app can attest to." +
+    (dropped ? " " + dropped + " older entr" + (dropped === 1 ? "y has" : "ies have") +
+      " been dropped and cannot be recovered." : "") + "</div>" +
+    (rows.length
+      ? '<div class="tv-wrap"><table class="tv"><tbody>' + rows.map(e =>
+          "<tr><th>" + esc(String(e.at || "").slice(0, 16).replace("T", " ")) +
+          "</th><td>" + esc(said[e.event] || e.event) +
+          (e.boardId ? " &middot; board " + esc(e.boardId) : "") +
+          (detail(e.detail) ? " &middot; " + esc(detail(e.detail)) : "") +
+          '<div class="cap">' + esc(e.actor === "schedule"
+            ? "by the weekly schedule" : "by " + e.actor) + "</div></td></tr>"
+        ).join("") + "</tbody></table></div>"
+      : "") + "</details>";
+}
+
 /** Comma-separated, empties dropped. What a person types into a list field. */
 function briefList(v) {
   return String(v || "").split(",").map(x => x.trim()).filter(Boolean);
@@ -2808,6 +2861,8 @@ function renderBrief(el) {
                                           a[2].users || []));
     return;
   }
+
+  html += auditHtml(r);
 
   html += '<form id="br-form" novalidate>' +
     '<label class="br-lab" for="br-anchor">Anchor issue</label>' +

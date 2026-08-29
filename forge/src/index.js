@@ -33,6 +33,7 @@ import {
 } from './jira.js';
 import { deliveryBlockers } from './brief.js';
 import { boardsIn, notifyPayload, problemsIn } from './recipients.js';
+import { AUDIT_KEY, appendAudit, auditEntry } from './audit.js';
 import { briefsForBoard, sectionsFor } from './compose.js';
 import { ADMIN_PERMISSION, editability } from './permissions.js';
 import {
@@ -1266,10 +1267,38 @@ resolver.define('recipients', answering(async ({ context }) => {
       // and a reader needs to be able to tell "wrong" from "unset".
       config: config ?? { boards: {} },
       problems: config ? problemsIn(config) : [],
+      // The operational log, for administrators only — ADR 0021. It carries who
+      // changed a recipient list and when, and a reader who may not change one
+      // has no business with the account id of whoever did. `rights.canEdit` is
+      // Jira's answer to that question and is already asked here.
+      //
+      // Newest first, and only the recent tail: the store holds a thousand
+      // entries and a panel needs the last few. `auditDropped` is the store's
+      // own cumulative count, not the length of what was trimmed for this
+      // response, so a log that has forgotten things says so however it is read.
+      ...(rights.canEdit ? await auditFor() : {}),
       ...rights,
     },
   };
 }));
+
+/** The tail of the operational log, newest first, with what the store has
+ *  forgotten. Never throws: a log that cannot be read must not take the
+ *  recipients tile down with it. */
+const AUDIT_SHOWN = 20;
+const auditFor = async () => {
+  try {
+    const held = (await kvs.get(AUDIT_KEY)) ?? {};
+    const entries = Array.isArray(held.entries) ? held.entries : [];
+    return {
+      audit: entries.slice(-AUDIT_SHOWN).reverse(),
+      auditTotal: entries.length,
+      auditDropped: held.droppedTotal || 0,
+    };
+  } catch {
+    return {};
+  }
+};
 
 /**
  * Find a person by name, so nobody has to know an account id.
@@ -1387,6 +1416,40 @@ resolver.define('namesFor', answering(async ({ payload }) => {
     note: nameNote(found, over) } };
 }));
 
+/**
+ * Append one entry to the operational log — roadmap item 6, ADR 0021.
+ *
+ * Never throws and never blocks what it is recording. A save that succeeded and
+ * an audit write that failed must not report the save as failed; the act is the
+ * thing the administrator cares about, and a log that can veto it is a log that
+ * takes the product down when storage hiccups.
+ *
+ * That is also the honest limit of it, and ADR 0021 says so: a log the app
+ * writes into its own storage, best-effort, is operational and not a compliance
+ * record. Jira's audit API is read-only, so there is no log this app could write
+ * to that it cannot also alter.
+ */
+const audit = async (event, { actor, boardId, detail }) => {
+  try {
+    const entry = auditEntry({ at: new Date().toISOString(), event, actor, boardId, detail });
+    if (!entry) return;
+    const next = appendAudit((await kvs.get(AUDIT_KEY)) ?? null, entry);
+    if (next.wrote) {
+      await kvs.set(AUDIT_KEY, { entries: next.entries, droppedTotal: next.droppedTotal });
+    }
+  } catch {
+    /* Recorded nowhere, and deliberately silent: see above. */
+  }
+};
+
+/** How many recipients an audience holds, for the log. A count — what the list
+ *  *is* stays on the tile, which anybody who can open it can read; this answers
+ *  when it changed and who changed it. ADR 0021. */
+const audienceCounts = (entry) => ({
+  exec: ((entry?.exec?.users) || []).length + ((entry?.exec?.groups) || []).length,
+  team: ((entry?.team?.users) || []).length + ((entry?.team?.groups) || []).length,
+});
+
 resolver.define('saveRecipients', answering(async ({ payload, context }) => {
   const projectKey = moduleProjectKey(context);
   if (!projectKey) return NO_PROJECT(context);
@@ -1408,7 +1471,26 @@ resolver.define('saveRecipients', answering(async ({ payload, context }) => {
     return { status: 400, body: { available: true, saved: false, problems, ...rights } };
   }
 
+  const before = (await recipientConfig()) || {};
   await kvs.set(RECIPIENTS_KEY, config);
+
+  // One entry per board whose entry actually moved, rather than one per save:
+  // a save writes the whole configuration, so recording the act would put a row
+  // against boards nobody touched.
+  const boards = new Set([...Object.keys(before.boards || {}),
+                          ...Object.keys(config.boards || {})]);
+  for (const id of boards) {
+    const was = (before.boards || {})[id];
+    const now = (config.boards || {})[id];
+    if (JSON.stringify(was ?? null) === JSON.stringify(now ?? null)) continue;
+    await audit(now ? 'recipients.saved' : 'recipients.cleared', {
+      actor: context?.accountId,
+      boardId: id,
+      detail: now
+        ? { ...audienceCounts(now), anchorSet: Boolean(now.anchorIssue) }
+        : {},
+    });
+  }
   return { status: 200, body: { available: true, saved: true, config, problems: [], ...rights } };
 }));
 
@@ -1662,6 +1744,25 @@ export const weeklyBrief = async () => {
     const why = (board.reasons || []).concat(
       (board.results || []).filter((r) => !r.sent).flatMap((r) => r.reasons || []));
     if (why.length) console.log(`weekly brief, board ${board.boardId}: ${why.join(' ')}`);
+  }
+
+  // The operational log — roadmap item 6, ADR 0021. A `console.log` lives for
+  // days in the developer console and is visible to whoever deployed the app;
+  // an administrator asking "did last Monday's brief go out?" can read neither.
+  // Counts and audience names, no subject, no recipient, no issue key — the
+  // same rule the log above already follows.
+  for (const board of out) {
+    const results = board.results || [];
+    const went = results.filter((r) => r.sent);
+    await audit(went.length ? 'brief.sent' : 'brief.refused', {
+      actor: 'schedule',
+      boardId: board.boardId,
+      detail: {
+        sent: went.length,
+        refused: results.length - went.length,
+        audiences: went.map((r) => r.audience).filter((a) => typeof a === 'string'),
+      },
+    });
   }
   return { sent: sent > 0, boards: out };
 };

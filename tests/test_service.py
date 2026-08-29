@@ -636,9 +636,20 @@ def test_forge_manifest_matches_the_code():
     idx_js = (ROOT / "forge" / "src" / "index.js").read_text()
     for route in ("/v1/slice", "/v1/forecast-context"):
         check("the resolver calls %s" % route, route in idx_js)
+    # `.team` as a bare substring was too blunt, and the recipient audiences are
+    # what showed it: a board's brief goes to an `exec` and a `team` audience,
+    # so reading `entry.team.users` to count recipients tripped a check about
+    # the *forecast slice*. Two unrelated meanings of one word, and the check
+    # was guarding neither precisely. What it is actually for is the resolver
+    # deciding which contexts a forecast samples, so it looks for that: a
+    # comparison of team labels, or a context's team read for anything other
+    # than an audience's recipient list.
+    team_reads = [m.group(0) for m in re.finditer(r"\.team\b(?!\?\.(users|groups))",
+                                                 idx_js)]
     check("the resolver never reads a team label of its own",
-          ".team" not in idx_js and "team ===" not in idx_js,
-          "a team comparison in the resolver is a second team_slice")
+          not team_reads and "team ===" not in idx_js,
+          {"reads": team_reads[:4],
+           "why": "a team comparison in the resolver is a second team_slice"})
 
     # An issue reaching the calculator without a contextId is dropped from the
     # sample by selection.forecast_for, silently — the forecast would then run
@@ -3807,6 +3818,19 @@ APP_LEVEL_STORES = {
                    "authority, holding no issue-derived figure at all.",
         "mirrors": True,
     },
+    # Roadmap item 6's operational log. Every entry is an act of *this app* with
+    # an authority already established — a project administrator checked by
+    # permissions.js, or the scheduled trigger — and none is a figure derived
+    # from issues, which is why it needed nothing from item 5. The one identity
+    # it holds is the actor, and it is sent to administrators only. ADR 0021.
+    "audit": {
+        "authority": "admin",
+        "exposes": "when a recipient list changed and who changed it, and "
+                   "whether a brief went out. Counts and field names, plus the "
+                   "actor's account id; sent only to readers Jira says may "
+                   "edit the configuration it describes.",
+        "mirrors": True,
+    },
     "forecastlog:": {
         "authority": "user",
         "exposes": "capacity claims derived from whichever viewer's read "
@@ -3927,6 +3951,118 @@ def permission_mirroring_checks():
           [l.strip() for l in sections.splitlines() if "template:" in l])
 
 
+
+def audit_log_checks():
+    """The operational log — roadmap item 6, ADR 0021.
+
+    Two things are checked, and the second matters more than the first. That the
+    log records what it says it does; and that **nothing anywhere claims it is a
+    compliance record**, because it cannot be one: this app writes it into its
+    own storage, which it can also rewrite, and Jira's audit API is read-only so
+    there is no log it could write to that it cannot alter.
+    """
+    print("the operational log")
+    node = subprocess.run(["node", str(ROOT / "tests" / "forge_shapes.mjs")],
+                          cwd=str(ROOT), capture_output=True, text=True, timeout=60)
+    if node.returncode != 0:
+        check("the Forge shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    A = json.loads(node.stdout)["audit"]
+
+    # ---- a closed set of events, so no row is read by guessing ----
+    check("only events whose meaning was written down are accepted",
+          A["unknownEvent"] is None, A["unknownEvent"])
+    check("and both transports know the same ones",
+          A["events"] == list(LIVE.AUDIT_EVENTS),
+          {"js": A["events"], "py": list(LIVE.AUDIT_EVENTS)})
+    check("an entry with no time is not an audit entry",
+          A["noTime"] is None, A["noTime"])
+
+    # ---- the actor, which is the one identity here ----
+    #
+    # Unavoidable: an entry without one records that something happened and not
+    # who did it. The scheduled trigger says so rather than borrowing a user.
+    check("an entry names who did it", A["saved"]["actor"] == "acct-1",
+          A["saved"]["actor"])
+    check("and a run with no user says schedule rather than inventing one",
+          A["noActor"]["actor"] == "schedule", A["noActor"]["actor"])
+
+    # ---- counts and field names, never a recipient ----
+    check("detail holding an identity is refused rather than trimmed",
+          any("counts, flags and field names" in x for x in A["identityDetail"]),
+          A["identityDetail"])
+    check("a well-formed entry has nothing wrong with it",
+          A["problems"] == [], A["problems"])
+    check("and one carrying a field this log does not hold is refused",
+          any("does not hold" in x for x in A["extraField"]), A["extraField"])
+
+    # ---- the bound, which an audit log may not apply silently ----
+    #
+    # The absence of a row reads as the absence of the event, so a log that
+    # forgets must say how much. Cumulative and in the store, not in the answer
+    # to one read: a reader arriving after the ten thousandth event should be
+    # told 9,000 are gone.
+    check("the log is bounded", A["trimmed"]["kept"] == A["max"], A["trimmed"])
+    check("and the count of what it forgot is cumulative, not per-read",
+          A["trimmed"]["droppedTotal"] == A["trimmed"]["over"]
+          and A["trimmedAgain"]["droppedTotal"] > A["trimmed"]["droppedTotal"],
+          {"first": A["trimmed"], "again": A["trimmedAgain"]})
+    check("a log that forgot nothing says nothing about it",
+          A["noteEmpty"] == "", A["noteEmpty"])
+    check("and one that forgot says so, and that it is not recoverable",
+          "not recoverable" in A["noteDropped"], A["noteDropped"])
+
+    # ---- the honesty, which is the point ----
+    #
+    # A tile presenting this as a compliance artefact would be the most
+    # convincing wrong thing in the product.
+    check("the note says the app wrote it and nothing else can attest to it",
+          "nothing outside the app can attest" in A["noteDropped"],
+          A["noteDropped"])
+    js = (ROOT / "src" / "app.js").read_text()
+    tile = js.split("function auditHtml", 1)[1].split("\n}", 1)[0]
+    check("and so does the tile, whether or not anything was dropped",
+          "attest" in tile and "operational record" in tile,
+          [l.strip() for l in tile.splitlines() if "attest" in l])
+    check("nothing calls it an audit log in the compliance sense",
+          "compliance" not in tile.lower()
+          or "rather than" in tile or "not" in tile, tile[:200])
+
+    # ---- who may read it ----
+    #
+    # It carries the account id of whoever changed a recipient list. A reader
+    # who may not change one has no business with that, and `canEdit` is Jira's
+    # answer to exactly that question and is already asked on this route.
+    idx = (ROOT / "forge" / "src" / "index.js").read_text()
+    recip = idx.split("resolver.define('recipients'", 1)[1].split("}));", 1)[0]
+    check("the log is sent to administrators only",
+          "rights.canEdit ? await auditFor()" in recip,
+          [l.strip() for l in recip.splitlines() if "auditFor" in l])
+    # Sliced on the function's own closing brace, not on the first `};` inside
+    # it — `return { ... };` comes first and cut the body short of its catch,
+    # so the check was reading half a function and reporting on the half.
+    reader = idx.split("const auditFor = async", 1)[1].split("\n};", 1)[0]
+    check("and reading it never takes the tile down with it",
+          "catch" in reader,
+          [l.strip() for l in reader.splitlines() if "catch" in l or "return" in l][:3])
+    check("nor does writing it ever fail a save it was recording",
+          "catch" in idx.split("const audit = async", 1)[1].split("\n};", 1)[0],
+          "audit() does not swallow")
+
+    # ---- one shelf each, same body shape ----
+    live = (ROOT / "scripts" / "serve_live.py").read_text()
+    check("loopback keeps it in a git-ignored file",
+          "audit.local.json" in live,
+          [l.strip() for l in live.splitlines() if "audit.local" in l][:1])
+    check("Forge keeps it in app storage under one key",
+          "AUDIT_KEY = 'audit'" in (ROOT / "forge" / "src" / "audit.js").read_text(),
+          "AUDIT_KEY")
+    check("and it needs no scope the app did not already hold",
+          (ROOT / "forge" / "manifest.yml").read_text().count("storage:app") == 1,
+          "storage:app")
+
+
 if __name__ == "__main__":
     import os
     os.environ["SERVICE_SHARED_SECRET"] = SECRET
@@ -3993,6 +4129,7 @@ if __name__ == "__main__":
     forecast_log_checks()
     window_checks()
     permission_mirroring_checks()
+    audit_log_checks()
     print("the container image")
     test_dockerfile_copies_everything_the_service_imports()
     test_the_image_takes_debians_security_updates()

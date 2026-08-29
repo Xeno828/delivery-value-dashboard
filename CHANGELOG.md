@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.48.0
+
+**The activity log is built, and it is called an activity log because that is what it is.** Roadmap item 6's audit log, and [ADR 0021](docs/adr/0021-the-audit-log-is-operational-and-says-so.md) is explicit about which half of the word this is. Four events — `recipients.saved`, `recipients.cleared`, `brief.sent`, `brief.refused` — in app storage under one key, shown to administrators on the recipients tile.
+
+**The roadmap said this was blocked on item 5, and it was wrong twice.** Most of an audit log never depended on item 5: the events an administrator asks about — *when did the recipient list change, who changed it, did last Monday's brief go out?* — are acts of **this app**, each with an authority already established and enforced, and none of them a figure derived from issues. And the constraint that actually shapes it was never written down anywhere: **Jira's audit API is read-only** (`GET /rest/api/2/auditing/record`, no POST), so there is no log this app can write to that it cannot also alter, and reading Jira's own needs the *Administer Jira* global permission — refused hours earlier in ADR 0020 for a different feature and refused again here.
+
+**So the honesty is the feature, not a caveat on it.** An app writing its own log into its own storage, best-effort, which it can also rewrite, is **not tamper-evident**. A tile presenting that as an audit trail would be the most convincing wrong thing in this product, in a codebase whose entire argument is that its numbers can be trusted. The tile says so, `auditNote` says so, and the tests assert both still do.
+
+**An audit log that silently forgets is worse than none**, because the absence of a row reads as the absence of the event. The bound is a thousand entries and `droppedTotal` is **cumulative and lives in the store**, not in the answer to one read, so a reader arriving after the ten-thousandth event is told nine thousand are gone rather than shown a tidy thousand.
+
+**Counts, flags and field names — plus one identity, the actor**, which is unavoidable because an entry without it records that something happened and not who did it. Anything else is refused rather than trimmed. What the recipient list *is* stays on the tile; what this answers is when it changed and who changed it. And a write never fails the act it records: a save that succeeded and an audit write that failed must not report the save as failed.
+
+**Two guards caught this change, which is what they are for.** The app-level store inventory from ADR 0018 failed until `audit` was declared with what it exposes. And a check asserting *"the resolver never reads a team label of its own"* — guarding against a second `team_slice` — tripped on `entry.team.users`, the recipients **audience**. Two unrelated meanings of one word, and a substring check guarding neither precisely; it now looks for what it is actually about.
+
+**What a security review is asking for is still not built**, and ADR 0021 says which question it is: *"can you show me a record you could not have falsified?"* The answer needs events emitted to a sink the customer controls. The app already does declared egress, so the mechanism exists; the crossing is bigger than anything in ADR 0013 and deserves its own record.
+
 ## 1.47.0
 
 **The anchor issue is the brief's access control, and saying so closes item 5's first pass.** [ADR 0020](docs/adr/0020-the-anchor-issue-is-the-brief-s-access-control.md). This is not a new mechanism — it names the one that already existed. An administrator chooses the anchor, Jira enforces browse permission on it at send time, and ADR 0014 already told them what they were choosing: *"whoever may browse this issue may receive the brief, so choose one whose audience is the audience."* What was missing was that being the stated permission model rather than a side effect of how the send works.

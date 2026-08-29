@@ -27,6 +27,11 @@ import {
   statusFingerprint, recordable, entryFrom, readSeries, writeSeries,
 } from '../forge/src/series.js';
 
+import {
+  AUDIT_EVENTS, AUDIT_FIELDS, MAX_AUDIT, appendAudit, auditEntry, auditNote,
+  problemsInAuditEntry,
+} from '../forge/src/audit.js';
+
 import { readFileSync } from 'node:fs';
 const CASES = JSON.parse(readFileSync(new URL('./fixtures/org-configs.json', import.meta.url)));
 /* The series policy cases, run identically by scripts/serve_live.py. */
@@ -297,6 +302,40 @@ console.log(JSON.stringify({
     closedNothing: contextEntry(board, { id: 13, name: 'Undated', state: 'closed' },
       'SFT', TODAY).asOfDate,
   },
+  /* The operational log — ADR 0021. Entries are acts of this app with an
+     authority already established, never a figure derived from issues, which
+     is why none of it needed roadmap item 5. */
+  audit: (() => {
+    const at = '2026-08-29T09:00:00.000Z';
+    const saved = auditEntry({ at, event: 'recipients.saved', actor: 'acct-1',
+      boardId: 2, detail: { exec: 2, team: 1, anchorSet: true } });
+    const many = { entries: Array.from({ length: MAX_AUDIT + 5 },
+      (_, i) => ({ ...saved, actor: `a${i}` })), droppedTotal: 0 };
+    const trimmed = appendAudit(many, saved);
+    const again = appendAudit({ entries: trimmed.entries,
+      droppedTotal: trimmed.droppedTotal }, saved);
+    return {
+      events: [...AUDIT_EVENTS],
+      fields: [...AUDIT_FIELDS],
+      max: MAX_AUDIT,
+      saved,
+      // An event nobody wrote the meaning of, and an entry with no time.
+      unknownEvent: auditEntry({ at, event: 'something.happened', actor: 'a' }),
+      noTime: auditEntry({ at: '', event: 'brief.sent', actor: 'a' }),
+      // A scheduled run has no user and says so rather than borrowing one.
+      noActor: auditEntry({ at, event: 'brief.sent', boardId: 2 }),
+      problems: problemsInAuditEntry(saved),
+      // detail keeps counts, flags and field names — never a recipient.
+      identityDetail: problemsInAuditEntry({ ...saved,
+        detail: { added: '712020:5ad8ac88' } }),
+      extraField: problemsInAuditEntry({ ...saved, subject: 'Weekly brief' }),
+      trimmed: { kept: trimmed.entries.length, over: trimmed.droppedTotal,
+                 droppedTotal: trimmed.droppedTotal },
+      trimmedAgain: { droppedTotal: again.droppedTotal },
+      noteEmpty: auditNote({ entries: [], droppedTotal: 0 }),
+      noteDropped: auditNote({ entries: [], droppedTotal: 12 }),
+    };
+  })(),
   series: {
     version: SERIES_VERSION,
     key: seriesKey(42),

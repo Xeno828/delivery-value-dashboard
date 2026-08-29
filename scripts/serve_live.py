@@ -456,6 +456,14 @@ SERIES_FILE = pathlib.Path("data/series.local.json")
 #: The forecast log, over loopback. App storage on Forge, a git-ignored file
 #: here — the same rule and the same body shapes. ADR 0017.
 FORECAST_LOG_FILE = pathlib.Path("data/forecast-log.local.json")
+#: The operational log, over loopback. App storage on Forge, a git-ignored file
+#: here — the same rule and the same body shapes. ADR 0021.
+AUDIT_FILE = pathlib.Path("data/audit.local.json")
+#: Mirrors AUDIT_EVENTS and MAX_AUDIT in forge/src/audit.js.
+AUDIT_EVENTS = ("recipients.saved", "recipients.cleared",
+                "brief.sent", "brief.refused")
+MAX_AUDIT = 1000
+AUDIT_SHOWN = 20
 
 # A config bigger than this is refused rather than stored. Stated because a cap
 # that truncates silently reads as one that accepted everything.
@@ -607,6 +615,44 @@ def write_forecast_log(board_id, log):
     all_boards[str(board_id)] = log
     FORECAST_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     FORECAST_LOG_FILE.write_text(json.dumps(all_boards, indent=2) + "\n")
+
+
+def read_audit():
+    try:
+        got = json.loads(AUDIT_FILE.read_text())
+    except (OSError, ValueError):
+        return {"entries": [], "droppedTotal": 0}
+    if not isinstance(got, dict):
+        return {"entries": [], "droppedTotal": 0}
+    entries = got.get("entries")
+    return {"entries": entries if isinstance(entries, list) else [],
+            "droppedTotal": got.get("droppedTotal") or 0}
+
+
+def append_audit(event, actor, board_id, detail):
+    """Mirrors `appendAudit` in forge/src/audit.js, bound included.
+
+    Best-effort and never raised into the caller: an audit write that failed
+    must not report a save that succeeded as failed.
+    """
+    if event not in AUDIT_EVENTS:
+        return
+    try:
+        held = read_audit()
+        entry = {"at": datetime.datetime.now(datetime.timezone.utc)
+                        .isoformat().replace("+00:00", "Z"),
+                 "event": event,
+                 "actor": actor or "schedule",
+                 "boardId": None if board_id is None else str(board_id),
+                 "detail": detail or {}}
+        entries = held["entries"] + [entry]
+        over = max(len(entries) - MAX_AUDIT, 0)
+        AUDIT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        AUDIT_FILE.write_text(json.dumps(
+            {"entries": entries[over:],
+             "droppedTotal": held["droppedTotal"] + over}, indent=2) + "\n")
+    except OSError:
+        pass
 
 
 def series_recordable(sprint_state, prior, seen=None):
@@ -831,11 +877,19 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(got)
         if path in ("api/recipients", "dist/api/recipients"):
             config = read_recipients()
+            held = read_audit()
             return self._json({
                 "available": True,
                 "config": config if config is not None else {"boards": {}},
                 "problems": recipient_problems(config) if config is not None else [],
                 "canEdit": True,
+                # Administrators only on Forge; over loopback there is no
+                # permission model at all and `canEdit` is always true, so the
+                # log is always shown. The body shape is the contract either
+                # way. ADR 0009, ADR 0021.
+                "audit": list(reversed(held["entries"][-AUDIT_SHOWN:])),
+                "auditTotal": len(held["entries"]),
+                "auditDropped": held["droppedTotal"],
             })
         if path in ("api/context", "dist/api/context"):
             cid = urllib.parse.parse_qs(u.query).get("id", [""])[0]
@@ -881,7 +935,33 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({"available": True, "saved": False,
                                "canEdit": True, "problems": problems}, 400)
 
+        before = read_recipients() or {}
         write_recipients(config)
+
+        # One entry per board whose entry actually moved, mirroring the resolver:
+        # a save writes the whole configuration, so recording the act would put
+        # a row against boards nobody touched. ADR 0021.
+        def counts(entry):
+            e = entry or {}
+            return {
+                "exec": len((e.get("exec") or {}).get("users") or [])
+                        + len((e.get("exec") or {}).get("groups") or []),
+                "team": len((e.get("team") or {}).get("users") or [])
+                        + len((e.get("team") or {}).get("groups") or []),
+            }
+
+        boards = set((before.get("boards") or {})) | set((config.get("boards") or {}))
+        for bid in sorted(boards):
+            was = (before.get("boards") or {}).get(bid)
+            now = (config.get("boards") or {}).get(bid)
+            if was == now:
+                continue
+            # Over loopback there is no user to attribute this to, and saying so
+            # is better than inventing one. On Forge it is context.accountId.
+            append_audit("recipients.saved" if now else "recipients.cleared",
+                         "loopback", bid,
+                         dict(counts(now), anchorSet=bool((now or {}).get("anchorIssue")))
+                         if now else {})
         return self._json({"available": True, "saved": True, "config": config,
                            "problems": [], "canEdit": True})
 

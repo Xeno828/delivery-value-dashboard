@@ -25,7 +25,7 @@ references are wrong.
 | 3 | Scheduled delivery of the two views | 2 — make it arrive | 3–4 wk | **Done** — delivered 2026-08-26 |
 | 4 | Durable sprint history | 3 — make it defensible | 3–4 wk | **Done** — 2026-08-29 |
 | 5 | Permission mirroring | 3 — make it defensible | 5–8 wk | **First pass done** — three exposures answered by accepting and naming them; no permission model built |
-| 6 | SSO, audit log, data residency | 3 — make it defensible | 6–10 wk | **Residency done**, SSO and audit open |
+| 6 | SSO, audit log, data residency | 3 — make it defensible | 6–10 wk | **Residency done**, activity log built 2026-08-29 and not a compliance record; SSO open |
 | 7 | Cross-team roll-up and intake sequencing | 4 — sell it upward | 4–6 wk | Open, blocked on 4 and 5 |
 
 Sizes are engineering weeks at planning time, never reconciled against actuals —
@@ -59,8 +59,17 @@ the roadmap had at weeks 10–24. It landed better than "pinned per region": For
 resolves a region-specific `baseUrl` per installation from the customer's own
 residency setting, so the app never routes tenants itself and there is no routing
 logic to get wrong. ADR 0012, `docs/hosting-the-calculator.md` §5. **SSO and the
-audit log are untouched**, and the audit log still depends on item 5 — a log over
-data with no permission model records the wrong thing convincingly.
+audit log are untouched**, and *"the audit log still depends on item 5 — a log
+over data with no permission model records the wrong thing convincingly."* That
+sentence stood here until 2026-08-29 and it was wrong twice.
+[ADR 0021](adr/0021-the-audit-log-is-operational-and-says-so.md) has it:
+**most of an audit log never depended on item 5**, because the events an
+administrator asks about are acts of this app with an authority already
+enforced, not figures derived from issues. And the constraint that actually
+shapes it was never written down — **Jira's audit API is read-only**, so there
+is no log this app can write to that it cannot also alter, and reading Jira's
+own needs *Administer Jira*. **SSO is untouched. The activity log is built**,
+and it is called an activity log because it is one.
 
 ## Item 3 — how it landed, and what it moved
 
@@ -131,10 +140,15 @@ these:
   would change that decision written down and a test that fails if the
   manifest quietly enables it.
 - **7** is blocked on both of them.
-- The **audit log** in item 6 is blocked on **5** alone. **SSO**, the other
-  third of item 6, is blocked on nothing; item 6's 6–10 weeks covered all three
-  features and was never split between them, so it is not a size this file can
-  quote for SSO alone.
+- The **audit log** in item 6 was recorded here as blocked on **5** alone, and
+  was not — see the correction above and
+  [ADR 0021](adr/0021-the-audit-log-is-operational-and-says-so.md). The
+  operational half is built. The half a security review is asking for —
+  a record the app *could not have falsified* — needs events emitted to a sink
+  the customer controls, and is unsized.
+- **SSO**, the other third of item 6, is blocked on nothing; item 6's 6–10 weeks
+  covered all three features and was never split between them, so it is not a
+  size this file can quote for SSO alone.
 
 So 4 and 5 each unblock 7, and only 5 also unblocks the audit log. That is a
 dependency fact, not a recommendation — where two items could swap, the choice

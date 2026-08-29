@@ -504,6 +504,11 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 /* The raw field, folded. Not removed: an id must still be pasteable where there
    is no directory to search, and both lookups open this by themselves the
    moment either is told there is none. */
+/* The operational log, folded away like the account-ID field: it answers a
+   question that is asked occasionally and would otherwise sit above the thing
+   the tile is for. */
+.br-audit{margin-top:14px}
+.br-audit .tv{font-size:12px}
 .br-raw{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)}
 .br-raw > summary{
   cursor:pointer;font-size:.82rem;font-weight:600;color:var(--text-secondary);
