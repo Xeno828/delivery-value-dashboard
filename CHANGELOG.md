@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.49.0
+
+**SSO needed nothing built, and item 6 is done.** [ADR 0022](docs/adr/0022-sso-is-inherited-because-the-app-owns-no-identity.md). This product owns **no identity**: the panel is opened by somebody Atlassian already authenticated, so whatever policy the customer's organisation enforces — an external IdP, SAML, enforced two-step — governs it completely, and the app neither participates in it nor can weaken it. The calculator authenticates *callers*, never people, and serves no page anybody could sign in to. The built file is a file.
+
+**"Nothing to build" is a claim, not an excuse, so the suite checks what would falsify it.** Each is a thing the app must *not* have: no password, API token, `Authorization` header or Basic auth anywhere in `forge/src`; no cookie or minted session; no authentication module in the manifest; and no environment credential in the installed app. That last one is a hard Marketplace requirement rather than a preference, and the reason Atlassian gives for it is the reason SSO exists — an app holding a user's API token makes its REST activity indistinguishable from the customer's own and holds a credential no IdP can see and no administrator can revoke.
+
+**The one path that does bypass an IdP is named rather than hidden.** `scripts/fetch_delivery_data.py` can authenticate with a personal token from `JIRA_TOKEN`. It is an operator's own tool on their own machine, not the installed app, and what matters is that it stays there — so the suite asserts the token path exists only in `scripts/` and that nothing in `forge/` reads an environment credential at all. `jira_auth.py` already argues the alternative: a grant that is consented, revocable, refreshable and scoped, where a personal token is none of those.
+
+**One of the new checks failed on a comment saying not to do the thing** — `process.env.CALCULATOR_URL` appears in `index.js` exactly once, in the note explaining why reaching for it was wrong (ADR 0012). The same mistake this suite made about `dist-upgrade` in the Dockerfile a day earlier. It reads code and not prose now, in both places.
+
+**Item 6 was priced at 6–10 weeks for three features. One arrived as a side effect of item 1, one needed a day, and one needed nothing built.** That is worth saying plainly rather than letting it read as three things going quickly — and the roadmap now says it where the estimate stands.
+
+**What a buyer asking about all three gets is three honest answers**, two shorter than they expect and one a caveat: residency is real and per-installation; the activity log is not a compliance record and says so; and the SSO answer is not *"yes"* but *"the app has no separate identity and inherits your policy entirely"*, which is a better answer and a different one.
+
 ## 1.48.0
 
 **The activity log is built, and it is called an activity log because that is what it is.** Roadmap item 6's audit log, and [ADR 0021](docs/adr/0021-the-audit-log-is-operational-and-says-so.md) is explicit about which half of the word this is. Four events — `recipients.saved`, `recipients.cleared`, `brief.sent`, `brief.refused` — in app storage under one key, shown to administrators on the recipients tile.

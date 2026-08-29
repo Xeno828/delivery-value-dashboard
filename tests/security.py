@@ -806,6 +806,102 @@ def series_refusal_checks():
               ("seriesRefusalHtml(\"%s" % thin) in block, block[:200])
 
 
+def sso_checks():
+    """Single sign-on — roadmap item 6, ADR 0022.
+
+    There is nothing to build, and that is the finding rather than an excuse.
+    This product owns **no identity**: the panel is opened by somebody Atlassian
+    has already authenticated, so whatever authentication policy the customer's
+    organisation enforces — SAML, an external IdP, enforced MFA — governs it
+    entirely and without this app participating.
+
+    A claim like that is worth exactly as much as what enforces it, so these are
+    the things that would falsify it. Every one is a thing the app must *not*
+    have, which is why they are checked rather than asserted in a document.
+    """
+    print("single sign-on")
+    forge = list((ROOT / "forge" / "src").glob("*.js"))
+    manifest = (ROOT / "forge" / "manifest.yml").read_text()
+    src = "\n".join(f.read_text() for f in forge)
+
+    # ---- the app collects no Atlassian credential ----
+    #
+    # A hard Marketplace security requirement, not a preference: an app holding
+    # a user's API token makes REST activity indistinguishable from the
+    # customer's own, and it is a credential outside the IdP's reach — which is
+    # precisely what SSO exists to prevent.
+    taken = [w for w in ("password", "apiToken", "api_token", "userToken",
+                         "Authorization:", "Basic ") if w in src]
+    check("the app collects no password or API token",
+          not taken, taken)
+    check("and mints no session or cookie of its own",
+          not any(w in src for w in ("Set-Cookie", "document.cookie",
+                                     "sessionToken", "jwt.sign")),
+          [w for w in ("Set-Cookie", "document.cookie", "sessionToken",
+                       "jwt.sign") if w in src])
+
+    # ---- every read is authenticated by the platform, not by us ----
+    #
+    # `asUser()` and `asApp()` carry no credential this app holds or could
+    # export. That is what makes the identity Atlassian's rather than ours.
+    check("every Jira read goes through the platform's own authority",
+          "api.asUser()" in src and "api.asApp()" in src
+          and "requestJira" in src, "no platform authority")
+    check("and the app declares no authentication module of its own",
+          not any(w in manifest for w in ("oauth", "authentication:", "login")),
+          [l.strip() for l in manifest.splitlines()
+           if any(w in l for w in ("oauth", "authentication", "login"))])
+
+    # ---- the calculator is machine-to-machine and has no human login ----
+    #
+    # Nobody signs in to it, so there is no login for an IdP to stand in front
+    # of. Its two modes are a shared secret and Atlassian's own invocation
+    # token, and it refuses to start with neither — asserted in test_service.py.
+    app_py = (ROOT / "service" / "app.py").read_text()
+    check("the calculator authenticates callers, never people",
+          'AUTH_MODES = ("shared-secret", "forge-token")' in app_py,
+          [l.strip() for l in app_py.splitlines() if "AUTH_MODES" in l][:1])
+    check("and serves no page anybody could sign in to",
+          "text/html" not in app_py and "<form" not in app_py,
+          [l.strip() for l in app_py.splitlines() if "html" in l.lower()][:2])
+
+    # ---- the one path that bypasses an IdP, named and kept out of the app ----
+    #
+    # `scripts/` can authenticate with a personal API token, which is a
+    # credential no IdP sees and no administrator can revoke centrally. It is an
+    # operator's own tool on their own machine, not the installed app, and the
+    # thing that matters is that it stays there. `jira_auth.py` exists to offer
+    # the OAuth alternative and says why.
+    fetcher = (ROOT / "scripts" / "fetch_delivery_data.py").read_text()
+    check("the API-token path exists only in the operator's own tooling",
+          'os.environ.get("JIRA_TOKEN")' in fetcher,
+          [l.strip() for l in fetcher.splitlines() if "JIRA_TOKEN" in l][:1])
+    # Code, not prose. `process.env.CALCULATOR_URL` appears in index.js in a
+    # comment explaining why reaching for it was wrong — and a check that greps
+    # the whole file fails on the sentence saying not to do the thing. The same
+    # mistake this suite made about `dist-upgrade` in the Dockerfile.
+    code = "\n".join(l for l in src.splitlines()
+                     if not l.lstrip().startswith(("*", "//", "/*")))
+    check("and nothing in the installed app reads an environment credential",
+          "process.env" not in code,
+          [l.strip() for l in code.splitlines() if "process.env" in l][:2])
+    check("the OAuth alternative is offered, and says why it is better",
+          (ROOT / "scripts" / "jira_auth.py").exists()
+          and "revocable" in (ROOT / "scripts" / "jira_auth.py").read_text(),
+          "jira_auth.py")
+
+    # ---- the emailed file has no identity at all, by construction ----
+    #
+    # It is a file. There is nobody to authenticate and nothing to authenticate
+    # them against, which is why it carries no data anybody needs permission for
+    # beyond whoever was sent it. The security suite asserts the rest of that
+    # elsewhere: no network, no storage.
+    dist = DIST.read_text()
+    check("the built file asks nobody to sign in",
+          "<form" not in dist.lower() or "password" not in dist.lower(),
+          "the file has no login")
+
+
 def main():
     if not DIST.exists():
         sys.exit("build first: python3 build.py")
@@ -813,6 +909,7 @@ def main():
     source_checks()
     picker_checks()
     series_refusal_checks()
+    sso_checks()
     secret_checks()
     server_checks()
     xlsx_checks()

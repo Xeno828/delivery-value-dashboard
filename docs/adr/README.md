@@ -1,6 +1,6 @@
 # Decision records
 
-Twenty-one decisions that explain why the product is shaped the way it is. Each one exists because the alternative was tried, argued for, or nearly shipped — none of them is a statement of general principle.
+Twenty-two decisions that explain why the product is shaped the way it is. Each one exists because the alternative was tried, argued for, or nearly shipped — none of them is a statement of general principle.
 
 Read these before proposing a change that a constraint in `CLAUDE.md` appears to block. The constraint is the rule; the record is the reason, and the reason is what tells you whether your case is the exception.
 
@@ -27,6 +27,7 @@ Read these before proposing a change that a constraint in `CLAUDE.md` appears to
 | [0019](0019-a-recorded-row-is-a-fact-about-the-board.md) | A recorded row belongs to the board; a narrow view may not write one and a wider one repairs it | Re-deriving per reader, and letting whoever opened the panel last write the row |
 | [0020](0020-the-anchor-issue-is-the-brief-s-access-control.md) | The anchor issue is the brief's permission model; offline impersonation is deferred, not rejected | Administer Jira to check recipients, and claiming item 5 is finished |
 | [0021](0021-the-audit-log-is-operational-and-says-so.md) | An activity log the app writes and says it cannot attest to | Calling it an audit log unqualified, trimming quietly, and Administer Jira for the second time in a day |
+| [0022](0022-sso-is-inherited-because-the-app-owns-no-identity.md) | SSO needs nothing built: the app has no login, and the suite checks what would falsify that | Building a login, storing an Atlassian credential, and answering a questionnaire's SSO question with "yes" |
 
 ## Writing a new one
 

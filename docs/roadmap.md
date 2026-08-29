@@ -25,7 +25,7 @@ references are wrong.
 | 3 | Scheduled delivery of the two views | 2 — make it arrive | 3–4 wk | **Done** — delivered 2026-08-26 |
 | 4 | Durable sprint history | 3 — make it defensible | 3–4 wk | **Done** — 2026-08-29 |
 | 5 | Permission mirroring | 3 — make it defensible | 5–8 wk | **First pass done** — three exposures answered by accepting and naming them; no permission model built |
-| 6 | SSO, audit log, data residency | 3 — make it defensible | 6–10 wk | **Residency done**, activity log built 2026-08-29 and not a compliance record; SSO open |
+| 6 | SSO, audit log, data residency | 3 — make it defensible | 6–10 wk | **Done** — residency, activity log and SSO, all 2026-08-29; two of the three needed no engineering |
 | 7 | Cross-team roll-up and intake sequencing | 4 — sell it upward | 4–6 wk | Open, blocked on 4 and 5 |
 
 Sizes are engineering weeks at planning time, never reconciled against actuals —
@@ -58,18 +58,31 @@ calculator on Cloud Run made data residency ours rather than Atlassian's — whi
 the roadmap had at weeks 10–24. It landed better than "pinned per region": Forge
 resolves a region-specific `baseUrl` per installation from the customer's own
 residency setting, so the app never routes tenants itself and there is no routing
-logic to get wrong. ADR 0012, `docs/hosting-the-calculator.md` §5. **SSO and the
-audit log are untouched**, and *"the audit log still depends on item 5 — a log
-over data with no permission model records the wrong thing convincingly."* That
-sentence stood here until 2026-08-29 and it was wrong twice.
-[ADR 0021](adr/0021-the-audit-log-is-operational-and-says-so.md) has it:
-**most of an audit log never depended on item 5**, because the events an
+logic to get wrong. ADR 0012, `docs/hosting-the-calculator.md` §5.
+
+**The other two thirds landed on 2026-08-29, and neither cost what this file
+said it would.** Item 6 was priced at 6–10 weeks for three features. One arrived
+as a side effect, one needed a day, and one needed nothing built — which is
+worth saying plainly rather than reading as three things going quickly.
+
+*The audit log.* This file said it *"still depends on item 5 — a log over data
+with no permission model records the wrong thing convincingly."* That was wrong
+twice. **Most of an audit log never depended on item 5**, because the events an
 administrator asks about are acts of this app with an authority already
 enforced, not figures derived from issues. And the constraint that actually
-shapes it was never written down — **Jira's audit API is read-only**, so there
-is no log this app can write to that it cannot also alter, and reading Jira's
-own needs *Administer Jira*. **SSO is untouched. The activity log is built**,
-and it is called an activity log because it is one.
+shapes it was never written down here — **Jira's audit API is read-only**, so
+there is no log this app can write to that it cannot also alter, and reading
+Jira's own needs *Administer Jira*. So what exists is an **activity log**, and
+it is called that because that is what it is: written by the app into its own
+storage, not tamper-evident, and saying so on the tile.
+[ADR 0021](adr/0021-the-audit-log-is-operational-and-says-so.md). The record a
+security review actually wants — one the app could not have falsified — needs
+events emitted to a sink the customer controls, and is unsized.
+
+*SSO.* Nothing to build, and that is a claim rather than an excuse: this product
+owns **no identity**, so the customer's own authentication policy governs it
+entirely. [ADR 0022](adr/0022-sso-is-inherited-because-the-app-owns-no-identity.md)
+lists what would falsify that and `tests/security.py` checks each one.
 
 ## Item 3 — how it landed, and what it moved
 
@@ -146,9 +159,15 @@ these:
   operational half is built. The half a security review is asking for —
   a record the app *could not have falsified* — needs events emitted to a sink
   the customer controls, and is unsized.
-- **SSO**, the other third of item 6, is blocked on nothing; item 6's 6–10 weeks
-  covered all three features and was never split between them, so it is not a
-  size this file can quote for SSO alone.
+- **SSO**, the other third of item 6, needed nothing built.
+  [ADR 0022](adr/0022-sso-is-inherited-because-the-app-owns-no-identity.md):
+  this product owns **no identity** — the panel is opened by somebody Atlassian
+  already authenticated, the calculator authenticates callers rather than
+  people, and the built file is a file. The customer's own authentication
+  policy governs it entirely and the app cannot weaken it. What that record
+  adds is the list of things that would falsify the claim, each one now checked
+  in `tests/security.py`, and the one path that bypasses an IdP — the fetcher's
+  personal API token — named and kept out of the app.
 
 So 4 and 5 each unblock 7, and only 5 also unblocks the audit log. That is a
 dependency fact, not a recommendation — where two items could swap, the choice
