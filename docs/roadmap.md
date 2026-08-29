@@ -26,7 +26,7 @@ references are wrong.
 | 4 | Durable sprint history | 3 — make it defensible | 3–4 wk | **Done** — 2026-08-29 |
 | 5 | Permission mirroring | 3 — make it defensible | 5–8 wk | **First pass done** — three exposures answered by accepting and naming them; no permission model built |
 | 6 | SSO, audit log, data residency | 3 — make it defensible | 6–10 wk | **Done** — residency, activity log and SSO, all 2026-08-29; two of the three needed no engineering |
-| 7 | Cross-team roll-up and intake sequencing | 4 — sell it upward | 4–6 wk | Open, blocked on 4 and 5 |
+| 7 | Cross-team roll-up and intake sequencing | 4 — sell it upward | 4–6 wk | **Started** — roll-up selection built 2026-08-29; sequencing blocked on a product question, not on 4 or 5 |
 
 Sizes are engineering weeks at planning time, never reconciled against actuals —
 the same caveat the dashboard puts on its own value figures. They are a floor.
@@ -152,7 +152,18 @@ these:
   written down here as impossible. It is deferred, with the three things that
   would change that decision written down and a test that fails if the
   manifest quietly enables it.
-- **7** is blocked on both of them.
+- **7** was recorded as blocked on both of them, and was wrong about each.
+  [ADR 0023](adr/0023-a-cross-team-rollup-spans-what-the-reader-can-see.md) has
+  it. **Intake sequencing is built** — `intake.sequence()`, a CLI, a service
+  route, a renderer and tests — and refuses on Forge for a reason that has
+  nothing to do with items 4 or 5: nobody has decided **what an ask is inside
+  Jira**, and there is no issue type that means one. **The cross-team roll-up**
+  did depend on item 5 in shape, and item 5's first pass answers it: the panel
+  reads as the viewer, so a board they cannot browse never arrives, and the
+  roll-up **names the boards it covers** because this app cannot know which ones
+  it is not seeing. It reports facts and refuses to forecast — pooling several
+  teams' throughput assumes they are interchangeable, and `team_slice` would
+  have returned one team's contexts under a heading claiming the programme.
 - The **audit log** in item 6 was recorded here as blocked on **5** alone, and
   was not — see the correction above and
   [ADR 0021](adr/0021-the-audit-log-is-operational-and-says-so.md). The

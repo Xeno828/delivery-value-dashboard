@@ -113,6 +113,7 @@ These are product decisions, not style. Violating one is a bug even when the tes
 | What controls who may receive a brief, and why per-recipient composition is deferred | `docs/adr/0020-the-anchor-issue-is-the-brief-s-access-control.md` |
 | What the activity log records, why it is not a compliance artefact, and what would be | `docs/adr/0021-the-audit-log-is-operational-and-says-so.md` |
 | Why the app owns no identity, and the one path that bypasses an IdP | `docs/adr/0022-sso-is-inherited-because-the-app-owns-no-identity.md` |
+| What a cross-team roll-up covers, why it names its boards, and why it refuses to forecast | `docs/adr/0023-a-cross-team-rollup-spans-what-the-reader-can-see.md` |
 | Which commercial roadmap item something is, and what is done | `docs/roadmap.md` |
 | What the dashboard does for a board with no sprints | `docs/kanban-boards.md` |
 | Finishing the Forge route — the three unfinished pieces | `docs/forge-deployment.md` |

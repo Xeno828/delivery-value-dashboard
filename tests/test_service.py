@@ -4063,6 +4063,102 @@ def audit_log_checks():
           "storage:app")
 
 
+def cross_team_checks():
+    """The cross-team roll-up — roadmap item 7, ADR 0023.
+
+    Two things are checked. That a roll-up says which boards it covers, by
+    name — because this app cannot know which boards a reader is *not* seeing,
+    so an omission cannot be detected and must be made unnecessary to detect.
+    And that it refuses to forecast, which matters more: `team_slice` selects by
+    team label and would happily return one team's contexts for a cross-team
+    context, producing a forecast over a narrower sample than its own heading
+    claims. That is the fault CHANGELOG 1.8.0 records turning a 19-day answer
+    into 77.
+    """
+    print("the cross-team roll-up")
+    bundle = json.loads((ROOT / "data" / "sample-bundle.json").read_text())
+    contexts = bundle["contexts"]
+
+    ctx, members = SEL.resolve_context(contexts, "rollteams:BLC")
+    check("a cross-team roll-up resolves to every sprint in the project",
+          members and len(members) == len([c for c in contexts
+                                           if c.get("projectKey") == "BLC"
+                                           and (c.get("kind") or "sprint") == "sprint"]),
+          len(members or []))
+    check("and is marked as one, rather than recognised by re-reading its id",
+          ctx.get("isCrossTeam") is True, ctx)
+
+    # Names, not a count. "3 boards" can be checked by nobody; three names can
+    # be checked by anybody who knows the programme.
+    boards = SEL.cross_team_boards(members)
+    check("it names the boards it covers",
+          boards == sorted(set(c.get("boardName") for c in members)), boards)
+    check("and the label lists them rather than counting them",
+          all(b in SEL.cross_team_label(members) for b in boards),
+          SEL.cross_team_label(members))
+    check("the label says the boards are the ones this reader can see",
+          "you can see" in SEL.cross_team_label(members),
+          SEL.cross_team_label(members))
+
+    # **No team label.** This is the guard, not a tidy-up: `team_slice` selects
+    # by one, so a cross-team context carrying a team would be sliced to that
+    # single team and forecast under a heading claiming the programme.
+    check("a cross-team context carries no team label for team_slice to find",
+          ctx.get("team") == "", repr(ctx.get("team")))
+
+    # Windows overlap completely — 14, 30 and 90 days of one board — so a
+    # roll-up holding all three counts the same issue three times. The
+    # per-board roll-up in src/app.js excludes them for the same reason.
+    windowed = contexts + [{"id": "BLC/9/w30", "kind": "window", "projectKey": "BLC",
+                            "boardId": "9", "boardName": "Flow", "endDate": "2026-08-10"}]
+    check("a flow board's windows are not rolled up",
+          all((c.get("kind") or "sprint") == "sprint"
+              for c in SEL.cross_team_members(windowed, "BLC")),
+          [c["id"] for c in SEL.cross_team_members(windowed, "BLC")
+           if c.get("kind") == "window"])
+
+    # ---- the refusal, which is the point ----
+    out = SEL.forecast_for(contexts, bundle["issues"], bundle.get("byContext") or {},
+                           "rollteams:BLC", org_cfg=bundle.get("orgConfig"))
+    check("a cross-team roll-up does not forecast",
+          out.get("available") is False and "sprint_completion" not in out,
+          sorted(out))
+    check("and says it is about pooling teams, not about missing data",
+          "throughput" in out["sentence"] and "one board at a time" in out["sentence"],
+          out["sentence"])
+    check("the refusal names the boards it would have pooled",
+          all(b in out["sentence"] for b in boards), out["sentence"])
+    check("and carries them as data, not only in prose",
+          out.get("boards") == boards, out.get("boards"))
+
+    # Everything that forecast before still forecasts. A guard that refused one
+    # thing and broke another would be worse than the hazard it prevents.
+    for cid in ("BLC/42/S24", "roll:BLC|42"):
+        got = SEL.forecast_for(contexts, bundle["issues"],
+                               bundle.get("byContext") or {}, cid,
+                               org_cfg=bundle.get("orgConfig"))
+        check("%s still forecasts" % cid,
+              got is not None and "sprint_completion" in got, sorted(got or {}))
+
+    # An unknown project is not a roll-up over nothing. Returning an empty
+    # programme would be a total of zero presented as a fact.
+    check("a project with no sprints is not rolled up into an empty programme",
+          SEL.resolve_context(contexts, "rollteams:NOSUCH") is None,
+          SEL.resolve_context(contexts, "rollteams:NOSUCH"))
+
+    # The two roll-up kinds are different questions and must not share an id
+    # that the wrong one could answer.
+    check("the two roll-up prefixes are distinct",
+          SEL.CROSS_TEAM_PREFIX != "roll:"
+          and not SEL.CROSS_TEAM_PREFIX.startswith("roll:"),
+          SEL.CROSS_TEAM_PREFIX)
+    percontext, permembers = SEL.resolve_context(contexts, "roll:BLC|42")
+    check("and the per-board roll-up still means one board's sprints",
+          percontext.get("isCrossTeam") is not True
+          and len({c.get("boardId") for c in permembers}) == 1,
+          {c.get("boardId") for c in permembers})
+
+
 if __name__ == "__main__":
     import os
     os.environ["SERVICE_SHARED_SECRET"] = SECRET
@@ -4130,6 +4226,7 @@ if __name__ == "__main__":
     window_checks()
     permission_mirroring_checks()
     audit_log_checks()
+    cross_team_checks()
     print("the container image")
     test_dockerfile_copies_everything_the_service_imports()
     test_the_image_takes_debians_security_updates()

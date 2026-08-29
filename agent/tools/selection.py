@@ -29,6 +29,55 @@ So: one implementation, three callers. `scripts/serve_live.py` imports it,
 import forecast as FC
 
 
+#: A roll-up across every board in a project, rather than across one board's
+#: sprints. Roadmap item 7, ADR 0023. Deliberately a different prefix from
+#: `roll:` — the two answer different questions, and an id that could be read as
+#: either is an id the wrong one will eventually answer.
+CROSS_TEAM_PREFIX = "rollteams:"
+
+
+def cross_team_members(contexts, project):
+    """Every sprint context in a project, for a cross-team roll-up.
+
+    **Sprints only.** A flow board is offered 14, 30 and 90 days of itself and
+    those overlap completely, so a roll-up holding all three would count the
+    same issue three times and report a programme delivering triple what it
+    does. The per-board roll-up in `src/app.js` excludes them for the same
+    reason and says so at length.
+    """
+    return [c for c in contexts or []
+            if (c.get("kind") or "sprint") == "sprint"
+            and str(c.get("projectKey") or c.get("projectName") or "") == str(project)]
+
+
+def cross_team_boards(members):
+    """The boards a cross-team roll-up spans, in a stable order, by name.
+
+    Names and not a count, and that is the whole decision. This app cannot know
+    which boards a reader is *not* seeing — the board list is read with their
+    authority — so an omission cannot be detected and must instead be made
+    unnecessary to detect. "3 boards" can be checked by nobody; three names can
+    be checked by anybody who knows the programme. ADR 0023.
+    """
+    seen, out = set(), []
+    for c in members or []:
+        key = str(c.get("boardId") or "")
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(c.get("boardName") or c.get("team") or "board %s" % (key or "?"))
+    return sorted(out)
+
+
+def cross_team_label(members):
+    """What the page says a cross-team roll-up covers. The boards, listed."""
+    names = cross_team_boards(members)
+    if not names:
+        return "no boards"
+    return "%d board%s you can see — %s" % (
+        len(names), "" if len(names) == 1 else "s", ", ".join(names))
+
+
 def team_slice(contexts, ctx):
     """Every context belonging to the same team as `ctx`.
 
@@ -62,6 +111,33 @@ def resolve_context(contexts, cid):
     """
     ctx = next((c for c in contexts if c["id"] == cid), None)
     roll_members = None
+    if ctx is None and cid.startswith(CROSS_TEAM_PREFIX):
+        # Cross-team — roadmap item 7, ADR 0023. Every sprint context in the
+        # project, which on the panel path is every one *this reader can
+        # browse*: the board list is read with the viewer's authority, so a
+        # board they may not see never arrives here. That is mirroring holding
+        # for free, and it is also why the members are named rather than
+        # counted — this app cannot know what it is not seeing, so the honest
+        # move is to say what it is.
+        proj = cid[len(CROSS_TEAM_PREFIX):]
+        roll_members = cross_team_members(contexts, proj)
+        if not roll_members:
+            return None
+        latest = max(roll_members, key=lambda c: str(c.get("endDate") or ""))
+        ctx = dict(latest)
+        ctx["isRollup"] = True
+        ctx["isCrossTeam"] = True
+        # No team label. `team_slice` selects by one, and a cross-team context
+        # carrying one would be sliced down to that single team and forecast
+        # under a heading claiming the programme — the silent-narrowing fault
+        # this module exists to prevent. Absent, `team_slice` falls back to
+        # project+board, which `forecast_for` refuses for a cross-team rollup
+        # rather than answering narrowly.
+        ctx["team"] = ""
+        ctx["sprintName"] = "All %d board%s" % (
+            len(cross_team_boards(roll_members)),
+            "" if len(cross_team_boards(roll_members)) == 1 else "s")
+        return ctx, roll_members
     if ctx is None and cid.startswith("roll:"):
         # The dashboard synthesises one rollup per board client-side, so the
         # server has never seen this id. It is still a real question — "when
@@ -110,6 +186,37 @@ def forecast_for(contexts, issues, byContext, cid, items=None, target=None, org_
     ctx, roll_members = resolve_context(contexts, cid)
     if ctx is None:
         return None
+
+    # A cross-team roll-up reports facts and does not forecast — ADR 0023, and
+    # for two reasons that are worth keeping apart.
+    #
+    # The implementation one: `team_slice` selects by team label, so a
+    # cross-team context would be sliced down to whichever team's label it
+    # carried and forecast under a heading claiming the programme. That is a
+    # forecast over a narrower sample than it reports, which is the fault this
+    # module exists to prevent and which CHANGELOG 1.8.0 records turning a
+    # 19-day answer into 77.
+    #
+    # The modelling one, which does not go away by fixing the first: pooling
+    # several teams' throughput assumes an item finished by one team is
+    # evidence about how fast another finishes items. Nothing here establishes
+    # that, and a Monte Carlo will produce a confident date from the pooled
+    # sample without complaint. The refusal names which reason it is rather
+    # than reading as a gap somebody forgot to fill.
+    if ctx.get("isCrossTeam"):
+        return {
+            "available": False,
+            "sentence": "This roll-up reports what is in flight and what completed "
+                        "across %d board%s, and does not forecast. Pooling several "
+                        "teams' throughput would assume an item finished by one team "
+                        "says how fast another finishes items, which nothing here "
+                        "establishes. Forecast one board at a time. Covering: %s."
+                        % (len(cross_team_boards(roll_members)),
+                           "" if len(cross_team_boards(roll_members)) == 1 else "s",
+                           ", ".join(cross_team_boards(roll_members))),
+            "crossTeam": True,
+            "boards": cross_team_boards(roll_members),
+        }
     members, slice_label = team_slice(contexts, ctx)
     member_ids = {c["id"] for c in members}
     # One issue is one item, however many contexts hold it. On a sprint board

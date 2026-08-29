@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.50.0
+
+**Roadmap item 7 is started, and its stated blocker was wrong about both halves.** It was recorded as *"blocked on 4 and 5"*. [ADR 0023](docs/adr/0023-a-cross-team-rollup-spans-what-the-reader-can-see.md).
+
+**Intake sequencing is already built** — `intake.sequence()`, a CLI, a service route, a renderer and tests — and works wherever asks exist as files. It refuses on Forge for a reason unrelated to items 4 and 5: **nobody has decided what an ask is inside Jira**, and the resolver already says so in its own words. No amount of durable history or permission mirroring answers that, and this release does not answer it either; inventing a convention for what an ask is, inside a change about roll-ups, is how a product acquires a feature nobody asked for.
+
+**A roll-up already existed and is not this one.** `roll:<projectKey>|<boardId>` spans one board's sprints. Item 7 asks for cross-**team**, which here means across boards. `rollteams:<projectKey>` is that, and the prefix is deliberately not a variant of `roll:` — the two answer different questions, and an id either could answer is one the wrong one eventually will.
+
+**The roll-up names the boards it covers, and that is the whole decision.** A programme total computed over the boards a reader happens to see is a smaller, plausible number with nothing saying a team is missing — the failure this repository fears most. And **this app cannot know which boards it is not seeing**: `/rest/agile/1.0/board` is read with the viewer's authority, so learning the true count would mean reading it as the *app*, which ADR 0018 keeps off the panel path and which would itself tell a reader that boards exist they may not see. Detection is unavailable, so it is made unnecessary — *"2 boards you can see — Platform & Infra, Storefront Delivery"*. A count can be checked by nobody; three names can be checked by anybody who knows the programme.
+
+**It reports facts and refuses to forecast, for two reasons kept apart.** The implementation one: `team_slice` selects by team label, so a cross-team context carrying one would be sliced to that single team and forecast under a heading claiming the programme — the silent-narrowing fault that CHANGELOG 1.8.0 records turning a 19-day answer into 77. The context therefore carries **no team label**, which is a guard rather than a tidy-up. The modelling one, which fixing the first does not remove: pooling teams' throughput assumes an item finished by one team says how fast another finishes items, and a Monte Carlo will produce a confident date from that sample without complaint. The refusal names which reason it is and lists the boards it would have pooled.
+
+**Windows are excluded**, for the reason the per-board roll-up already documents: a flow board is offered 14, 30 and 90 days of itself, those overlap completely, and a roll-up holding all three reports a programme delivering triple what it does.
+
+Everything that forecast before still forecasts — a guard that refused one thing and broke another would be worse than the hazard it prevents — and the tests assert it for both the single sprint and the per-board roll-up.
+
 ## 1.49.0
 
 **SSO needed nothing built, and item 6 is done.** [ADR 0022](docs/adr/0022-sso-is-inherited-because-the-app-owns-no-identity.md). This product owns **no identity**: the panel is opened by somebody Atlassian already authenticated, so whatever policy the customer's organisation enforces — an external IdP, SAML, enforced two-step — governs it completely, and the app neither participates in it nor can weaken it. The calculator authenticates *callers*, never people, and serves no page anybody could sign in to. The built file is a file.
