@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.40.2
+
+**`docs/roadmap.md` records item 4 as part done, and defines the letters the entries below have been using.** The three parts now have a table and a state each: **4a**, recording the figures a later re-derivation can disagree with — done, and in a tenant; **4b**, lifting the six-sprint window; **4c**, the forecast log. The decomposition is of the *work*, not of the numbering: the roadmap's seven items and nine features are unchanged and the artifact does not name these parts, which is said in the file so a reader does not go looking for them there.
+
+**And the letter in the entries below was wrong.** 1.36.0 through 1.38.0 called the store *"item 4b"*. Both `docs/roadmap.md` and ADR 0015 put the store **first** — the window is deferred behind it, because a twelve-month trend is where the hazards the store exists for have had the most time to happen — so the delivered part is 4a. The entries are corrected in place and the correction is recorded here rather than made silently, because a changelog that quietly rewrites itself is worth less than one with a visible amendment.
+
+The lettering existed only in changelog prose until now, which is the trap `docs/roadmap.md` opens by warning about: a reference with nothing to look it up against. It has something now.
+
 ## 1.40.1
 
 **The same false basis, in the next clause of the same sentence.** 1.40.0 fixed the phrase carrying the figure — *"a commitment set from the last completed sprint (2 items)"* — and left the clause two lines later saying *"rather than a mean of three numbers"* about that same one-sprint average. Seen in the tenant, in the screenshot of the fix.
@@ -50,7 +58,7 @@ The comment on that `continue` read *"dropped and countable by the caller"*. **N
 
 ## 1.39.0
 
-**The calculator image takes Debian's security updates at build time, and deploys move again.** Every push since 2026-08-28 failed `service/scan.sh`, and the deploy workflow stopped before it reached Google — so roadmap item 4b was finished, tested and unable to reach a tenant. [ADR 0016](docs/adr/0016-the-image-takes-debians-security-updates-at-build-time.md) has the measurements.
+**The calculator image takes Debian's security updates at build time, and deploys move again.** Every push since 2026-08-28 failed `service/scan.sh`, and the deploy workflow stopped before it reached Google — so roadmap item 4a was finished, tested and unable to reach a tenant. [ADR 0016](docs/adr/0016-the-image-takes-debians-security-updates-at-build-time.md) has the measurements.
 
 **The failure was misread twice, and the correction is the useful part.** It was described in a handoff, and then repeated by an assistant who had not read `service/scan.sh`, as *"the gate blocks on findings with no fix, so it is a policy question."* It is not, and it never was: the gate already runs `--ignore-unfixed`, and §11 of `docs/hosting-the-calculator.md` argued that policy at length when it was set. Of nineteen HIGH and CRITICAL findings, sixteen blocked nothing. The three that blocked were one CVE in OpenSSL with a published fix. **The gate was working and telling the truth**, and a red build that is telling the truth is the one case where loosening the policy is the worst move available.
 
@@ -74,7 +82,7 @@ The dependency is needed to reach a tracker and for nothing else, so the import 
 
 ## 1.38.0
 
-**A Forge tenant has a trend at last.** Roadmap item 4b, wired. `history` in a Forge context body has been `[]` since the app existed — the resolver computes nothing — so the predictability chart and the Team load card have said *"needs at least two sprints"* in every tenant, with nothing on screen saying why. The rows now come from a route of their own on both transports: the `history` resolver over the bridge, `api/history` over loopback, one set of body shapes (ADR 0009).
+**A Forge tenant has a trend at last.** Roadmap item 4a, wired. `history` in a Forge context body has been `[]` since the app existed — the resolver computes nothing — so the predictability chart and the Team load card have said *"needs at least two sprints"* in every tenant, with nothing on screen saying why. The rows now come from a route of their own on both transports: the `history` resolver over the bridge, `api/history` over loopback, one set of body shapes (ADR 0009).
 
 **A route of its own, not a field on the context body.** The context route is deliberately a single-sprint read that holds nothing between calls; a trend is a question about a *board* and costs one issue fetch per sprint to answer. Folding it in would have made every panel load of one sprint pay for all of them, which is a trade worth taking on purpose or not at all.
 
@@ -96,7 +104,7 @@ The second was worse and is the kind this repository keeps paying for. The serve
 
 ## 1.37.0
 
-**The durable series has a module and a shape, and neither of them stores an issue.** Roadmap item 4b. `forge/src/series.js` owns what is kept, what may be written, and how a recorded row and a re-derived one are presented side by side. It is pure — no Forge, no network, no storage — so `tests/test_service.py` runs it over the shapes a tenant will actually produce, including the ones where the two disagree, which is the case the module exists for. Forty-four checks.
+**The durable series has a module and a shape, and neither of them stores an issue.** Roadmap item 4a. `forge/src/series.js` owns what is kept, what may be written, and how a recorded row and a re-derived one are presented side by side. It is pure — no Forge, no network, no storage — so `tests/test_service.py` runs it over the shapes a tenant will actually produce, including the ones where the two disagree, which is the case the module exists for. Forty-four checks.
 
 **A stored row is nine numbers and a sprint name, through an allow-list.** `ROW_FIELDS` and `rowProjection` follow `people.js`: hand the projection an issue summary or an assignee and none of it survives, and `problemsInRow` refuses the row rather than trimming it. That is what keeps item 4 off item 5's critical path — nothing in this store is anything a reader could be denied sight of, so a permission model is not a prerequisite for having one.
 

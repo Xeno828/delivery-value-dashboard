@@ -13,7 +13,7 @@ consequence of.
 ## What happened
 
 On 2026-08-28 every push failed the gate, and the deploy workflow stopped
-before it reached Google — so roadmap item 4b was finished, tested and unable
+before it reached Google — so roadmap item 4a was finished, tested and unable
 to reach a tenant, because the calculator could not ship.
 
 The image had **19 HIGH and CRITICAL findings, of which 3 were fixable**, and

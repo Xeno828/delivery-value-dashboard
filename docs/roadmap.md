@@ -23,7 +23,7 @@ references are wrong.
 | 1 | OAuth app on the Marketplace | 1 — make it connectable | 4–6 wk | **Done** |
 | 2 | Organisation configuration | 1 — make it connectable | 2–3 wk | **Done** |
 | 3 | Scheduled delivery of the two views | 2 — make it arrive | 3–4 wk | **Done** — delivered 2026-08-26 |
-| 4 | Durable sprint history | 3 — make it defensible | 3–4 wk | Open |
+| 4 | Durable sprint history | 3 — make it defensible | 3–4 wk | **Part done** — 4a delivered 2026-08-29; 4b and 4c open |
 | 5 | Permission mirroring | 3 — make it defensible | 5–8 wk | Open |
 | 6 | SSO, audit log, data residency | 3 — make it defensible | 6–10 wk | **Residency done**, SSO and audit open |
 | 7 | Cross-team roll-up and intake sequencing | 4 — sell it upward | 4–6 wk | Open, blocked on 4 and 5 |
@@ -101,13 +101,8 @@ crossing that was avoided and the one that remains.
 Nothing is picked here. The order is by dependency, and the dependencies are
 these:
 
-- **4, durable sprint history** and **5, permission mirroring** are both
-  unblocked. **Item 4 is in progress** — [ADR 0015](adr/0015-a-durable-series-stores-what-jira-forgets.md)
-  settles what it stores and why that is much less than the item's one-line
-  description implies. It has three parts, in this order: record the figures
-  Jira forgets, then lift the six-sprint window, then write the forecast log
-  that `score_calibration` has always been able to read and nothing has ever
-  produced.
+- **4, durable sprint history** is **part done** — see the three parts below.
+  **5, permission mirroring** is unblocked and unstarted.
 - **7** is blocked on both of them.
 - The **audit log** in item 6 is blocked on **5** alone. **SSO**, the other
   third of item 6, is blocked on nothing; item 6's 6–10 weeks covered all three
@@ -124,6 +119,42 @@ place for it than a roadmap.
 The one figure worth carrying into that choice: **item 5 is the item the
 original itself flags as under-estimated**, at 5–8 weeks and untested. Plan
 against the upper bound.
+
+## Item 4, in three parts
+
+The changelog says *"roadmap item 4a"*, and this is where that letter is
+defined. **It is a decomposition of the work, not a change to the numbering.**
+The seven items and nine features above are unchanged and the artifact does not
+name these parts — they are the order [ADR 0015](adr/0015-a-durable-series-stores-what-jira-forgets.md)
+arrived at once the item was looked at closely, and they are lettered only so
+that a changelog entry can say which piece it delivered.
+
+| | Part | State |
+|---|---|---|
+| 4a | Record the figures a later re-derivation can disagree with | **Done** — 2026-08-29 |
+| 4b | Lift the six-sprint window | Open |
+| 4c | The forecast log | Open |
+
+**4a is done and in a tenant.** A board's sprint rows are recorded when the app
+sees them and re-derived, labelled as such, when it was not there; a recorded
+row and Jira's answer today are shown side by side where they disagree, with
+neither winning. `forge/src/series.js` decides what is kept, `metrics.py`
+decides what is shown, and the store holds nine numbers and a sprint name —
+which is what keeps item 4 off item 5's critical path. `CHANGELOG.md` 1.36.0
+through 1.40.1.
+
+**4b is the six-sprint window**, and it is deliberately second. It was the
+obvious first slice — the six hardcoded `6`s are silent truncations that
+`CLAUDE.md` already forbids — and ADR 0015 defers it behind the store because a
+twelve-month trend is where the hazards the store exists for have had the most
+time to happen. The window is a parameter; the footing under it was not.
+
+**4c is the forecast log**, and it is the only part whose subject is
+*genuinely* irrecoverable: nothing in Jira records that this product once said
+*"85% confidence of nine items by the 14th"*. `score_calibration()` has been
+able to read such a file since the tools were written and nothing has ever
+produced one, so the forecaster cannot be scored against its own history. That
+makes 4c the part with the strongest argument and the least code written.
 
 ## Assets held but unclaimed
 
