@@ -11,6 +11,8 @@ is where they are decided now.
 | `holidays` | Which of those days are not | none |
 | `sprintLengthDays` | How long a sprint is, in calendar days | `14` |
 | `trendSprints` | `6` | How many sprints the predictability and load trends show. Two is the floor because a trend needs two points; forty is the ceiling because every sprint in the window is a sprint's worth of issues fetched. What it cuts is named on the page rather than implied. |
+| `countSubtasks` | `false` | Whether a subtask counts as an item. A parent and its three subtasks are one piece of work and four rows; counted, a team that breaks work down finely reports several times the throughput of one that does not. |
+| `countedTypes` | `[]` | Issue type names that count as items, matched case-insensitively. Empty means every type the rule above left — naming them means naming them per site, and a site that added one would silently stop counting it. |
 
 The file lives at `config/organisation.json`. Validate it with
 

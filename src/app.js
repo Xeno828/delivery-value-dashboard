@@ -47,7 +47,14 @@ const ORG_DEFAULTS = {
   },
   workingWeek: ["mon", "tue", "wed", "thu", "fri"],
   holidays: [],
-  sprintLengthDays: 14
+  sprintLengthDays: 14,
+  trendSprints: 6,
+  // Mirrors orgconfig.DEFAULTS. A parent and its subtasks are one piece of
+  // work and several rows, so subtasks do not count as items unless the site
+  // says they do; an empty type list counts every type the first rule left.
+  // ADR 0024.
+  countSubtasks: false,
+  countedTypes: []
 };
 const DAY_INDEX = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
 const normStatus = s => String(s == null ? "" : s).trim().replace(/\s+/g, " ").toLowerCase();
@@ -530,6 +537,33 @@ function contextWorkingDays(ctx) {
   return workingDays(ctx.startDate, ctx.endDate, ORG());
 }
 
+/**
+ * The issues that count as items, and what was left out.
+ *
+ * `orgconfig.counted_issues` in JavaScript, because the browser cannot call
+ * Python — the same arrangement `ORG()` already has for the working week, and
+ * for the same reason: two implementations of one rule, held together by a
+ * test rather than by hope. Change one, change both. ADR 0024.
+ *
+ * `isSubtask` absent means *not* a subtask. Every dataset written before this
+ * existed carries none, and reading absence as "subtask" would empty them.
+ */
+function countedIssues(issues, cfg) {
+  const keepSub = !!(cfg && cfg.countSubtasks);
+  const named = ((cfg && cfg.countedTypes) || [])
+    .map(t => String(t).trim().toLowerCase()).filter(Boolean);
+  const kept = [], excluded = {};
+  const drop = r => { excluded[r] = (excluded[r] || 0) + 1; };
+  issues.forEach(i => {
+    if (!keepSub && i.isSubtask === true) { drop("subtask"); return; }
+    if (named.length && named.indexOf(String(i.type || "").trim().toLowerCase()) < 0) {
+      drop("type not counted"); return;
+    }
+    kept.push(i);
+  });
+  return { kept: kept, excluded: excluded };
+}
+
 /** Resolve the active context into the shape every renderer reads. */
 function buildView() {
   const all = selectableContexts();
@@ -537,13 +571,24 @@ function buildView() {
   S.ctx = ctx.id;
 
   const ids = ctx.isRollup ? ctx.members : [ctx.id];
-  const issues = S.data.issues.filter(i => ids.indexOf(i.contextId) >= 0);
+  const inScope = S.data.issues.filter(i => ids.indexOf(i.contextId) >= 0);
+  // Which of them count as items, under the config the dataset carries — the
+  // same rule `orgconfig.counted_issues` applies, mirrored here because the
+  // browser cannot call Python and `tests/test_agent.py` holds the page's
+  // figures against the tools'. A parent and its subtasks are one piece of
+  // work and several rows. ADR 0024.
+  const counted = countedIssues(inScope, ORG());
+  const issues = counted.kept;
   const last = S.data.byContext[ids[ids.length - 1]] || {};
 
   return {
     ctx: ctx,
     contexts: all,
     issues: issues,
+    // What was left out and why, so no tile has to state a figure whose
+    // denominator the reader cannot see.
+    counting: { seen: inScope.length, counted: issues.length,
+                notCounted: counted.excluded },
     // A rollup spans several sprints, so a burndown is undefined for it. Better
     // an explicit blank with a reason than a chart that means nothing.
     burndown: ctx.isRollup ? [] : (last.burndown || []),

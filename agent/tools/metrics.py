@@ -602,7 +602,12 @@ def facts(ds, previous=None, scope="sprint"):
     end = meta.get("endDate")
     start = meta.get("startDate")
 
-    all_issues = ds["issues"]
+    # Which issues count as items, per the config the dataset carries — ADR
+    # 0024. A parent and its subtasks are one piece of work and several rows,
+    # and every figure below is a count of items. What was left out is reported
+    # in `counting` rather than dropped, because a smaller number with no reason
+    # beside it is the silent cap this repository forbids.
+    all_issues, not_counted = OC.counted_issues(ds["issues"], cfg)
     issues = ([i for i in all_issues if in_sprint(i, start)]
               if scope == "sprint" else list(all_issues))
 
@@ -762,6 +767,17 @@ def facts(ds, previous=None, scope="sprint"):
             "source": meta.get("sourceLabel"),
             "currency": meta.get("currency", "USD"),
             "scope": scope,
+            # What the figures below are a count *of* — ADR 0024. Reported
+            # whether or not anything was left out, because "nothing was
+            # excluded" is a fact a reader needs as much as the other one, and
+            # a key that appears only sometimes is read as a key that means
+            # nothing when it is absent.
+            "counting": {
+                "issues_seen": len(ds["issues"]),
+                "items_counted": len(all_issues),
+                "not_counted": dict(not_counted),
+                "sentence": OC.counted_note(not_counted, len(ds["issues"])),
+            },
             "issues_in_scope": len(issues),
             "issues_in_file": len(all_issues),
             # Stated, not assumed. Sprint elapsed-percentage below is a share of

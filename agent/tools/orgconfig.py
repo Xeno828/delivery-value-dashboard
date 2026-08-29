@@ -66,6 +66,21 @@ DEFAULTS = {
     # dataset like every other assumption here, so the page, the tools and both
     # transports read one resolved answer rather than each keeping a constant.
     "trendSprints": 6,
+    # Which issues count as items — roadmap item 7, ADR 0024.
+    #
+    # **Subtasks are excluded by default**, because a parent and its three
+    # subtasks are one piece of work and four rows. Counted, a team that breaks
+    # work down finely appears to deliver several times more than one that does
+    # not, and every figure denominated in items moves with a habit rather than
+    # with delivery. Whether they even arrive depends on the board type and on
+    # whether raw JQL was used, so before this the product could not say
+    # whether its own counts included them.
+    "countSubtasks": False,
+    # An allow-list of issue type names, matched case-insensitively. Empty means
+    # every type that is not excluded above — which is the right default,
+    # because naming the types means naming them per site and a site that adds
+    # one would silently stop counting it.
+    "countedTypes": [],
 }
 
 DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -174,6 +189,13 @@ def validate(cfg):
     # Two is the floor because a trend needs two points to be a trend, and the
     # ceiling exists because every sprint in the window is a sprint's worth of
     # issues fetched — an unbounded window is a tenant waiting on a page load.
+    if not isinstance(cfg.get("countSubtasks"), bool):
+        p.append("countSubtasks must be true or false")
+    ct = cfg.get("countedTypes")
+    if not isinstance(ct, list) or not all(isinstance(x, str) for x in ct):
+        p.append("countedTypes must be a list of issue type names, or empty for "
+                 "every type")
+
     t = cfg.get("trendSprints")
     if not isinstance(t, int) or isinstance(t, bool) or not (2 <= t <= MAX_TREND_SPRINTS):
         p.append("trendSprints must be a whole number of sprints between 2 "
@@ -335,3 +357,65 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ------------------------------------------------------------- what counts
+def counted_issues(issues, cfg=None):
+    """The issues that count as items, and what was left out.
+
+    Returns `(kept, excluded)`, where `excluded` is `{reason: count}` — never a
+    bare list. Every figure this product reports in items is a count of the
+    first, and a count that quietly dropped rows is the silent cap `CLAUDE.md`
+    forbids: the reader sees a smaller number and no reason for it.
+
+    Two rules, in this order, and both are the organisation's rather than ours.
+
+    **Subtasks.** A parent and its three subtasks are one piece of work and four
+    rows. Counting them makes a team that breaks work down finely look several
+    times faster than one that does not, and moves every item-denominated figure
+    with a habit rather than with delivery. Excluded unless the config says
+    otherwise. ADR 0024.
+
+    **Named types.** An allow-list, empty by default. Naming types means naming
+    them per site, and a site that adds one would silently stop counting it —
+    so the default counts everything the first rule left.
+
+    `isSubtask` absent is treated as *not* a subtask. Every dataset written
+    before this existed carries none, and reading absence as "subtask" would
+    empty them.
+    """
+    cfg = cfg or DEFAULTS
+    keep_sub = bool(cfg.get("countSubtasks"))
+    named = [str(t).strip().lower() for t in (cfg.get("countedTypes") or [])
+             if str(t).strip()]
+
+    kept, excluded = [], {}
+    def drop(reason):
+        excluded[reason] = excluded.get(reason, 0) + 1
+
+    for i in issues or []:
+        if not keep_sub and i.get("isSubtask") is True:
+            drop("subtask")
+            continue
+        if named and str(i.get("type") or "").strip().lower() not in named:
+            drop("type not counted")
+            continue
+        kept.append(i)
+    return kept, excluded
+
+
+def counted_note(excluded, total):
+    """What a reader is told about issues that were not counted.
+
+    Silent when nothing was. When something was, it says how many and why —
+    because a figure over 40 issues where the board holds 52 is a figure whose
+    denominator the reader cannot see.
+    """
+    gone = sum((excluded or {}).values())
+    if not gone:
+        return ""
+    parts = ", ".join("%d %s" % (n, r) for r, n in sorted((excluded or {}).items()))
+    return ("%d of %d issues are not counted as items (%s). A parent and its "
+            "subtasks are one piece of work; counting both would report a team "
+            "that breaks work down finely as delivering several times more."
+            % (gone, total, parts))

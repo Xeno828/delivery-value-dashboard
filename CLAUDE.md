@@ -62,6 +62,8 @@ These are product decisions, not style. Violating one is a bug even when the tes
 
 ## Conventions that are load-bearing
 
+**A parent and its subtasks are one item, not four.** Subtasks do not count unless `orgConfig.countSubtasks` says so, because item counting was chosen over points to stop the unit being inflatable — and decomposing generously inflates it exactly as estimating generously would. `orgconfig.counted_issues()` is the rule and `countedIssues()` in `src/app.js` mirrors it; change one, change both. What was not counted is reported beside every figure. `docs/adr/0024-a-parent-and-its-subtasks-are-one-piece-of-work.md`.
+
 **Forecasts are in items, never story points.** Six sprints is six point-observations, which cannot support a distribution; the same sprints hold roughly sixty items. Item counting also cannot be inflated by estimating generously. The dashboard has a Points toggle for display, but the forecaster only ever reads item counts.
 
 **Monte Carlo is seeded and reproducible.** `SEED` is fixed, trials are 20,000. Same inputs, same answer, every time — a forecast that moves when nothing changed is not a forecast. Do not introduce unseeded randomness into anything that produces a published figure.
@@ -114,6 +116,7 @@ These are product decisions, not style. Violating one is a bug even when the tes
 | What the activity log records, why it is not a compliance artefact, and what would be | `docs/adr/0021-the-audit-log-is-operational-and-says-so.md` |
 | Why the app owns no identity, and the one path that bypasses an IdP | `docs/adr/0022-sso-is-inherited-because-the-app-owns-no-identity.md` |
 | What a cross-team roll-up covers, why it names its boards, and why it refuses to forecast | `docs/adr/0023-a-cross-team-rollup-spans-what-the-reader-can-see.md` |
+| Which issues count as items, and why a parent and its subtasks are one | `docs/adr/0024-a-parent-and-its-subtasks-are-one-piece-of-work.md` |
 | Which commercial roadmap item something is, and what is done | `docs/roadmap.md` |
 | What the dashboard does for a board with no sprints | `docs/kanban-boards.md` |
 | Finishing the Forge route — the three unfinished pieces | `docs/forge-deployment.md` |

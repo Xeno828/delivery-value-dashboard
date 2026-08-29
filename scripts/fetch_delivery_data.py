@@ -331,6 +331,10 @@ def jira_pull(args):
             "key": it["key"],
             "summary": f.get("summary") or "",
             "type": (f.get("issuetype") or {}).get("name"),
+            # Jira's own answer, not a guess from the type's name — a site can
+            # call a subtask anything. Recorded on every issue so a consumer can
+            # decide; `orgconfig.counted_issues` is what decides. ADR 0024.
+            "isSubtask": bool((f.get("issuetype") or {}).get("subtask")),
             "status": status.get("name"),
             "statusCategory": status_category(status.get("name"),
                                               (status.get("statusCategory") or {}).get("name")),

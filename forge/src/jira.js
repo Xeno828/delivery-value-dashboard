@@ -460,6 +460,20 @@ export const validateOrgConfig = (cfg) => {
   // Mirrors orgconfig.validate. Two is the floor because a trend needs two
   // points to be one; the ceiling is latency, since every sprint in the window
   // is a sprint's worth of issues fetched.
+  // Mirrors orgconfig.validate. A parent and its subtasks are one piece of
+  // work and several rows, so which of them count is the organisation's answer
+  // and travels with its config. ADR 0024.
+  if ('countSubtasks' in c && typeof c.countSubtasks !== 'boolean') {
+    p.push('countSubtasks must be true or false');
+  }
+  if ('countedTypes' in c) {
+    const t = c.countedTypes;
+    if (!Array.isArray(t) || !t.every((x) => typeof x === 'string')) {
+      p.push('countedTypes must be a list of issue type names, or empty for '
+        + 'every type');
+    }
+  }
+
   if ('trendSprints' in c) {
     const n = c.trendSprints;
     if (typeof n !== 'number' || !Number.isInteger(n) || n < 2 || n > MAX_TREND_SPRINTS) {
@@ -580,6 +594,10 @@ export const issueFrom = (raw, opts) => {
     key: raw.key,
     summary: f.summary ?? '',
     type: (f.issuetype || {}).name ?? null,
+    // Jira's own flag rather than a guess from the type's name, which a site
+    // can call anything. Recorded on every issue; `counted_issues` decides what
+    // to do with it. ADR 0024.
+    isSubtask: Boolean((f.issuetype || {}).subtask),
     status: status.name ?? null,
     assignee: (f.assignee || {}).displayName || 'Unassigned',
     // Read from whichever field this site calls story points, discovered by

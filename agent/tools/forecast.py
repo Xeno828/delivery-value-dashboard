@@ -873,11 +873,15 @@ def build(dataset, as_of=None, remaining=None, target=None, snapshots=None,
     default here because a forecast should use the whole record it was given.
     Pass an integer to restrict it. The window actually used is reported in
     `inputs`, so a wide sample is visible rather than implied."""
-    issues = dataset["issues"]
     meta = dataset.get("meta", {})
     # Resolved once, from the dataset, and passed down. Nothing below re-reads
     # it and nothing reaches for a file of its own.
     cfg = OC.from_dataset(dataset)
+    # And which issues count as items, from the same config — ADR 0024. A
+    # forecast samples *item* throughput, so counting a parent and its three
+    # subtasks as four would make a team that breaks work down finely forecast
+    # several times faster than one that does not.
+    issues, excluded_from_count = OC.counted_issues(dataset["issues"], cfg)
     as_of = as_of or meta.get("asOfDate") or date.today().isoformat()
     target = target or meta.get("endDate")
     open_items = [i for i in issues if (i.get("statusCategory") or "") != "Done"]
@@ -917,6 +921,14 @@ def build(dataset, as_of=None, remaining=None, target=None, snapshots=None,
         "generated_for": meta.get("sprintName"),
         "as_of": as_of,
         "inputs": {
+            # What the sample is a sample *of*. A forecast counts items, so a
+            # dataset whose subtasks were excluded and one whose were not are
+            # two different forecasts of the same board. ADR 0024.
+            "counting": {
+                "issues_seen": len(dataset["issues"]),
+                "items_counted": len(issues),
+                "not_counted": dict(excluded_from_count),
+            },
             "open_items": len(open_items),
             "throughput_observations": len(samples),
             "items_completed_in_window": sum(samples),

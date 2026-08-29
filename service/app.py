@@ -99,6 +99,12 @@ CALC_FIELDS = frozenset((
     "key", "created", "started", "resolved", "statusCategory", "status",
     "storyPoints", "priority", "dueDate", "flagged", "addedMidSprint",
     "contextId", "epicKey",
+    # Which issues count as items is the organisation's answer and is applied
+    # by the tools, so the tools have to be able to see it. `type` is a Jira
+    # configuration label like `status`, which is already here; `isSubtask` is
+    # Jira's own flag. Neither is free text and neither identifies a person.
+    # ADR 0024.
+    "type", "isSubtask",
 ))
 
 #: Fields refused outright if they arrive. A caller sending issue summaries to

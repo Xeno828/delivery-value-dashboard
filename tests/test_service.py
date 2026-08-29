@@ -872,7 +872,10 @@ def test_the_two_transports_answer_the_same_shape():
     #                       normaliseIssue() and then never shown
     app_js = (ROOT / "src" / "app.js").read_text()
     cols = re.search(r"const ISSUE_COLS = \[(.*?)\];", app_js, re.S)
-    read_by_page = {"contextId", "statusTransitions"}
+    #   isSubtask           read by countedIssues(), which decides what counts
+    #                       as an item — a parent and its subtasks are one
+    #                       piece of work and several rows. ADR 0024.
+    read_by_page = {"contextId", "statusTransitions", "isSubtask"}
     for f in sorted(read_by_page):
         check("the page really reads %s, so allowing it here is not a loophole" % f,
               re.search(r"\b%s\b" % f, app_js) is not None, f)
@@ -884,7 +887,7 @@ def test_the_two_transports_answer_the_same_shape():
     # because free text is stripped on the way in. Sizing over that route
     # therefore grouped nothing and refused, for every board, always. It groups
     # on the key now — see `test_epic_sizing_survives_the_projection`.
-    read_by_tools = {"epicKey"}
+    read_by_tools = {"epicKey", "isSubtask"}
     tools = "".join(f.read_text() for f in sorted((ROOT / "agent" / "tools").glob("*.py")))
     for f in sorted(read_by_tools):
         check("%s is read by agent/tools, so sending it is not a loophole either" % f,
@@ -4170,6 +4173,115 @@ def cross_team_checks():
           {c.get("boardId") for c in permembers})
 
 
+
+def counting_checks():
+    """Which issues count as items — roadmap item 7, ADR 0024.
+
+    A parent and its three subtasks are one piece of work and four rows.
+    Counted, a team that breaks work down finely reports several times the
+    throughput of one that does not, and every item-denominated figure moves
+    with a habit rather than with delivery. Nothing excluded them before this,
+    and nothing recorded whether an issue was one — so the product could not
+    say whether its own counts included them, and whether they arrived at all
+    depended on the board type and on whether raw JQL was used.
+    """
+    print("what counts as an item")
+    node = subprocess.run(["node", str(ROOT / "tests" / "forge_shapes.mjs")],
+                          cwd=str(ROOT), capture_output=True, text=True, timeout=60)
+    if node.returncode != 0:
+        check("the Forge shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    shapes = json.loads(node.stdout)
+
+    # ---- the fact is recorded, from Jira's own flag ----
+    #
+    # Not guessed from the type's name: a site can call a subtask anything.
+    issue = shapes["context"]["issues"][0]
+    check("every issue records whether Jira calls it a subtask",
+          "isSubtask" in issue, sorted(issue))
+    check("and it comes from Jira's own flag rather than the type's name",
+          "(f.issuetype || {}).subtask" in (ROOT / "forge" / "src" / "jira.js").read_text(),
+          "jira.js")
+    fetcher = (ROOT / "scripts" / "fetch_delivery_data.py").read_text()
+    check("the fetcher records the same fact the same way",
+          '"isSubtask": bool((f.get("issuetype") or {}).get("subtask"))' in fetcher,
+          "fetch_delivery_data.py")
+
+    # ---- the rule, and both languages of it ----
+    iss = [{"key": "A", "type": "Story"},
+           {"key": "B", "type": "Sub-task", "isSubtask": True},
+           {"key": "C", "type": "Bug"},
+           {"key": "D", "type": "Epic"}]
+    kept, gone = OC.counted_issues(iss, OC.DEFAULTS)
+    check("subtasks do not count as items by default",
+          [i["key"] for i in kept] == ["A", "C", "D"] and gone == {"subtask": 1},
+          {"kept": [i["key"] for i in kept], "gone": gone})
+    check("a site that wants them says so and gets them",
+          len(OC.counted_issues(iss, dict(OC.DEFAULTS, countSubtasks=True))[0]) == 4,
+          "countSubtasks")
+    check("an allow-list of types counts only those",
+          [i["key"] for i in OC.counted_issues(
+              iss, dict(OC.DEFAULTS, countedTypes=["Story", "Bug"]))[0]] == ["A", "C"],
+          "countedTypes")
+    check("and it matches the type name however the site cased it",
+          [i["key"] for i in OC.counted_issues(
+              iss, dict(OC.DEFAULTS, countedTypes=["  sTORY "]))[0]] == ["A"],
+          "case and whitespace")
+    # Every dataset written before this carries no flag at all, and reading
+    # absence as "subtask" would empty them.
+    check("an issue with no flag is not treated as a subtask",
+          len(OC.counted_issues([{"key": "X", "type": "Story"}], OC.DEFAULTS)[0]) == 1,
+          "absent flag")
+
+    # ---- the page applies the same rule, because it cannot call Python ----
+    app_js = (ROOT / "src" / "app.js").read_text()
+    check("the page mirrors the rule rather than trusting a filtered dataset",
+          "function countedIssues" in app_js
+          and "i.isSubtask === true" in app_js,
+          [l.strip() for l in app_js.splitlines() if "isSubtask" in l][:2])
+    check("and its defaults match the tool's",
+          "countSubtasks: false" in app_js and "countedTypes: []" in app_js,
+          [l.strip() for l in app_js.splitlines() if "countSubtasks" in l][:1])
+    js_cfg = shapes["orgConfig"]["merged"]
+    check("both validators accept and refuse the same shapes",
+          OC.validate(dict(OC.DEFAULTS, countSubtasks="no"))
+          and OC.validate(dict(OC.DEFAULTS, countedTypes="Story")),
+          OC.validate(dict(OC.DEFAULTS, countedTypes="Story")))
+
+    # ---- nothing is dropped silently ----
+    ds = {"issues": iss, "meta": {}, "orgConfig": {}}
+    facts = MT.facts(ds)
+    counting = facts["meta"]["counting"]
+    check("the facts pack says what its figures are a count of",
+          counting["issues_seen"] == 4 and counting["items_counted"] == 3,
+          counting)
+    check("and says which ones were not counted, and why",
+          counting["not_counted"] == {"subtask": 1}
+          and "subtasks are one piece of work" in counting["sentence"],
+          counting["sentence"])
+    check("the report is present even when nothing was excluded",
+          "counting" in MT.facts({"issues": [{"key": "A", "type": "Story"}],
+                                  "meta": {}, "orgConfig": {}})["meta"],
+          "always reported")
+    check("and it says nothing when nothing was excluded",
+          OC.counted_note({}, 4) == "", OC.counted_note({}, 4))
+
+    # A forecast samples *items*, so the same rule decides its sample.
+    fc = FC.build({"issues": iss, "meta": {}, "orgConfig": {}})
+    check("a forecast reports the sample it counted from",
+          fc["inputs"]["counting"]["items_counted"] == 3,
+          fc["inputs"]["counting"])
+
+    # ---- the calculator can see what it needs to apply the rule ----
+    check("type and isSubtask reach the calculator",
+          {"type", "isSubtask"} <= set(SVC.CALC_FIELDS),
+          sorted(SVC.CALC_FIELDS))
+    check("and neither is free text",
+          not ({"type", "isSubtask"} & set(SVC.FREE_TEXT_FIELDS)),
+          SVC.FREE_TEXT_FIELDS)
+
+
 if __name__ == "__main__":
     import os
     os.environ["SERVICE_SHARED_SECRET"] = SECRET
@@ -4238,6 +4350,7 @@ if __name__ == "__main__":
     permission_mirroring_checks()
     audit_log_checks()
     cross_team_checks()
+    counting_checks()
     print("the container image")
     test_dockerfile_copies_everything_the_service_imports()
     test_the_image_takes_debians_security_updates()

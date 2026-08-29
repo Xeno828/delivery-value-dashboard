@@ -52,10 +52,18 @@ const resolver = new Resolver();
  * epic, labels, url, valueBasis — are the sensitive half, and the calculator
  * refuses the payload outright if any of them arrive.
  */
+// `type` and `isSubtask` are here because which issues count as items is the
+// organisation's answer and the *tools* apply it, so the tools have to be able
+// to see both. Neither is free text and neither identifies a person; `type` is
+// a Jira configuration label like `status`, which was already here. ADR 0024.
+//
+// The reason sits above the array rather than inside it: `tests/test_service.py`
+// compares this list against the service's by pulling quoted strings out of the
+// source, and a comment between the entries put its own words into the set.
 const CALC_FIELDS = [
   'key', 'created', 'started', 'resolved', 'statusCategory', 'status',
   'storyPoints', 'priority', 'dueDate', 'flagged', 'addedMidSprint',
-  'contextId', 'epicKey',
+  'contextId', 'epicKey', 'type', 'isSubtask',
 ];
 
 /** Everything the calculator must never see. Kept here so the two lists can be

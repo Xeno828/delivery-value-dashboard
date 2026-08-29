@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.52.0
+
+**Subtasks were counted as items everywhere, and nothing recorded that they were.** Found by answering item 7's open product question — *an ask is an issue type, and a selectable type filter is needed, for example to remove subtasks because it is normally the parent that should be counted.* The second half of that turned out to be the larger finding, and it is not about sequencing.
+
+**Every figure denominated in items counted them.** Throughput, commitment, completion percentage, the Monte Carlo's sample, the durable series, the forecast log's claims. A parent and its three subtasks are one piece of work and four rows, so a team that breaks work down finely reported several times the throughput of one that does not. **Item counting was chosen over story points precisely because it "cannot be inflated by estimating generously"** — and it could be inflated by decomposing generously, which nobody had noticed in two years.
+
+**Worse than a consistent overcount: the product could not say whether its own counts included them.** Whether subtasks arrive depends on the board type and the route — the Agile sprint and board endpoints often omit them, team-managed projects omit them from sprint-filtered JQL, and the fetcher's `--jira-jql` path is raw JQL that returns whatever it asks for. Two customers on two board types got two definitions of throughput from one product, with nothing on either screen saying which. A wrong number that is wrong the same way everywhere can be found; one that varies with a configuration nobody looks at cannot.
+
+**Which issues count is the organisation's answer now, and travels inside the dataset.** `countSubtasks` defaults to **false**; `countedTypes` is an allow-list defaulting to empty, meaning every type the first rule left — because naming types means naming them per site, and a site that added one would silently stop counting it. Validated in Python and mirrored in `forge/src/jira.js`, like every other setting. [ADR 0024](docs/adr/0024-a-parent-and-its-subtasks-are-one-piece-of-work.md).
+
+**Jira's own flag, not a guess from the name.** A site can call a subtask anything; matching on the word would count a type called "Subtask Review" and miss one called "Step". And an issue with **no** flag is not a subtask — every dataset written before this carries none, and reading absence as "subtask" would empty them.
+
+**Nothing is dropped silently.** `facts.meta.counting` and `forecast.inputs.counting` report what was seen, what was counted and what was not — **whether or not anything was excluded**, because a key that appears only sometimes is read as meaning nothing when it is absent.
+
+**Figures move down on boards that carry subtasks, and that is the correction rather than a regression.** Anyone comparing a report from before this to one from after will see a drop no team caused, which is exactly why the counting basis is now printed beside the figures instead of assumed.
+
+**Two guards caught this change.** The projection-parity check failed until `type` and `isSubtask` were in the resolver's `CALC_FIELDS` as well as the service's — and then failed again because the comment explaining them sat *inside* the array the check parses. And *"the Forge issue invents no field the page does not read"* rejected `parentKey`, which was added for a future feature and read by nothing; it is gone, which is what that check is for.
+
+**What this does not do:** it does not answer what an ask is for sequencing — that needs somewhere to name the story-level and epic-level types and a Forge route that reads them, and it is next. Sequencing over data that double-counts would have been sequencing over the wrong numbers, which is why the filter came first.
+
 ## 1.51.0
 
 **The cross-team roll-up is wired, and wiring it found two bugs — one of them older than this feature.**
