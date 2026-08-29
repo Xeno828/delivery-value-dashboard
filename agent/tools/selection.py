@@ -204,16 +204,31 @@ def forecast_for(contexts, issues, byContext, cid, items=None, target=None, org_
     # sample without complaint. The refusal names which reason it is rather
     # than reading as a gap somebody forgot to fill.
     if ctx.get("isCrossTeam"):
-        return {
-            "available": False,
-            "sentence": "This roll-up reports what is in flight and what completed "
+        sentence = ("This roll-up reports what is in flight and what completed "
                         "across %d board%s, and does not forecast. Pooling several "
                         "teams' throughput would assume an item finished by one team "
                         "says how fast another finishes items, which nothing here "
                         "establishes. Forecast one board at a time. Covering: %s."
-                        % (len(cross_team_boards(roll_members)),
-                           "" if len(cross_team_boards(roll_members)) == 1 else "s",
-                           ", ".join(cross_team_boards(roll_members))),
+                    % (len(cross_team_boards(roll_members)),
+                       "" if len(cross_team_boards(roll_members)) == 1 else "s",
+                       ", ".join(cross_team_boards(roll_members))))
+        # The shape a whole-forecast refusal already has, rather than a new one.
+        # `noCalculator` in forge/src/index.js answers this way and the page
+        # renders it verbatim; a top-level `{available, sentence}` looked
+        # reasonable and printed "No forecast. not available", because every
+        # sub-answer the tile reads was simply absent. One refusal, one shape.
+        refusal = {"available": False, "reason": sentence, "have": 0, "need": 1}
+        return {
+            "available": False,
+            "sentence": sentence,
+            "sprint_completion": dict(refusal),
+            "capacity_to_target": dict(refusal),
+            "next_commitment": dict(refusal),
+            "item_risk": dict(refusal),
+            "size_stability": dict(refusal),
+            "asked": {}, "inputs": {},
+            "sampled_from": {"slice": cross_team_label(roll_members),
+                             "contexts": len(roll_members or [])},
             "crossTeam": True,
             "boards": cross_team_boards(roll_members),
         }

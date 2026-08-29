@@ -780,6 +780,63 @@ def transports(b):
               not missing, missing)
         page.close()
 
+        # ---------- a roll-up rolls up all of itself ----------
+        #
+        # Two bugs live here and only a real page finds either.
+        #
+        # A roll-up is assembled on the page from issues already loaded, and in
+        # live mode a context arrives as a stub whose issues are fetched when
+        # somebody selects it. So selecting a roll-up rolled up whichever
+        # members happened to be open — a smaller number than its own header
+        # claimed, with nothing saying so.
+        #
+        # And the fix has its own trap: `loadContext` ended `S.ctx = id`, so
+        # filling in the members moved the reader to whichever one finished
+        # last. The roll-up they asked for was gone, and the page looked like it
+        # had simply ignored the click.
+        page = b.new_page(viewport={"width": 1500, "height": 1000})
+        page.goto(url)
+        page.wait_for_timeout(1200)
+        rolls = page.evaluate("""() => window.DVD.debug.view().contexts
+            .filter(c => c.isCrossTeam).map(c => c.id)""")
+        check("a project with several boards is offered a cross-team roll-up",
+              len(rolls) >= 1, rolls)
+        if rolls:
+            page.evaluate("id => window.DVD.debug.selectContext(id)", rolls[0])
+            page.wait_for_timeout(6000)
+            got = page.evaluate("""() => {
+                const v = window.DVD.debug.view();
+                return { id: v.ctx.id, cross: !!v.ctx.isCrossTeam,
+                         members: (v.ctx.members || []).length,
+                         boards: (v.ctx.boards || []).length,
+                         issues: v.issues.length,
+                         loaded: (v.ctx.members || []).filter(m => {
+                            const c = window.DVD.data.contexts.find(x => x.id === m);
+                            return c && !c.stub; }).length };
+            }""")
+            check("selecting it leaves the reader on it, not on one of its members",
+                  got["id"] == rolls[0] and got["cross"], got)
+            check("and every member is loaded rather than only the ones already open",
+                  got["loaded"] == got["members"] and got["members"] > 1, got)
+            check("so the roll-up holds more issues than any one member",
+                  got["issues"] > 0, got)
+            check("it spans more than one board, which is what makes it cross-team",
+                  got["boards"] > 1, got)
+
+            lead = page.text_content("#exec-verdict") or ""
+            check("and it says which boards it covers, by name",
+                  "all boards" not in lead.lower() and "boards" in lead.lower()
+                  and "cannot browse" in lead, lead[:200])
+
+            # The forecast must refuse in the shape the tile reads, printing the
+            # tool's own sentence — not "not available", which is what a
+            # top-level-only refusal rendered as.
+            fc = page.text_content("#c-forecast") or ""
+            check("the forecast refuses with the tool's sentence, not a shrug",
+                  "Pooling several teams" in fc and "not available" not in fc,
+                  fc[-220:])
+        page.close()
+
         # ---------- a figure may not claim a basis it does not have ----------
         #
         # `renderPred` printed "A commitment set from the last three actuals"

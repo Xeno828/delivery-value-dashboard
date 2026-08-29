@@ -4120,9 +4120,20 @@ def cross_team_checks():
     # ---- the refusal, which is the point ----
     out = SEL.forecast_for(contexts, bundle["issues"], bundle.get("byContext") or {},
                            "rollteams:BLC", org_cfg=bundle.get("orgConfig"))
+    # Refused in the shape a whole-forecast refusal already has — every
+    # sub-answer present and unavailable — rather than by omitting them. A
+    # top-level `{available, sentence}` looked reasonable and rendered as
+    # "No forecast. not available", because the tile reads the sub-answers and
+    # found none. One refusal, one shape, and the tool's sentence printed.
     check("a cross-team roll-up does not forecast",
-          out.get("available") is False and "sprint_completion" not in out,
+          out.get("available") is False
+          and all(out[k]["available"] is False for k in
+                  ("sprint_completion", "capacity_to_target", "next_commitment")),
           sorted(out))
+    check("and the refusal reaches every answer the tile reads",
+          all(out[k].get("reason") == out["sentence"] for k in
+              ("sprint_completion", "capacity_to_target", "next_commitment")),
+          out["sprint_completion"].get("reason", "")[:60])
     check("and says it is about pooling teams, not about missing data",
           "throughput" in out["sentence"] and "one board at a time" in out["sentence"],
           out["sentence"])

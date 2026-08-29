@@ -1213,6 +1213,11 @@ function normalise(d) {
    contexts — a context is one project + board + sprint
    ================================================================== */
 const ROLL = "roll:";   // synthetic id prefix for a cross-sprint rollup
+/** A roll-up across a project's boards rather than one board's sprints —
+ *  roadmap item 7, ADR 0023. A separate prefix on purpose: the two answer
+ *  different questions, and an id either could answer is one the wrong one
+ *  eventually will. `agent/tools/selection.py` uses the same string. */
+const ROLLTEAMS = "rollteams:";
 
 /** Is this context a window rather than a sprint — a board that runs no
  *  sprints, reported over a rolling stretch of calendar days (ADR 0011)?
@@ -1274,7 +1279,73 @@ function selectableContexts() {
         issueCount: sum(sorted, c => c.issueCount || 0)
       };
     });
-  return real.concat(rolls);
+  /* One cross-team roll-up per project that has more than one board with
+     sprints — roadmap item 7, ADR 0023.
+
+     **It lists its boards.** A programme total computed over the boards a
+     reader happens to see is a smaller, plausible number with nothing saying a
+     team is missing, and this page cannot know which boards it is not seeing:
+     the contexts it was given were read with the reader's own authority. So
+     the omission is not detected, it is made unnecessary to detect — the
+     selection names what it covers, and a reader who knows the programme can
+     see what is absent. */
+  const byProject = {};
+  real.forEach(c => {
+    if (isWindow(c)) return;
+    const k = c.projectKey || c.projectName || "";
+    (byProject[k] = byProject[k] || []).push(c);
+  });
+  const teamRolls = Object.entries(byProject)
+    .filter(([, cs]) => new Set(cs.map(c => c.boardId || c.boardName)).size > 1)
+    .map(([k, cs]) => {
+      const f = cs[0];
+      const sorted = cs.slice().sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)));
+      const boards = [...new Set(sorted.map(c => c.boardName || c.team || c.boardId))].sort();
+      return {
+        id: ROLLTEAMS + k, isRollup: true, isCrossTeam: true,
+        members: sorted.map(c => c.id), boards: boards,
+        source: f.source, projectKey: f.projectKey, projectName: f.projectName,
+        // No board and no team. Everything downstream that would describe this
+        // as one board's work must find nothing to describe it with, rather
+        // than finding the first member's label and using it.
+        boardId: "", boardName: "", team: "",
+        sprintName: "All " + boards.length + " boards",
+        sprintState: "rollup",
+        startDate: sorted[0].startDate,
+        endDate: sorted[sorted.length - 1].endDate,
+        asOfDate: sorted[sorted.length - 1].asOfDate,
+        workingDays: [],
+        issueCount: sum(sorted, c => c.issueCount || 0)
+      };
+    });
+  return real.concat(rolls).concat(teamRolls);
+}
+
+/** What a roll-up covers, in words, for the tiles that must say so.
+ *  Boards for a cross-team roll-up, sprints for a per-board one. */
+function rollupCovers(ctx) {
+  if (!ctx || !ctx.isRollup) return "";
+  return ctx.isCrossTeam
+    ? (ctx.boards || []).length + " board" + ((ctx.boards || []).length === 1 ? "" : "s") +
+      " — " + (ctx.boards || []).join(", ")
+    : (ctx.members || []).length + " sprints";
+}
+
+/** Members whose issues have never been fetched.
+ *
+ *  A roll-up is assembled on this page from issues already loaded, and in live
+ *  mode a context arrives as a stub whose issues are fetched when somebody
+ *  selects it. So a roll-up selected before its members were opened rolled up
+ *  only the ones that happened to be loaded — while its own header counted them
+ *  all. A smaller number, arrived at by arithmetic, with nothing on screen
+ *  saying so. `selectContext` loads them, and this is what reports the ones
+ *  that are still missing when it could not. */
+function rollupMissing(ctx) {
+  if (!ctx || !ctx.isRollup) return [];
+  return (ctx.members || []).filter(id => {
+    const c = contextById(id);
+    return c && c.stub;
+  });
 }
 
 /** A context's working days, derived when whatever produced it did not.
@@ -1497,7 +1568,7 @@ function derive(items) {
   m.paceUnknown = window ? noSprint
     : m.timeElapsed == null
     ? (rollup
-        ? "this view rolls up " + (S.view.ctx.members || []).length + " sprints, so there is no single " +
+        ? "this view rolls up " + rollupCovers(S.view.ctx) + ", so there is no single " +
           "clock to measure against — pick one sprint above"
         : "this sprint's start and end dates are not in the data, so there is no clock to measure against")
     : (!m.totalU ? noVolume : null);
@@ -1851,9 +1922,17 @@ function renderContextBar() {
 
   const projects = uniq(real.map(projLabel));
   const curProj = projLabel(cur);
-  const boards = uniq(real.filter(c => projLabel(c) === curProj).map(boardLabel));
-  const curBoard = boardLabel(cur);
-  const sprints = all.filter(c => projLabel(c) === curProj && boardLabel(c) === curBoard)
+  /* A cross-team roll-up belongs to no board, which is the whole of what it is
+     — so it is offered *as* a board rather than as a period inside one. Only
+     where the project has more than one, because "all boards" over a single
+     board is the board. Roadmap item 7, ADR 0023. */
+  const teamRoll = all.find(c => c.isCrossTeam && projLabel(c) === curProj);
+  const ALL_BOARDS = "\u2014 all boards \u2014";
+  const boards = uniq(real.filter(c => projLabel(c) === curProj).map(boardLabel))
+    .concat(teamRoll ? [ALL_BOARDS] : []);
+  const curBoard = cur.isCrossTeam ? ALL_BOARDS : boardLabel(cur);
+  const sprints = cur.isCrossTeam ? [cur]
+    : all.filter(c => projLabel(c) === curProj && boardLabel(c) === curBoard)
     .sort((a, b) => (a.isRollup ? 1 : b.isRollup ? -1 : String(b.startDate).localeCompare(String(a.startDate))));
 
   const opt = (v, label, sel, extra) =>
@@ -1872,7 +1951,8 @@ function renderContextBar() {
       projects.map(pn => opt(pn, pn, pn === curProj)).join("") + "</select></label>" +
     '<label class="ctx-f">Board<select id="c-board">' +
       boards.map(bn => opt(bn, bn, bn === curBoard)).join("") + "</select></label>" +
-    '<label class="ctx-f">' + (isWindow(cur) ? "Window" : "Sprint") + '<select id="c-sprint">' +
+    '<label class="ctx-f">' + (cur.isCrossTeam ? "Covering"
+      : isWindow(cur) ? "Window" : "Sprint") + '<select id="c-sprint">' +
       sprints.map(c => opt(c.id, c.sprintName + stateChip(c),
         c.id === cur.id, "(" + c.issueCount + ")")).join("") + "</select></label>" +
     '<span class="ctx-meta">' + esc(fmtD(cur.startDate) + " – " + fmtD(cur.endDate)) +
@@ -1886,6 +1966,10 @@ function renderContextBar() {
         esc(S.live.source || "server") + "</button>" : "");
 
   const pick = (proj, board) => {
+    if (board === ALL_BOARDS) {
+      const roll = all.find(x => x.isCrossTeam && projLabel(x) === proj);
+      if (roll) { selectContext(roll.id); return; }
+    }
     const c = all.find(x => projLabel(x) === proj && boardLabel(x) === board &&
                             x.sprintState === "active")
            || all.filter(x => projLabel(x) === proj && boardLabel(x) === board)
@@ -1905,13 +1989,51 @@ function renderContextBar() {
 /* =====================================================================
    RENDER: executive summary
    ================================================================== */
+/**
+ * What a roll-up covers, above the figures it produced — ADR 0023.
+ *
+ * A cross-team roll-up always says it, because the figure is a total over
+ * several teams and a reader cannot otherwise tell which. A per-board one says
+ * it only when something is missing, because its own heading already names the
+ * board.
+ *
+ * **The missing half is the important half.** This page assembles a roll-up
+ * from issues already loaded, so a member that failed to load contributes
+ * nothing and every count comes out lower — with nothing else on screen to say
+ * why. `selectContext` fetches them; this is what says so when it could not.
+ */
+function rollupLead() {
+  const ctx = S.view && S.view.ctx;
+  if (!ctx || !ctx.isRollup) return "";
+  const missing = rollupMissing(ctx);
+  const bits = [];
+  if (ctx.isCrossTeam) {
+    bits.push("This is a total across <b>" + esc(rollupCovers(ctx)) +
+      "</b>. It covers the boards you can see; a board you cannot browse is " +
+      "not in it and cannot be counted here.");
+  }
+  if (missing.length) {
+    bits.push("<b>" + missing.length + " of " + (ctx.members || []).length +
+      " period" + ((ctx.members || []).length === 1 ? "" : "s") +
+      " could not be loaded</b>, so every figure below is lower than the real " +
+      "one by whatever they hold. Reload, or pick them individually.");
+  }
+  if (!bits.length) return "";
+  return '<div class="' + (missing.length ? "fc-refusal" : "fc-lead") + '">' +
+    bits.join(" ") + "</div>";
+}
+
 function renderExec(m) {
   const meta = S.view.meta, cur = m.cur;
   if (m.empty) {
     /* Every sentence this card can build is a statement about issues. Over
        none of them the opening line read "0 of 0 items are done (0%)" — a
        percentage of nothing, set in bold, above an empty findings list. */
-    $("#exec-verdict").innerHTML = "<strong>" + esc(noItems("there is nothing to summarise")) + "</strong>";
+    // The empty case still says what it was looking at. A roll-up that loaded
+    // none of its members and an empty sprint are different facts, and only
+    // one of them is about the team.
+    $("#exec-verdict").innerHTML = rollupLead() +
+      "<strong>" + esc(noItems("there is nothing to summarise")) + "</strong>";
     $("#exec-basis").innerHTML = "Nothing loaded from " + esc(meta.sourceLabel || "the loaded dataset") +
       ", as at " + fmtD(asOf()) + ". The findings below are generated from the issues on this page, " +
       "so they are absent rather than clear.";
@@ -1960,7 +2082,9 @@ function renderExec(m) {
   if (withheld)
     v.push(' <span class="note">' + esc(m.isFlowBoard ? withheld
       : "Not reported here: " + withheld + ".") + "</span>");
-  $("#exec-verdict").innerHTML = v.join("");
+  // Before the verdict, not after: what the figures cover changes how the
+  // sentences under it should be read, and a caveat below them is read second.
+  $("#exec-verdict").innerHTML = rollupLead() + v.join("");
 
   $("#exec-basis").innerHTML = "Based on " + m.total + " issues" +
     (Object.values(S.filters).some(Boolean) ? " <b>matching the current filters</b>" : "") +
@@ -2164,8 +2288,8 @@ function renderBurn(m) {
        is not handled here — the tile is not shown at all on one, and its
        reason lives with the other two in FLOW_UNAVAILABLE. */
     host.innerHTML = '<div class="note">' + (S.view.ctx.isRollup
-      ? "A burndown describes one sprint. This view rolls up " + S.view.ctx.members.length +
-        " of them, so there is no single line to draw — pick an individual sprint above. " +
+      ? "A burndown describes one sprint. This view rolls up " + esc(rollupCovers(S.view.ctx)) +
+        ", so there is no single line to draw — pick an individual sprint above. " +
         "Everything else on this page is valid across the rollup."
       : "No burndown series in the dataset.") + "</div>";
     return;
@@ -5042,7 +5166,14 @@ async function probeLive() {
   } catch (e) { /* no server; this is the normal case */ }
 }
 
-async function loadContext(id) {
+/** Fetch one context's issues.
+ *
+ *  `select` because this has two callers with opposite needs. Choosing a sprint
+ *  fetches it *and* moves to it. Filling in a roll-up's members fetches them and
+ *  must **not** move to them — this ended `S.ctx = id` unconditionally, so
+ *  selecting a roll-up loaded its members and left the reader looking at
+ *  whichever one finished last, with the roll-up they asked for gone. */
+async function loadContext(id, select = true) {
   const bar = $("#ctxbar");
   bar.classList.add("loading");
   try {
@@ -5069,9 +5200,10 @@ async function loadContext(id) {
       burndown: j.burndown || [], history: j.history || [],
       releases: j.releases || [], dora: j.dora || null
     };
-    S.ctx = id;
+    if (select) S.ctx = id;
     render();
   } catch (e) {
+    if (!select) throw e;   // the roll-up loader reports its own misses
     alert("Could not load that sprint:\n\n" + e.message +
           "\n\nEverything already on this page still works.");
   } finally { bar.classList.remove("loading"); }
@@ -5085,6 +5217,30 @@ function selectContext(id) {
   if (needsFetch) { loadContext(id); return; }
   S.ctx = id;
   render();
+  // A roll-up is assembled here from issues already loaded, and in live mode a
+  // context arrives as a stub whose issues are fetched only when somebody
+  // selects it. So selecting a roll-up used to roll up whichever members had
+  // been opened — a smaller number than its own header claimed, with nothing
+  // saying so. Rendered first, so the selection responds, then filled in.
+  if (c && c.isRollup && S.live) loadRollupMembers(c);
+}
+
+/** Fetch the members of a roll-up that have never been loaded.
+ *
+ *  Sequential on purpose. Each `loadContext` renders, so the roll-up fills in
+ *  visibly rather than sitting blank; and a cross-team roll-up can name a dozen
+ *  sprints, which is a dozen requests this should not fire at once at somebody
+ *  else's Jira. Whatever is still missing at the end is reported by
+ *  `rollupMissing`, not swallowed. */
+async function loadRollupMembers(ctx) {
+  for (const id of rollupMissing(ctx)) {
+    if (S.ctx !== ctx.id) return;   // the reader moved on; stop fetching
+    // Never selecting: this is filling in the roll-up the reader is looking at,
+    // not moving them to one of its parts. A member that fails is left as a
+    // stub and `rollupMissing` reports it above the figures.
+    try { await loadContext(id, false); } catch { /* reported, not alerted */ }
+  }
+  if (S.ctx === ctx.id) render();
 }
 
 async function refreshLive() {

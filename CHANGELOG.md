@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.51.0
+
+**The cross-team roll-up is wired, and wiring it found two bugs — one of them older than this feature.**
+
+**A roll-up rolled up only the members that happened to be open.** It is assembled on the page from issues already loaded, and in live mode a context arrives as a stub whose issues are fetched when somebody selects it. `selectContext` deliberately skipped fetching for a roll-up, so a roll-up selected before its sprints were opened counted a subset — **while its own header counted them all**. A smaller number, arrived at by arithmetic, with nothing on screen saying so. That is not new to item 7: the per-board roll-up has behaved this way for as long as live mode has existed, and no test reached it because a bundle carries every issue in the file. Members are fetched on selection now, and any that fail are named above the figures rather than quietly lowering them.
+
+**And the fix had its own trap, which is why it is worth reading.** `loadContext` ended `S.ctx = id`, so filling in a roll-up's members moved the reader to whichever one finished last. The roll-up they asked for was gone and the page looked like it had ignored the click. It takes a `select` argument now: choosing a sprint moves to it, filling in a roll-up does not.
+
+**The roll-up is offered as a board, because it belongs to none.** The picker is project → board → sprint, and a cross-team roll-up has no board — so it appears as *"— all boards —"*, and only where the project has more than one, since "all boards" over a single board is the board.
+
+**It says what it covers, by name.** *"This is a total across 2 boards — Platform & Infra, Storefront Delivery. It covers the boards you can see; a board you cannot browse is not in it and cannot be counted here."* Names rather than a count, for the reason [ADR 0023](docs/adr/0023-a-cross-team-rollup-spans-what-the-reader-can-see.md) gives: this page cannot know which boards it is not seeing, so the omission is made unnecessary to detect rather than detected.
+
+**The forecast refusal printed as "not available" until it was looked at.** `forecast_for` returned a top-level `{available, sentence}`, which reads perfectly well and rendered as a shrug — the tile reads `sprint_completion`, `capacity_to_target` and `next_commitment`, and found none of them. It now refuses in the shape a whole-forecast refusal already has, the one `noCalculator` uses, so the tool's own sentence reaches the reader. One refusal, one shape.
+
+Both bugs are pinned in `tests/e2e.py`, which is the only suite that could have found either: one needs a live transport with stubs, and the other needs a page to move underneath you.
+
 ## 1.50.0
 
 **Roadmap item 7 is started, and its stated blocker was wrong about both halves.** It was recorded as *"blocked on 4 and 5"*. [ADR 0023](docs/adr/0023-a-cross-team-rollup-spans-what-the-reader-can-see.md).
