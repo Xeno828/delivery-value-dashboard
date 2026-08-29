@@ -63,9 +63,7 @@ a reopened sprint or a deleted issue as causes. A narrowed view differs on every
 count for a known reason, so it is excluded from that sentence. One cause, one
 sentence — the rule this repository has now had to apply three times.
 
-## What this does not fix
-
-### The forecast log, addressed the same day and not the same way
+## The forecast log, addressed the same day and not the same way
 
 A claim is the board's for the same reasons a row is, and the thought it needed
 turned out to matter: **a row is observed repeatedly and can be widened; a claim
@@ -91,6 +89,8 @@ this one is not.
 **A claim with no recorded width still resolves.** Entries written before this
 rule carry none, and refusing to score them would make the rule retroactively
 delete the evidence it exists to protect.
+
+## What this does not fix
 
 **Nothing detects a reader who sees *more* than the record.** That is the
 harmless direction — the row under-reports rather than over-reports — and it is
