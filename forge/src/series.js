@@ -189,12 +189,31 @@ export const statusFingerprint = (orgConfig) => {
  *   sprint closed, which is the best this can do, and a later observation of
  *   the same sprint has strictly less to go on.
  */
-export const recordable = (entry, prior) => {
+export const recordable = (entry, prior, seen) => {
   const state = entry && entry.sprintState;
   if (state !== 'active' && state !== 'closed') {
     return { record: false, why: `the sprint is ${state ? `"${state}"` : 'in no state this understands'}, which is neither running nor finished.` };
   }
+  // A row is a fact about the board (ADR 0019), so a view that can see fewer of
+  // the sprint's issues than the row already holds must not replace it — it
+  // would overwrite a board fact with one reader's narrower version of it, and
+  // every figure in the row would drop together in a way nothing could
+  // distinguish from the team having delivered less.
+  const before = prior && prior.issuesSeen;
+  if (Number.isInteger(before) && Number.isInteger(seen) && seen < before) {
+    return {
+      record: false,
+      why: `this view can see ${seen} of the sprint's issues and the row on file counts ${before}, so it would narrow a record of the whole board to one reader's part of it.`,
+    };
+  }
   if (prior && prior.final === true) {
+    // The one exception, and it is the same rule read the other way: a view
+    // that can see *more* than the row on file has more to go on, not less,
+    // which is exactly the condition the sentence below denies. A row recorded
+    // by a narrow reader is corrected the first time a wider one looks.
+    if (Number.isInteger(before) && Number.isInteger(seen) && seen > before) {
+      return { record: true, why: '' };
+    }
     return { record: false, why: 'this sprint was already recorded after it closed, and a later look has less to go on, not more.' };
   }
   if (state === 'closed' && !prior) {
@@ -215,11 +234,16 @@ export const recordable = (entry, prior) => {
  * a reader is entitled to know the series' last point is a Wednesday rather
  * than a sprint end.
  */
-export const entryFrom = (entry, row, observedOn, orgConfig) => ({
+export const entryFrom = (entry, row, observedOn, orgConfig, seen) => ({
   row: rowProjection(row),
   observedOn: observedOn || null,
   final: (entry && entry.sprintState) === 'closed',
   statuses: statusFingerprint(orgConfig),
+  // How wide the view that produced this row was — a count, naming no issue.
+  // Without it a row cannot say whether it is about the board or about one
+  // reader's part of it, because every figure in the two versions differs in
+  // exactly the same direction. ADR 0019.
+  issuesSeen: Number.isInteger(seen) ? seen : null,
 });
 
 /** The store, with anything unreadable refused rather than half-read. A store

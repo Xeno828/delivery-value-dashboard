@@ -609,7 +609,7 @@ def write_forecast_log(board_id, log):
     FORECAST_LOG_FILE.write_text(json.dumps(all_boards, indent=2) + "\n")
 
 
-def series_recordable(sprint_state, prior):
+def series_recordable(sprint_state, prior, seen=None):
     """Whether this observation may be written. Mirrors `recordable` in
     `forge/src/series.js`, and `tests/test_service.py` runs the two over one
     shared list of cases — the same arrangement `validate()` has.
@@ -620,7 +620,15 @@ def series_recordable(sprint_state, prior):
     """
     if sprint_state not in ("active", "closed"):
         return False
+    # A row is a fact about the board (ADR 0019). A view that sees fewer of the
+    # sprint's issues than the row on file must not replace it; one that sees
+    # more corrects a row a narrow reader recorded.
+    before = (prior or {}).get("issuesSeen")
+    if isinstance(before, int) and isinstance(seen, int) and seen < before:
+        return False
     if prior and prior.get("final") is True:
+        if isinstance(before, int) and isinstance(seen, int) and seen > before:
+            return True
         return False
     if sprint_state == "closed" and not prior:
         return False
@@ -661,12 +669,13 @@ def series_for(backend, cid):
     wrote = False
     for r in rows:
         prior = (stored.get("sprints") or {}).get(str(r["contextId"]))
-        if not series_recordable(r.get("sprintState"), prior):
+        if not series_recordable(r.get("sprintState"), prior, r.get("issuesSeen")):
             continue
         entry = {"row": {k: v for k, v in r["row"].items() if k in MT.ROW_FIELDS},
                  "observedOn": r.get("asOf"),
                  "final": r.get("sprintState") == "closed",
-                 "statuses": fingerprint}
+                 "statuses": fingerprint,
+                 "issuesSeen": r.get("issuesSeen")}
         if prior == entry:
             continue
         stored = {"version": 1,
@@ -678,7 +687,9 @@ def series_for(backend, cid):
     # Recorded from every row this look could see; shown only up to the
     # selected context, because a sprint is not compared against its own future.
     merged = MT.merge_series(stored,
-                             [{"sprintId": r["contextId"], "row": r["row"]}
+                             [{"sprintId": r["contextId"], "row": r["row"],
+                               "asOf": r.get("asOf"),
+                               "issuesSeen": r.get("issuesSeen")}
                               for r in MT.series_upto(rows, cid)],
                              fingerprint)
     # A bundle carries every sprint it was built with, so what the board "has"

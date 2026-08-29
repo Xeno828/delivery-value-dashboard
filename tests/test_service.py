@@ -3142,9 +3142,9 @@ def series_checks():
         want, name = c["record"], c["name"]
         check("recordable, both transports: %s" % name,
               js_rec.get(name) is want
-              and LIVE.series_recordable(c["state"], c["prior"]) is want,
+              and LIVE.series_recordable(c["state"], c["prior"], c.get("seen")) is want,
               {"want": want, "js": js_rec.get(name),
-               "py": LIVE.series_recordable(c["state"], c["prior"])})
+               "py": LIVE.series_recordable(c["state"], c["prior"], c.get("seen"))})
     check("every refusal to record says which of the reasons it was",
           all(why.strip() for _, why in S["recordableWhy"]), S["recordableWhy"])
     check("a sprint that closed before we saw it is named a reconstruction",
@@ -3166,8 +3166,12 @@ def series_checks():
 
     # ---- what a written entry is ----
     e = S["entry"]
-    check("an entry keeps the row, when it was observed, and under which statuses",
-          sorted(e) == ["final", "observedOn", "row", "statuses"], sorted(e))
+    check("an entry keeps the row, when it was observed, under which statuses, "
+          "and how wide the view was",
+          sorted(e) == ["final", "issuesSeen", "observedOn", "row", "statuses"],
+          sorted(e))
+    check("and the view width is a count, naming no issue",
+          isinstance(e["issuesSeen"], int), e["issuesSeen"])
     check("a sprint seen after it closed is final; one seen running is not",
           e["final"] is True and S["midEntry"]["final"] is False,
           (e["final"], S["midEntry"]["final"]))

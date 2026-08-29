@@ -1017,9 +1017,9 @@ resolver.define('history', answering(async ({ payload, context }) => {
   let next = stored;
   let wrote = false;
   const refused = [];
-  for (const { contextId, sprintState, asOf, row } of result.rows ?? []) {
+  for (const { contextId, sprintState, asOf, issuesSeen, row } of result.rows ?? []) {
     const prior = (next.sprints || {})[String(contextId)];
-    if (!recordable({ sprintState }, prior).record) continue;
+    if (!recordable({ sprintState }, prior, issuesSeen).record) continue;
     // Validated before writing, never after reading: a bad row in the store is
     // read by every panel load from then on, and a panel is not where anybody
     // wants to discover it.
@@ -1032,7 +1032,8 @@ resolver.define('history', answering(async ({ payload, context }) => {
     // closed sprint that moment is its completion date rather than the day
     // somebody happened to open the panel. For an active sprint the two are the
     // same date, which is why getting this wrong would never have shown.
-    const entry = entryFrom({ sprintState }, row, asOf ?? todayISO(), orgConfig);
+    const entry = entryFrom({ sprintState }, row, asOf ?? todayISO(), orgConfig,
+                            issuesSeen);
     // Only when it actually moved. This route runs on every panel load, and a
     // store rewritten each time is a write quota spent on nothing.
     if (prior && JSON.stringify(prior) === JSON.stringify(entry)) continue;

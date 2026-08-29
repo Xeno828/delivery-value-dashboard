@@ -270,6 +270,13 @@ def history_series(contexts, issues):
             # re-derived it would be free to derive a different one, and "this
             # row is that Wednesday" is the whole claim a mid-flight row makes.
             "asOf": as_of,
+            # How wide the view that produced this row was. A row is a fact
+            # about the *board* (ADR 0019), so a row computed by somebody who
+            # could see ten of a sprint's forty issues is not one — and nothing
+            # else in the row says which it is, because every figure in it is
+            # smaller in exactly the same way. A count, like everything else
+            # here; it names no issue.
+            "issuesSeen": len(mine),
             "row": history_row(mine, c.get("sprintName") or cid, as_of),
         })
     return {"rows": out, "skipped": skipped}
@@ -383,6 +390,15 @@ def merge_series(stored, computed, today_statuses=None):
         row["statusesMoved"] = bool(
             isinstance(today_statuses, str) and isinstance(kept.get("statuses"), str)
             and kept["statuses"] != today_statuses)
+        # This reader can see fewer of the sprint's issues than the row counts.
+        # Under the common Jira setup — board access implying issue access —
+        # this never fires. When it does, it is issue-level security, and it is
+        # the one cause of a recorded/re-derived disagreement that is about the
+        # *reader* rather than about the board. ADR 0019.
+        seen_now, seen_then = item.get("issuesSeen"), kept.get("issuesSeen")
+        row["narrowerThanRecord"] = bool(
+            isinstance(seen_now, int) and isinstance(seen_then, int)
+            and seen_now < seen_then)
         rows.append(row)
     # A recorded sprint that is not on screen, split by *why* — because the two
     # reasons have different answers and printing one for both is the failure
@@ -524,7 +540,24 @@ def series_note(merged):
             "the same measurement."
             % ("One sprint was" if len(moved) == 1 else "%d sprints were" % len(moved)))
 
-    differing = [r for r in recorded if r.get("differs")]
+    narrowed = [r for r in recorded if r.get("narrowerThanRecord")]
+    if narrowed:
+        out.append(
+            "%s about the whole board, and you can see fewer of the issues %s "
+            "counts than it does. The figures shown are the board's; yours "
+            "would be lower. That is issue-level security, not a delivery "
+            "problem, and not a disagreement about what happened."
+            % ("One row here is" if len(narrowed) == 1
+               else "%d rows here are" % len(narrowed),
+               "it" if len(narrowed) == 1 else "each"))
+
+    # Rows whose disagreement is *explained* by the sentence above are not also
+    # reported as an unexplained one. Offering "a sprint reopened, or an issue
+    # deleted" for a difference this already knows the cause of is the failure
+    # this file has now made three times: one sentence standing for several
+    # causes. A narrowed row differs on every count, and for one reason.
+    differing = [r for r in recorded
+                 if r.get("differs") and not r.get("narrowerThanRecord")]
     if differing:
         fields = sorted({f for r in differing for f in r["differs"]})
         out.append(

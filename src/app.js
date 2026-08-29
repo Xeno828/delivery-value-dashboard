@@ -2009,6 +2009,13 @@ function renderPred(m) {
     if (d.statusesMoved) {
       extra.push(["Measured under", "a different set of \u201cin progress\u201d statuses"]);
     }
+    // The row is the board's, and this reader can see less of it than it
+    // counts. Said on the point as well as in the note above, because a reader
+    // hovering one sprint is asking about that sprint. ADR 0019.
+    if (d.narrowerThanRecord) {
+      extra.push(["Your view", "narrower than this row — it counts issues you " +
+        "cannot browse"]);
+    }
     const tt = ttBox(d.sprint, [["Committed", U().fmt(cm(d)) + " " + U().short],
       ["Completed", U().fmt(cp(d)) + " " + U().short],
       ["Hit rate", pct(rel)], ["Items finished", d.throughput]].concat(extra),

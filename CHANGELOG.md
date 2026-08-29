@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.45.0
+
+**A recorded sprint row belongs to the board, and that decision has teeth.** [ADR 0019](docs/adr/0019-a-recorded-row-is-a-fact-about-the-board.md) answers the question ADR 0018 left at the front of item 5. The aggregate disclosure is accepted and named: under issue-level security a reader who may browse ten of a sprint's forty issues is shown *"committed 40"*. What leaks is a count, never a title — which is exactly what ADR 0015 and ADR 0017 refused issue identity for, and this is that path arriving.
+
+**Deciding the row is the board's makes a row written by a narrow reader wrong**, not merely leaky. It claims to be about the board and is about one reader's part of it, and every figure in it is smaller in the same direction — so nothing inside the row distinguishes a restricted view from a team that delivered less. Before this, whichever reader happened to open the panel last wrote the row.
+
+So a row now records **how wide the view that produced it was** — `issuesSeen`, a count naming no issue — and three rules follow. **A narrower view never replaces a row**, and the refusal says which two numbers it compared. **A wider view corrects one**, which is the single exception to ADR 0015's rule that a final row is never rewritten: the reason given there is that a later look has less to go on, and a wider view falsifies exactly that, so a row recorded by a restricted reader is repaired the first time somebody with full sight of the board opens the panel. **A reader who sees less is told so** — not a refusal, because the figures are the board's and the board is what was asked about, but a sentence saying the difference is issue-level security rather than a delivery problem.
+
+**And such a row is no longer also reported as an unexplained disagreement.** ADR 0015's sentence for a recorded row that no longer matches Jira offers a reopened sprint or a deleted issue as causes; a narrowed view differs on every count for a reason this now knows, so it is excluded from that sentence. One cause, one sentence — the rule this repository has had to apply three times in three days.
+
+Both transports are held to the five new policy cases in `tests/fixtures/series-cases.json`, which is thirteen now: a narrower view refused on a running sprint as well as a closed one, a wider view accepted, an equally wide one left alone, and an unknown width falling back to the old rule rather than guessing.
+
+**The forecast log has the same shape and is deliberately not folded in.** A claim is made once and resolved later, so *widening* means something different for it, and it deserves its own thought rather than the same patch applied twice.
+
 ## 1.44.0
 
 **Roadmap item 5 is started, and it starts by finding two exposures this repository created yesterday.** Item 5's failure is a *disclosure* — a reader told something about work they may not see — and the first thing to get right about a disclosure is knowing where it can happen. [ADR 0018](docs/adr/0018-permission-mirroring-holds-by-accident-and-where-it-does-not.md) surveys that and deliberately fixes none of it.

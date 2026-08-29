@@ -324,14 +324,16 @@ console.log(JSON.stringify({
     // The shared case lists. tests/test_service.py runs the identical files
     // through the loopback server's mirrors and asserts the two agree.
     recordable: SERIES_CASES.recordable.map(
-      (c) => [c.name, recordable({ sprintState: c.state }, c.prior).record]),
+      (c) => [c.name, recordable({ sprintState: c.state }, c.prior,
+                                 c.seen ?? undefined).record]),
     recordableWhy: SERIES_CASES.recordable
       .filter((c) => !c.record)
-      .map((c) => [c.name, recordable({ sprintState: c.state }, c.prior).why]),
+      .map((c) => [c.name, recordable({ sprintState: c.state }, c.prior,
+                                      c.seen ?? undefined).why]),
     fingerprints: SERIES_CASES.fingerprints.map(
       (c) => [c.name, statusFingerprint(c.config)]),
-    entry: entryFrom({ sprintState: 'closed' }, good, '2026-07-17', STATUSES_NOW),
-    midEntry: entryFrom({ sprintState: 'active' }, good, '2026-07-15', STATUSES_NOW),
+    entry: entryFrom({ sprintState: 'closed' }, good, '2026-07-17', STATUSES_NOW, 22),
+    midEntry: entryFrom({ sprintState: 'active' }, good, '2026-07-15', STATUSES_NOW, 22),
     read: {
       empty: readSeries(null),
       wrongVersion: readSeries({ version: 99, sprints: { 22: { row: good } } }),

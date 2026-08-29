@@ -697,8 +697,11 @@ def route_history(body):
     stored = body.get("stored")
     if stored is not None and not isinstance(stored, dict):
         raise Refused('"stored" must be the caller\'s series object, or absent')
-    merged = MT.merge_series(stored or {}, [{"sprintId": r["contextId"], "row": r["row"]}
-                                            for r in shown],
+    merged = MT.merge_series(stored or {},
+                             [{"sprintId": r["contextId"], "row": r["row"],
+                               "asOf": r.get("asOf"),
+                               "issuesSeen": r.get("issuesSeen")}
+                              for r in shown],
                              body.get("statuses"))
     # What the board has, against the window that was kept — roadmap item 4b.
     # The caller knows both; the sentence is the tool's, because it states a
