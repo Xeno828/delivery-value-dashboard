@@ -472,6 +472,206 @@ def size_stability(issues, as_of=None, window_days: int = 120, cfg=None):
 
 
 # ------------------------------------------------------------- calibration
+# ---------------------------------------------------------------- the log
+#
+# Roadmap item 4c. `score_calibration()` below has been able to read a forecast
+# log since the tools were written and nothing has ever produced one, so the
+# forecaster has never been scored against its own history. ADR 0017 has the
+# argument; the short version is that an unfalsifiable forecaster is a
+# horoscope, and the only thing standing between this one and falsifiability is
+# somebody writing down what it said.
+#
+# **What is logged is the capacity answer, not the completion probability.**
+# `forecast_completion` produces "probability all of it lands by the 14th",
+# which is the more natural-sounding claim and the one that cannot be resolved
+# without knowing *which* items were outstanding when it was made. Recording
+# issue keys would put customer-identifiable data in an app-level store and put
+# item 4 on item 5's critical path, which is the thing 4a was careful to avoid.
+#
+# `forecast_count_by_date` states "p% confidence of at least N items by D",
+# which resolves from a count of completions in a window and needs no issue
+# identity at all. It also yields four claims per forecast rather than one, at
+# four separated probabilities, which is what calibration bucketing wants.
+
+#: The only fields a logged claim carries. An allow-list, for the reason the
+#: series store has one: this is assembled from something derived from issues,
+#: and a deny-list is one upstream change away from putting an issue summary
+#: into it. Nothing here identifies an issue or a person.
+CLAIM_FIELDS = ("id", "contextId", "boardId", "madeOn", "horizon", "kind",
+                "probability", "claimItems", "label", "resolved", "observed",
+                "seed", "trials")
+
+
+def claim_id(context_id, made_on, percentile):
+    """Deterministic, so re-publishing the same forecast does not duplicate it.
+
+    A panel load produces a forecast; so does the next one, and the weekly
+    brief, and a reader refreshing the tab. Keyed on what makes a claim the
+    same claim — the context, the day it was made, and which percentile it is —
+    an idempotent writer can skip one it already holds instead of scoring the
+    same prediction eleven times and calling it eleven observations.
+    """
+    return "%s|%s|p%d" % (context_id, made_on, int(percentile))
+
+
+def claims_from(capacity, context_id, board_id, made_on, label_board=None):
+    """The falsifiable claims one published capacity forecast makes.
+
+    `capacity` is what `forecast_count_by_date` returned — or a refusal, in
+    which case there is nothing to log and nothing is logged. A forecast that
+    declined to state a figure made no claim, and recording it as one would
+    score the forecaster on predictions it explicitly refused to make.
+
+    One entry per percentile, each independently resolvable. They are not
+    independent *events* — the same fortnight decides all four — and
+    `score_calibration` treats them as separate observations, which slightly
+    overstates `n`. Said here rather than hidden: the alternative is one claim
+    per forecast, which needs four times as long to reach the ten resolved
+    entries the scorer requires, and a Brier score over correlated observations
+    is still a great deal better than no score at all.
+    """
+    if not capacity or not capacity.get("available"):
+        return []
+    horizon = capacity.get("target_date")
+    pct = capacity.get("percentiles") or {}
+    if not horizon or not pct:
+        return []
+
+    out = []
+    for p, n in sorted(pct.items(), key=lambda kv: int(kv[0])):
+        p = int(p)
+        out.append({
+            "id": claim_id(context_id, made_on, p),
+            "contextId": context_id,
+            "boardId": board_id,
+            "madeOn": made_on,
+            "horizon": horizon,
+            "kind": "capacity",
+            "probability": round(p / 100.0, 2),
+            "claimItems": int(n),
+            "label": "at least %d item%s completed on %s by %s"
+                     % (int(n), "" if int(n) == 1 else "s",
+                        label_board or board_id, horizon),
+            # Unresolved until the horizon has passed and completions in the
+            # window have been counted. `score_calibration` skips these, which
+            # is why an unresolved log scores nothing rather than scoring zero.
+            "resolved": None,
+            "observed": None,
+            "seed": SEED,
+            "trials": TRIALS,
+        })
+    return out
+
+
+def problems_in_claim(entry):
+    """What is wrong with one logged claim, as sentences. Empty means storable.
+
+    Checked before writing rather than after reading. A bad entry in the log is
+    read by every scoring run from then on, and a calibration score is the last
+    figure anybody would think to check.
+    """
+    out = []
+    if not isinstance(entry, dict):
+        return ["the entry is not an object."]
+    for f in ("id", "contextId", "madeOn", "horizon", "label"):
+        if not isinstance(entry.get(f), str) or not entry[f].strip():
+            out.append("%s is missing, and a claim nobody can identify cannot "
+                       "be resolved later." % f)
+    p = entry.get("probability")
+    if not isinstance(p, (int, float)) or isinstance(p, bool) or not 0 < p < 1:
+        out.append("probability is %r, and a claim scored at 0 or 1 is not a "
+                   "forecast." % (p,))
+    n = entry.get("claimItems")
+    if not isinstance(n, int) or isinstance(n, bool) or n < 0:
+        out.append("claimItems is %r, and the claim is a count of items." % (n,))
+    if entry.get("resolved") not in (True, False, None):
+        out.append("resolved is %r; it is true, false, or not yet known."
+                   % (entry.get("resolved"),))
+    if entry.get("madeOn") and entry.get("horizon") \
+            and str(entry["horizon"]) <= str(entry["madeOn"]):
+        out.append("the horizon is not after the day the claim was made, so "
+                   "there is no window for anything to happen in.")
+    extra = [k for k in entry if k not in CLAIM_FIELDS]
+    if extra:
+        out.append("the entry carries %s, which the log does not hold — it "
+                   "keeps counts and dates, never anything derived from issue "
+                   "text." % ", ".join(sorted(extra)))
+    return out
+
+
+def resolve_claims(entries, issues, today):
+    """Score every claim whose horizon has passed, from completions in its window.
+
+    Returns `(entries, pending)` — the entries with `resolved` and `observed`
+    filled in where they could be, and the ones left alone with the reason.
+
+    **A claim is only ever resolved once.** An entry that already carries a
+    verdict is returned untouched: the window it was about is closed, and
+    recounting it later against a board whose issues have since moved would
+    quietly change a score that was already published.
+
+    **Counted in the window `(madeOn, horizon]`.** The forecast was made on
+    `madeOn` and describes what happens after it, which is exactly how
+    `forecast_count_by_date` builds its horizon — an item already finished that
+    morning was not predicted, it was history.
+
+    **What this cannot see, and does not pretend to.** The issues handed in are
+    the board's issues now. An item completed inside the window and since moved
+    to another board is not counted, so a claim can resolve false because the
+    work moved rather than because it was late. That is the same class of gap
+    ADR 0015 records for a stripped sprint membership, and there is no
+    reading of Jira that closes it — a resolution is a statement about the
+    board as it stands.
+    """
+    pending, out = [], []
+    for e in entries or []:
+        if not isinstance(e, dict):
+            continue
+        if e.get("resolved") is not None:
+            out.append(e)
+            continue
+        horizon, made = e.get("horizon"), e.get("madeOn")
+        if not horizon or not made:
+            out.append(e)
+            pending.append({"id": e.get("id"),
+                            "why": "it carries no window to resolve over"})
+            continue
+        if str(today) < str(horizon):
+            out.append(e)
+            pending.append({"id": e.get("id"),
+                            "why": "its horizon of %s has not passed yet" % horizon})
+            continue
+        observed = sum(1 for i in (issues or [])
+                       if i.get("resolved")
+                       and str(made) < str(i["resolved"])[:10] <= str(horizon))
+        done = dict(e)
+        done["observed"] = observed
+        done["resolved"] = observed >= int(e.get("claimItems") or 0)
+        out.append(done)
+    return out, pending
+
+
+def calibration_note(scored, pending=None):
+    """What a reader is told above a calibration score, or instead of one.
+
+    The scorer's own refusal is quoted rather than softened — *"too few
+    resolved forecasts"* is a different statement from a bad score, and only
+    one of them is a criticism of the forecaster.
+    """
+    waiting = len(pending or [])
+    if isinstance(scored, Refusal):
+        base = ("Not scored yet: %d of the %d resolved forecasts needed."
+                % (scored.have, scored.need))
+        return (base + " %d more %s made and waiting on %s horizon."
+                % (waiting, "is" if waiting == 1 else "are",
+                   "its" if waiting == 1 else "their")) if waiting else base
+    if not isinstance(scored, dict) or not scored.get("available"):
+        return ""
+    return ("Scored over %d resolved forecast%s — Brier %s, %s."
+            % (scored["n"], "" if scored["n"] == 1 else "s",
+               scored["brier_score"], scored["interpretation"]))
+
+
 def score_calibration(forecast_log):
     """Score past forecasts against what actually happened.
 

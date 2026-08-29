@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.41.0
+
+**The forecaster can be scored against its own history now, for the first time.** Roadmap item 4c, started. `score_calibration()` has been able to read a forecast log since the tools were written and **nothing has ever produced one**, so a product whose whole argument is that its numbers can be trusted has never checked whether its own probabilities mean anything. `claims_from`, `resolve_claims` and `problems_in_claim` sit beside the scorer in `agent/tools/forecast.py`, and the last of the twenty-six new checks is the one that matters: a log this produces is a log `score_calibration` reads, end to end, returning a Brier score.
+
+**What is logged is deliberately not the claim a slide would quote.** [ADR 0017](docs/adr/0017-a-forecast-is-logged-as-a-count-not-a-promise.md) has the argument. *"The probability all of it lands by the 14th"* names a set of issues, and resolving it later means recording which — which would put customer-identifiable data in an app-level store and put item 4 behind item 5's permission model, the exact thing 4a was built to avoid. So a forecast is logged as its **capacity** claims instead: *"p% confidence of at least N items by D"*, which resolve from a count of completions in a window and hold no issue identity at all. `CLAIM_FIELDS` is an allow-list and an entry carrying anything else is refused rather than trimmed.
+
+**A refusal is not a prediction.** Where the forecaster declined to state a figure, nothing is logged — recording it would score the forecaster on answers it explicitly refused to give, which inverts the point of it refusing.
+
+**A claim's id is deterministic**, keyed on context, day and percentile. A panel load produces a forecast; so does the next one, the weekly brief, and a reader refreshing the tab. Without this the log holds one prediction eleven times and the scorer counts eleven observations — which is how to make a Brier score look excellent while measuring nothing.
+
+**Resolved once, over `(madeOn, horizon]`, and never rescored.** An item finished the morning a forecast was made was not predicted, it was history; one finished on the horizon counts. A settled claim is returned untouched, because recounting it against a board whose issues have since moved would quietly change a published score.
+
+**Two limits are recorded rather than discovered.** The four claims from one forecast are decided by the same fortnight, so they are correlated and `n` overstates the evidence — the record says so and says why one-claim-per-forecast was rejected anyway. And a resolution reads the board as it stands, so work completed in the window and since moved elsewhere makes a claim resolve false because the work moved, not because it was late. That is the gap ADR 0015 already records for a stripped sprint membership, and nothing in Jira closes it.
+
+**Nothing writes the log yet.** Where it lives, who writes it and when it is scored are the next slice; the store is the one the series already uses, so it costs no new scope.
+
 ## 1.40.2
 
 **`docs/roadmap.md` records item 4 as part done, and defines the letters the entries below have been using.** The three parts now have a table and a state each: **4a**, recording the figures a later re-derivation can disagree with — done, and in a tenant; **4b**, lifting the six-sprint window; **4c**, the forecast log. The decomposition is of the *work*, not of the numbering: the roadmap's seven items and nine features are unchanged and the artifact does not name these parts, which is said in the file so a reader does not go looking for them there.

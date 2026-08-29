@@ -133,7 +133,7 @@ that a changelog entry can say which piece it delivered.
 |---|---|---|
 | 4a | Record the figures a later re-derivation can disagree with | **Done** — 2026-08-29 |
 | 4b | Lift the six-sprint window | Open |
-| 4c | The forecast log | Open |
+| 4c | The forecast log | **In progress** — what a claim is, decided and tested; not wired |
 
 **4a is done and in a tenant.** A board's sprint rows are recorded when the app
 sees them and re-derived, labelled as such, when it was not there; a recorded
@@ -153,8 +153,17 @@ time to happen. The window is a parameter; the footing under it was not.
 *genuinely* irrecoverable: nothing in Jira records that this product once said
 *"85% confidence of nine items by the 14th"*. `score_calibration()` has been
 able to read such a file since the tools were written and nothing has ever
-produced one, so the forecaster cannot be scored against its own history. That
-makes 4c the part with the strongest argument and the least code written.
+produced one, so the forecaster cannot be scored against its own history.
+
+**Started.** [ADR 0017](adr/0017-a-forecast-is-logged-as-a-count-not-a-promise.md)
+settles what a logged claim is, and it is not the claim a slide would quote:
+*"the probability all of it lands by the 14th"* cannot be resolved without
+recording which issues were outstanding, and recording issue keys would put
+customer-identifiable data in an app-level store and put item 4 behind item 5's
+permission model. So a forecast is logged as its **capacity** claims — *"p%
+confidence of at least N items by D"* — which resolve from a count and hold no
+issue identity. The functions and their tests are in `agent/tools/forecast.py`
+beside the scorer that has been waiting for them. Nothing writes the log yet.
 
 ## Assets held but unclaimed
 

@@ -337,6 +337,149 @@ def test_calibration():
 
 
 # =====================================================================
+# 3b. the forecast log — roadmap item 4c
+# =====================================================================
+def test_forecast_log():
+    """What the forecaster said, written down so it can be scored.
+
+    `score_calibration` has been able to read a log since the tools were
+    written and nothing has ever produced one, so the forecaster has never been
+    checked against its own history. These are the claims, and the last check
+    here is the one that matters: what `claims_from` produces is what
+    `score_calibration` reads.
+    """
+    cap = {"available": True, "target_date": "2026-09-11", "horizon_days": 10,
+           "percentiles": {50: 9, 70: 7, 85: 5, 95: 3}, "samples": 40}
+    made = "2026-08-28"
+    claims = F.claims_from(cap, "MOBL/2/12", "2", made, "MOBL Cowboys")
+
+    check("one claim per percentile, each separately falsifiable",
+          [c["probability"] for c in claims] == [0.5, 0.7, 0.85, 0.95],
+          [c["probability"] for c in claims])
+    check("each states a count and a date a reader could check",
+          all(str(c["claimItems"]) in c["label"] and c["horizon"] in c["label"]
+              for c in claims), [c["label"] for c in claims])
+    check("nothing is stored that identifies an issue or a person",
+          all(set(c) <= set(F.CLAIM_FIELDS) for c in claims),
+          sorted(set().union(*[set(c) for c in claims]) - set(F.CLAIM_FIELDS)))
+
+    # A forecast that refused made no claim. Logging one anyway would score the
+    # forecaster on a prediction it explicitly declined to make.
+    check("a refusal is not logged as a prediction",
+          F.claims_from({"available": False, "reason": "too little history"},
+                        "MOBL/2/12", "2", made) == [], "refusal logged")
+    check("and neither is an answer with no target date",
+          F.claims_from({"available": True, "percentiles": {50: 9}},
+                        "MOBL/2/12", "2", made) == [], "no-horizon logged")
+
+    # A panel load produces a forecast; so does the next one, and the brief.
+    # Same claim, same id, so a writer can skip what it already holds instead of
+    # scoring one prediction eleven times and calling it eleven observations.
+    again = F.claims_from(cap, "MOBL/2/12", "2", made, "MOBL Cowboys")
+    check("re-publishing the same forecast produces the same ids",
+          [c["id"] for c in again] == [c["id"] for c in claims],
+          [c["id"] for c in claims][:2])
+    check("and a different day is a different claim",
+          F.claim_id("MOBL/2/12", "2026-08-29", 85) != F.claim_id("MOBL/2/12", made, 85),
+          F.claim_id("MOBL/2/12", made, 85))
+
+    # ---- the window ----
+    #
+    # (madeOn, horizon]. An item finished the morning the forecast was made was
+    # not predicted, it was history; one finished on the horizon itself counts.
+    edge = [{"resolved": made},                    # the day it was made — out
+            {"resolved": "2026-08-29"},            # inside
+            {"resolved": "2026-09-11"},            # the horizon itself — in
+            {"resolved": "2026-09-12"},            # after — out
+            {"resolved": None}]                    # never finished
+    done, pending = F.resolve_claims(claims, edge, "2026-09-30")
+    check("the window is open at the start and closed at the end",
+          done[0]["observed"] == 2, [d["observed"] for d in done])
+    check("a claim under its number resolves false",
+          done[0]["resolved"] is False, done[0])
+    check("and one at or over it resolves true",
+          F.resolve_claims(
+              F.claims_from({"available": True, "target_date": "2026-09-11",
+                             "percentiles": {85: 2}}, "c", "2", made),
+              edge, "2026-09-30")[0][0]["resolved"] is True, "")
+
+    # ---- what it will not do ----
+    still_open, pending = F.resolve_claims(claims, edge, "2026-09-01")
+    check("a claim whose horizon has not passed is left alone",
+          all(c["resolved"] is None for c in still_open),
+          [c["resolved"] for c in still_open])
+    check("and the reason says it is waiting, not that it failed",
+          pending and "has not passed yet" in pending[0]["why"], pending[:1])
+
+    # Scored once. Recounting later against a board whose issues have moved
+    # would quietly change a score that was already published.
+    settled = [dict(claims[0], resolved=True, observed=12)]
+    rescored, _ = F.resolve_claims(settled, [], "2026-12-31")
+    check("a claim already resolved is never rescored",
+          rescored[0]["resolved"] is True and rescored[0]["observed"] == 12,
+          rescored[0])
+
+    # ---- validation, before writing rather than after reading ----
+    good = claims[0]
+    check("an honest claim has nothing wrong with it",
+          F.problems_in_claim(good) == [], F.problems_in_claim(good))
+    check("a probability of 0 or 1 is not a forecast",
+          F.problems_in_claim(dict(good, probability=1)) != [], "")
+    check("a horizon that is not after the claim is refused",
+          any("no window" in x for x in
+              F.problems_in_claim(dict(good, horizon=made))),
+          F.problems_in_claim(dict(good, horizon=made)))
+    check("an entry carrying issue text is refused rather than trimmed",
+          any("never anything derived from issue text" in x for x in
+              F.problems_in_claim(dict(good, summary="an issue title"))),
+          F.problems_in_claim(dict(good, summary="x")))
+    check("and something that is not an entry at all is refused readably",
+          F.problems_in_claim("a claim") == ["the entry is not an object."],
+          F.problems_in_claim("a claim"))
+
+    # ---- the point of all of it ----
+    #
+    # A log this produced, read by the scorer that has been waiting for one.
+    # Eleven forecasts at four percentiles, resolved against a board that
+    # delivers about six items a fortnight — the low percentiles claim more
+    # than that and miss, the high ones claim less and land, which is what a
+    # calibrated forecaster looks like.
+    log = []
+    for k in range(11):
+        day = "2026-0%d-01" % (k % 9 + 1)
+        horizon = "2026-0%d-15" % (k % 9 + 1)
+        log += F.claims_from({"available": True, "target_date": horizon,
+                              "percentiles": {50: 9, 70: 7, 85: 5, 95: 3}},
+                             "MOBL/2/%d" % k, "2", day)
+        # Six completions inside each window.
+        got = [{"resolved": "2026-0%d-1%d" % (k % 9 + 1, d)} for d in range(0, 6)]
+        log[-4:], _ = F.resolve_claims(log[-4:], got, "2026-12-31")
+
+    scored = F.score_calibration(log)
+    check("the log this produces is one score_calibration can read",
+          isinstance(scored, dict) and scored.get("available") is True, scored)
+    check("it scores every entry, having resolved every one",
+          scored["n"] == len(log), (scored["n"], len(log)))
+    check("and it separates the percentiles that missed from the ones that hit",
+          {b["stated"] for b in scored["buckets"]} >= {"50–59%", "90–99%"},
+          [b["stated"] for b in scored["buckets"]])
+    check("a Brier score comes back as a number, which is the whole point",
+          isinstance(scored["brier_score"], float), scored["brier_score"])
+
+    # The scorer's own refusal, quoted rather than softened. "Too few resolved
+    # forecasts" is a different statement from a bad score and only one of them
+    # criticises the forecaster.
+    thin = F.score_calibration(log[:4])
+    check("a log below the threshold refuses rather than scoring",
+          isinstance(thin, F.Refusal), thin)
+    note = F.calibration_note(thin, pending=[{"id": "x"}, {"id": "y"}])
+    check("and the note says how many are needed and how many are waiting",
+          "10 resolved forecasts needed" in note and "2 more are made" in note, note)
+    check("a scored log gets the score, not the refusal",
+          "Brier" in F.calibration_note(scored), F.calibration_note(scored))
+
+
+# =====================================================================
 # 4. backtest — would this forecast have been right?
 # =====================================================================
 # =====================================================================
@@ -877,6 +1020,8 @@ if __name__ == "__main__":
     test_item_risk_units()
     print("calibration scoring")
     test_calibration()
+    print("the forecast log")
+    test_forecast_log()
     print("intake — sizing")
     test_intake_sizing()
     print("intake — scope")
