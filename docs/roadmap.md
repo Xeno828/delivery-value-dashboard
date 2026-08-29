@@ -23,7 +23,7 @@ references are wrong.
 | 1 | OAuth app on the Marketplace | 1 — make it connectable | 4–6 wk | **Done** |
 | 2 | Organisation configuration | 1 — make it connectable | 2–3 wk | **Done** |
 | 3 | Scheduled delivery of the two views | 2 — make it arrive | 3–4 wk | **Done** — delivered 2026-08-26 |
-| 4 | Durable sprint history | 3 — make it defensible | 3–4 wk | **Part done** — 4a and 4c delivered 2026-08-29; 4b open |
+| 4 | Durable sprint history | 3 — make it defensible | 3–4 wk | **Done** — 2026-08-29 |
 | 5 | Permission mirroring | 3 — make it defensible | 5–8 wk | Open |
 | 6 | SSO, audit log, data residency | 3 — make it defensible | 6–10 wk | **Residency done**, SSO and audit open |
 | 7 | Cross-team roll-up and intake sequencing | 4 — sell it upward | 4–6 wk | Open, blocked on 4 and 5 |
@@ -132,7 +132,7 @@ that a changelog entry can say which piece it delivered.
 | | Part | State |
 |---|---|---|
 | 4a | Record the figures a later re-derivation can disagree with | **Done** — 2026-08-29 |
-| 4b | Lift the six-sprint window | Open |
+| 4b | Lift the six-sprint window | **Done** — 2026-08-29 |
 | 4c | The forecast log | **Done** — 2026-08-29; wired on both transports, waiting on horizons |
 
 **4a is done and in a tenant.** A board's sprint rows are recorded when the app
@@ -143,11 +143,20 @@ decides what is shown, and the store holds nine numbers and a sprint name —
 which is what keeps item 4 off item 5's critical path. `CHANGELOG.md` 1.36.0
 through 1.40.1.
 
-**4b is the six-sprint window**, and it is deliberately second. It was the
-obvious first slice — the six hardcoded `6`s are silent truncations that
-`CLAUDE.md` already forbids — and ADR 0015 defers it behind the store because a
-twelve-month trend is where the hazards the store exists for have had the most
+**4b is the six-sprint window**, and it was deliberately second. It was the
+obvious first slice — the hardcoded `6`s are silent truncations that
+`CLAUDE.md` already forbids — and ADR 0015 deferred it behind the store because
+a twelve-month trend is where the hazards the store exists for have had the most
 time to happen. The window is a parameter; the footing under it was not.
+
+**Done.** `trendSprints` travels inside the resolved config like every other
+assumption, defaulting to six and bounded at forty because each sprint in the
+window is a sprint's worth of issues fetched. The three producers that kept a
+six of their own now read one answer. Both truncations are named rather than
+implied: a board with more sprints than the window says so, and a *recorded*
+sprint older than the window is no longer reported as **"no longer offered by
+this board"** — which it never was, and which the trend said about four sprints
+of any board with a store deeper than its window.
 
 **4c is the forecast log**, and it is the only part whose subject is
 *genuinely* irrecoverable: nothing in Jira records that this product once said

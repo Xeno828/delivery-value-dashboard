@@ -700,6 +700,12 @@ def route_history(body):
     merged = MT.merge_series(stored or {}, [{"sprintId": r["contextId"], "row": r["row"]}
                                             for r in shown],
                              body.get("statuses"))
+    # What the board has, against the window that was kept — roadmap item 4b.
+    # The caller knows both; the sentence is the tool's, because it states a
+    # count a reader reads.
+    board_sprints = body.get("boardSprints")
+    window = body.get("window")
+
     return {
         "rows": rows,
         # Read off the lists they describe, never computed beside them. `offered`
@@ -710,8 +716,11 @@ def route_history(body):
         "skipped": skipped,
         "merged": merged["rows"],
         "orphaned": merged["orphaned"],
-        "note": " ".join(x for x in (MT.series_note(merged),
-                                     MT.skipped_note(skipped)) if x),
+        "outsideWindow": merged.get("outsideWindow") or [],
+        "note": " ".join(x for x in (
+            MT.series_note(merged),
+            MT.skipped_note(skipped),
+            MT.window_note(board_sprints, len(rows) + len(skipped), window)) if x),
     }
 
 

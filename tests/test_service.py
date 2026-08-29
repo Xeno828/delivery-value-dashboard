@@ -3610,6 +3610,95 @@ def forecast_log_checks():
           "unconditional write")
 
 
+def window_checks():
+    """The trend window — roadmap item 4b.
+
+    Six was hardcoded in three producers and cut the older sprints in all of
+    them without saying so, which is the silent cap `CLAUDE.md` forbids: a
+    chart of six sprints from a board with twenty reads as a complete record.
+    The window is a stated setting now, and both kinds of truncation are named.
+    """
+    print("the trend window")
+    node = subprocess.run(["node", str(ROOT / "tests" / "forge_shapes.mjs")],
+                          cwd=str(ROOT), capture_output=True, text=True, timeout=60)
+    if node.returncode != 0:
+        check("the Forge shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+
+    # ---- the setting, in both languages ----
+    check("the default window is stated in the config, not in code",
+          OC.DEFAULTS["trendSprints"] == 6, OC.DEFAULTS.get("trendSprints"))
+    for n, ok in ((2, True), (6, True), (40, True), (1, False), (41, False),
+                  (0, False), ("six", False), (True, False)):
+        problems = OC.validate(dict(OC.DEFAULTS, trendSprints=n))
+        check("trendSprints=%r is %s" % (n, "accepted" if ok else "refused"),
+              (problems == []) is ok, problems)
+
+    # ---- no producer keeps its own six ----
+    #
+    # The fetcher and both generators had one each. Four implementations of one
+    # window is how four implementations of `history_row` happened.
+    fetcher = (ROOT / "scripts" / "fetch_delivery_data.py").read_text()
+    check("the fetcher takes its window from the config",
+          "trend_window(cfg)" in fetcher and "hist[-6:]" not in fetcher,
+          [l.strip() for l in fetcher.splitlines() if "hist[-" in l])
+    check("and resolves it in one place both generators can call",
+          "def trend_window(" in fetcher, "trend_window missing")
+    idx = (ROOT / "forge" / "src" / "index.js").read_text()
+    check("the Forge picker asks for the stated window",
+          "trendWindow(" in idx and "recentSprints(got.sprints, keep)" in idx,
+          [l.strip() for l in idx.splitlines() if "recentSprints(" in l])
+
+    # ---- the two truncations, each named ----
+    #
+    # Recorded-but-not-shown had exactly one sentence before this, and it was
+    # the wrong one for the commoner cause: a board with ten recorded sprints
+    # and a six-sprint window reported four of them as "no longer offered by
+    # this board", which was not true of any of them.
+    stored = {"version": 1, "sprints": {
+        "B/1/S%d" % n: {"row": {"sprint": "S%d" % n},
+                        "observedOn": "2026-0%d-01" % n,
+                        "final": True, "statuses": "a"} for n in range(1, 10)}}
+    shown = [{"sprintId": "B/1/S%d" % n, "row": {"sprint": "S%d" % n},
+              "asOf": "2026-0%d-01" % n} for n in range(5, 10)]
+
+    m = MT.merge_series(stored, shown, "a")
+    check("a recorded sprint older than the window is not called missing",
+          m["orphaned"] == [], m["orphaned"])
+    check("it is named as outside the window instead",
+          m["outsideWindow"] == ["B/1/S1", "B/1/S2", "B/1/S3", "B/1/S4"],
+          m["outsideWindow"])
+    note = MT.series_note(m)
+    check("and the sentence says which setting brings it back",
+          "trendSprints" in note and "no longer offered" not in note, note)
+
+    # A sprint inside the range that was asked for, which the board did not
+    # offer. Deleted, or moved — and a different sentence.
+    gone = [x for x in shown if x["sprintId"] != "B/1/S7"]
+    m2 = MT.merge_series(stored, gone, "a")
+    check("a sprint missing from inside the window still reads as missing",
+          m2["orphaned"] == ["B/1/S7"], m2["orphaned"])
+    check("and is not blamed on the window",
+          "no longer offered by this board" in MT.series_note(m2)
+          and "trendSprints" in MT.series_note(m2), MT.series_note(m2))
+
+    # ---- what the board has, against what the trend shows ----
+    check("a board with more sprints than the window says so",
+          "20 sprints" in MT.window_note(20, 6, 6)
+          and "most recent 6" in MT.window_note(20, 6, 6), MT.window_note(20, 6, 6))
+    check("and names the setting rather than implying a limit",
+          "trendSprints is 6" in MT.window_note(20, 6, 6), MT.window_note(20, 6, 6))
+    check("a board inside its window says nothing at all",
+          MT.window_note(6, 6, 6) == "" and MT.window_note(3, 3, 6) == "",
+          MT.window_note(6, 6, 6))
+    check("one sprint over is still worth a sentence, singular",
+          "1 older one is" in MT.window_note(7, 6, 6), MT.window_note(7, 6, 6))
+    check("nonsense counts produce no sentence rather than a wrong one",
+          MT.window_note(None, 6, 6) == "" and MT.window_note("20", 6, 6) == "",
+          MT.window_note(None, 6, 6))
+
+
 if __name__ == "__main__":
     import os
     os.environ["SERVICE_SHARED_SECRET"] = SECRET
@@ -3674,6 +3763,7 @@ if __name__ == "__main__":
     test_the_deploy_trigger_covers_everything_the_image_ships()
     series_checks()
     forecast_log_checks()
+    window_checks()
     print("the container image")
     test_dockerfile_copies_everything_the_service_imports()
     test_the_image_takes_debians_security_updates()

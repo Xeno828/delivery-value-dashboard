@@ -376,6 +376,8 @@ export const statusesFromJira = (statuses) => {
 
 const DAY_NAMES = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const MAX_SPRINT_DAYS = 90;
+/** Mirrors orgconfig.MAX_TREND_SPRINTS. */
+export const MAX_TREND_SPRINTS = 40;
 const normName = (v) => String(v ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 
 /**
@@ -452,6 +454,17 @@ export const validateOrgConfig = (cfg) => {
     if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > MAX_SPRINT_DAYS) {
       p.push('sprintLengthDays must be a whole number of calendar days between '
         + `1 and ${MAX_SPRINT_DAYS}`);
+    }
+  }
+
+  // Mirrors orgconfig.validate. Two is the floor because a trend needs two
+  // points to be one; the ceiling is latency, since every sprint in the window
+  // is a sprint's worth of issues fetched.
+  if ('trendSprints' in c) {
+    const n = c.trendSprints;
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 2 || n > MAX_TREND_SPRINTS) {
+      p.push('trendSprints must be a whole number of sprints between 2 and '
+        + `${MAX_TREND_SPRINTS}`);
     }
   }
 

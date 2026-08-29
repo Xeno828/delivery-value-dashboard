@@ -29,6 +29,7 @@ import {
   findStoryPointField, mergeOrgConfig, parseContextId, issueFrom, notFound,
   recentSprints, statusesFromJira, validateOrgConfig,
   WINDOW_DAYS, windowEntry, windowMembershipJql, contextsLabel,
+  MAX_TREND_SPRINTS,
 } from './jira.js';
 import { deliveryBlockers } from './brief.js';
 import { boardsIn, notifyPayload, problemsIn } from './recipients.js';
@@ -252,9 +253,24 @@ const compute = async (path, { boardId, orgConfig, meta, extra }, as) => {
    transport supplies its own.
    --------------------------------------------------------------------- */
 
-/** Sprints per board offered in the picker. The live server's default, for the
- *  same reason: a forecast samples a team's recent history, not its whole life. */
+/** Sprints per board offered in the picker, when the site's config states no
+ *  window of its own. The live server's default, for the same reason: a
+ *  forecast samples a team's recent history, not its whole life.
+ *
+ *  A default and no longer a constant — roadmap item 4b. It was hardcoded here
+ *  and in two generators, and every one of them cut the older sprints without
+ *  saying so. `trendSprints` travels inside the resolved config like every
+ *  other assumption, and what it cut is reported rather than implied. */
 const SPRINTS_PER_BOARD = 6;
+
+/** The window this project states, or the default. Bounded by the validator on
+ *  the way in, so a config that got past `validate` cannot ask for a thousand
+ *  sprints' worth of issue fetches here. */
+const trendWindow = (orgConfig) => {
+  const n = orgConfig?.trendSprints;
+  return Number.isInteger(n) && n >= 2 && n <= MAX_TREND_SPRINTS
+    ? n : SPRINTS_PER_BOARD;
+};
 
 /** A page count no real project reaches, so a Jira that stopped sending
  *  `isLast` stops this rather than looping. It throws rather than returning
@@ -541,7 +557,7 @@ const answering = (fn) => async (req) => {
  * picker and the forecast disagreeing about that is the kind of difference
  * nothing on the page would show.
  */
-const projectContexts = async (projectKey, as) => {
+const projectContexts = async (projectKey, as, window) => {
   const boards = await pagedValues(
     (startAt) => route`/rest/agile/1.0/board?projectKeyOrId=${projectKey}&startAt=${startAt}&maxResults=50`,
     `boards in project ${projectKey}`, as,
@@ -556,6 +572,7 @@ const projectContexts = async (projectKey, as) => {
   // second as the first the moment windows existed.
   let flowBoards = 0;
   let sprintBoardsWithNoSprints = 0;
+  const offered = new Map();
   for (const board of boards) {
     const got = await sprintsFor(board, as);
     if (got.skipped) {
@@ -565,13 +582,19 @@ const projectContexts = async (projectKey, as) => {
       }
       continue;
     }
-    const recent = recentSprints(got.sprints, SPRINTS_PER_BOARD);
+    const keep = Number.isInteger(window) ? window : SPRINTS_PER_BOARD;
+    const recent = recentSprints(got.sprints, keep);
     if (!recent.length) { sprintBoardsWithNoSprints += 1; continue; }
+    // What the board has against what the window kept, per board, so a trend
+    // can say what it is not showing. No silent caps: six sprints of a board
+    // with twenty reads as the whole record unless something says otherwise.
+    offered.set(String(board.id), got.sprints.length);
     for (const sprint of recent) {
       contexts.push(contextEntry(board, sprint, projectKey, todayISO()));
     }
   }
-  return { boards, contexts, flowBoards, sprintBoardsWithNoSprints };
+  return { boards, contexts, flowBoards, sprintBoardsWithNoSprints,
+           offered: Object.fromEntries(offered) };
 };
 
 /**
@@ -927,7 +950,11 @@ resolver.define('history', answering(async ({ payload, context }) => {
     return { status: 404, body: notFound(asked, 'that is not a project/board/period id') };
   }
 
-  const { contexts } = await projectContexts(projectKey);
+  // Asked with the window this project states rather than a constant, so a
+  // twelve-month trend is a setting rather than a code change — roadmap 4b.
+  const cfgForWindow = (await orgConfigFor(projectKey)).config;
+  const window = trendWindow(cfgForWindow);
+  const { contexts, offered } = await projectContexts(projectKey, undefined, window);
   // This board's sprints only. A flow board's windows overlap completely, so a
   // trend across them would count one issue three times and draw a line out of
   // it — ADR 0011, and the calculator refuses them for the same reason.
@@ -954,7 +981,7 @@ resolver.define('history', answering(async ({ payload, context }) => {
   const projected = issues.map(projectIssue);
   assertNoFreeText(projected);
 
-  const orgConfig = (await orgConfigFor(projectKey)).config;
+  const orgConfig = cfgForWindow;
   const fingerprint = statusFingerprint(orgConfig);
   const key = seriesKey(parsed.boardId);
   const stored = readSeries((await kvs.get(key)) ?? null);
@@ -971,6 +998,10 @@ resolver.define('history', answering(async ({ payload, context }) => {
     // the reader selected. A sprint does not get to be compared against its own
     // future, and the rule lives in the tool so both transports obey one copy.
     contextId: asked,
+    // What the board actually has, against the window that was kept. The tool
+    // turns the pair into a sentence; nothing here counts anything.
+    boardSprints: offered?.[String(parsed.boardId)] ?? null,
+    window,
   });
   if (answer.available === false) {
     return { status: 200, body: { available: false, rows: [], note: '', problems: [], why: answer.sentence } };
@@ -1037,6 +1068,8 @@ resolver.define('history', answering(async ({ payload, context }) => {
     stored: next,
     statuses: fingerprint,
     contextId: asked,
+    boardSprints: offered?.[String(parsed.boardId)] ?? null,
+    window,
   });
   if (again.available === false) {
     return { status: 200, body: { available: false, rows: [], note: '', problems: [], why: again.sentence } };

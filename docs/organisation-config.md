@@ -10,6 +10,7 @@ is where they are decided now.
 | `workingWeek` | Which days of the week are worked | `mon`–`fri` |
 | `holidays` | Which of those days are not | none |
 | `sprintLengthDays` | How long a sprint is, in calendar days | `14` |
+| `trendSprints` | `6` | How many sprints the predictability and load trends show. Two is the floor because a trend needs two points; forty is the ceiling because every sprint in the window is a sprint's worth of issues fetched. What it cuts is named on the page rather than implied. |
 
 The file lives at `config/organisation.json`. Validate it with
 

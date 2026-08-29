@@ -59,11 +59,21 @@ DEFAULTS = {
     "workingWeek": ["mon", "tue", "wed", "thu", "fri"],
     "holidays": [],
     "sprintLengthDays": 14,
+    # How many sprints a trend shows — roadmap item 4b. Six was hardcoded in
+    # three producers and truncated silently in all of them, which is the
+    # thing CLAUDE.md forbids: a chart of the last six sprints of a
+    # twenty-sprint board reads as the whole record. It travels inside the
+    # dataset like every other assumption here, so the page, the tools and both
+    # transports read one resolved answer rather than each keeping a constant.
+    "trendSprints": 6,
 }
 
 DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 DAY_INDEX = {n: i for i, n in enumerate(DAY_NAMES)}
 MAX_SPRINT_DAYS = 90
+#: The most sprints a trend may ask for. Every one is a sprint's worth of
+#: issues fetched, so this is a latency bound rather than a statistical one.
+MAX_TREND_SPRINTS = 40
 
 # Used only when a status matches no configured rule and the tracker offered no
 # category of its own. Kept because a brand-new status appearing mid-sprint
@@ -160,6 +170,14 @@ def validate(cfg):
     if not isinstance(n, int) or isinstance(n, bool) or not (1 <= n <= MAX_SPRINT_DAYS):
         p.append("sprintLengthDays must be a whole number of calendar days "
                  "between 1 and %d" % MAX_SPRINT_DAYS)
+
+    # Two is the floor because a trend needs two points to be a trend, and the
+    # ceiling exists because every sprint in the window is a sprint's worth of
+    # issues fetched — an unbounded window is a tenant waiting on a page load.
+    t = cfg.get("trendSprints")
+    if not isinstance(t, int) or isinstance(t, bool) or not (2 <= t <= MAX_TREND_SPRINTS):
+        p.append("trendSprints must be a whole number of sprints between 2 "
+                 "and %d" % MAX_TREND_SPRINTS)
     return p
 
 

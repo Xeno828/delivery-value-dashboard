@@ -681,11 +681,18 @@ def series_for(backend, cid):
                              [{"sprintId": r["contextId"], "row": r["row"]}
                               for r in MT.series_upto(rows, cid)],
                              fingerprint)
+    # A bundle carries every sprint it was built with, so what the board "has"
+    # and what this window kept are the same number unless the config narrows
+    # it. Passed anyway, so both transports produce the sentence the same way.
+    window = (cfg or {}).get("trendSprints")
     return {"available": True, "rows": merged["rows"],
             "offered": len(rows) + len(skipped), "sprints": len(rows),
             "skipped": skipped,
-            "note": " ".join(x for x in (MT.series_note(merged),
-                                         MT.skipped_note(skipped)) if x),
+            "outsideWindow": merged.get("outsideWindow") or [],
+            "note": " ".join(x for x in (
+                MT.series_note(merged),
+                MT.skipped_note(skipped),
+                MT.window_note(len(mine), len(rows) + len(skipped), window)) if x),
             "problems": []}
 
 

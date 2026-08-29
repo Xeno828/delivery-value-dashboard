@@ -553,9 +553,21 @@ def build_burndown(issues, meta):
     return out
 
 
-def build_history(issues, meta, previous):
+def trend_window(cfg):
+    """How many sprints of trend the dataset keeps.
+
+    One reader, so the fetcher and both bundle generators cannot disagree about
+    the window — which is exactly how four implementations of `history_row` came
+    about before 1.36.0 collapsed them into one.
+    """
+    n = (cfg or {}).get("trendSprints")
+    return n if isinstance(n, int) and not isinstance(n, bool) and n >= 2 \
+        else OC.DEFAULTS["trendSprints"]
+
+
+def build_history(issues, meta, previous, cfg=None):
     """Append this sprint to whatever history the previous file held, so the
-    six-sprint trends survive across refreshes.
+    trend survives across refreshes.
 
     The single-board path fetches the *active* sprint, so its as-of is today —
     which is why this one was very nearly right where the bundle path was not.
@@ -567,7 +579,13 @@ def build_history(issues, meta, previous):
                       meta.get("asOfDate") or date.today().isoformat())
     hist = [h for h in hist if h.get("sprint") != row["sprint"]]
     hist.append(row)
-    return hist[-6:]
+    # The window the config states, not a constant. Six was hardcoded here and
+    # in two generators, and every one of them dropped the older rows without
+    # saying so — a chart of the last six sprints of a twenty-sprint board reads
+    # as the whole record. `trendSprints` travels inside the data like every
+    # other assumption this file resolves. Roadmap item 4b.
+    keep = trend_window(cfg)
+    return hist[-keep:]
 
 
 # --------------------------------------------------------------------------
@@ -690,7 +708,7 @@ def main():
         "orgConfig": CFG,
         "issues": issues,
         "burndown": build_burndown(issues, meta),
-        "history": build_history(issues, meta, previous),
+        "history": build_history(issues, meta, previous, CFG),
         # Neither Jira nor Asana knows these. Keep whatever was there before so a
         # refresh never silently blanks a card; fill them from your CI/CD tool.
         "releases": (previous.get("releases") or []),

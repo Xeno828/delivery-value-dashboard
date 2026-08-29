@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.43.0
+
+**The trend window is a setting, and both of its truncations now say what they cut. Roadmap item 4 is done.** 4b was the obvious first slice and ADR 0015 deliberately put it last, because a twelve-month trend is where the hazards the store exists for have had the most time to happen. The footing went in first; this is the window on top of it.
+
+**Three producers each kept their own six, and every one of them cut silently.** `build_history` in the fetcher, `upto[-6:]` in the sample generator, and `SPRINTS_PER_BOARD` in the Forge resolver. A chart of the last six sprints of a twenty-sprint board reads as the whole record, which is the silent cap `CLAUDE.md` forbids and the shape that produced four implementations of `history_row` before 1.36.0. `trendSprints` now travels inside the resolved config like every other assumption, defaulting to six and bounded at two and forty — two because a trend needs two points to be one, forty because every sprint in the window is a sprint's worth of issues fetched, so the ceiling is latency rather than statistics. `orgconfig.validate` and its mirror in `forge/src/jira.js` are held together over the shared case list, as they are for every other setting.
+
+**And it fixed a sentence 4a got wrong.** `merge_series` reported every recorded sprint it was not showing as *"no longer offered by this board"*. On any board whose store is deeper than its window that was false of all of them — they were simply older than what was asked for. The two are now separated, because they have different answers: a sprint **outside the window** comes back by widening `trendSprints`, and one **missing from inside** the range that was asked for is deleted or moved. The note says which, and names the setting for the first.
+
+**The other truncation had no sentence at all.** A board with twenty sprints and a six-sprint window now says so — *"This board has 20 sprints and the trend shows the most recent 6"* — and names the setting rather than implying a limit. Silent for every board younger than its window, which is most of them, because a caveat about a cut that did not happen is noise.
+
+Nothing about the default changed: `data/sample-bundle.json` regenerates byte for byte, because a bundle that states no organisation config takes the same six it always did.
+
 ## 1.42.0
 
 **The forecast log is wired, and the forecaster is falsifiable for the first time.** Roadmap item 4c, done. A published forecast now writes its capacity claims to the board's log — app storage on Forge, a git-ignored file over loopback, one key per board — and the tile prints how it has actually done. `score_calibration()` has had a reader since the tools were written; it has a writer now.

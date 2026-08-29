@@ -356,6 +356,11 @@ def merge_series(stored, computed, today_statuses=None):
     """
     sprints = (stored or {}).get("sprints") or {}
     rows, seen = [], set()
+    # The oldest moment the caller actually looked at. Anything recorded before
+    # it was not asked for, which is a different fact from a sprint the board no
+    # longer offers — see the split below.
+    asked_from = min((str(i.get("asOf")) for i in (computed or [])
+                      if i.get("asOf")), default=None)
     for item in computed or []:
         sid = str(item.get("sprintId") if item.get("sprintId") is not None
                   else item.get("contextId"))
@@ -379,7 +384,26 @@ def merge_series(stored, computed, today_statuses=None):
             isinstance(today_statuses, str) and isinstance(kept.get("statuses"), str)
             and kept["statuses"] != today_statuses)
         rows.append(row)
-    return {"rows": rows, "orphaned": sorted(k for k in sprints if k not in seen)}
+    # A recorded sprint that is not on screen, split by *why* — because the two
+    # reasons have different answers and printing one for both is the failure
+    # this file has now made twice.
+    #
+    #   **outside the window**  older than anything asked for. Widen
+    #                           `trendSprints` and it comes back.
+    #   **missing**             inside the range that was asked for, and the
+    #                           board did not offer it. Deleted, or moved.
+    #
+    # Before this split, a board with ten recorded sprints and a six-sprint
+    # window reported four of them as "no longer offered by this board", which
+    # was not true of any of them.
+    outside, missing = [], []
+    for k in sorted(x for x in sprints if x not in seen):
+        when = (sprints[k] or {}).get("observedOn")
+        if asked_from and when and str(when) < asked_from:
+            outside.append(k)
+        else:
+            missing.append(k)
+    return {"rows": rows, "orphaned": missing, "outsideWindow": outside}
 
 
 def series_upto(rows, context_id):
@@ -435,6 +459,29 @@ def skipped_note(skipped):
             % (len(items), "" if len(items) == 1 else "s",
                "was" if len(items) == 1 else "were", named,
                " ".join(w[0].upper() + w[1:] + "." for w in whys)))
+
+
+def window_note(offered, shown, window):
+    """What the page says when a board has more sprints than the trend shows.
+
+    The other half of item 4b. `outsideWindow` in `series_note` covers sprints
+    this installation *recorded* and is not showing; this covers the ones the
+    board has and was never asked for. Both are truncations and neither may be
+    silent — a chart of six sprints from a board with twenty is a chart that
+    reads as a complete record.
+
+    Silent when nothing was cut, which is every board younger than its window.
+    """
+    if not isinstance(offered, int) or not isinstance(shown, int):
+        return ""
+    dropped = offered - shown
+    if dropped <= 0:
+        return ""
+    return ("This board has %d sprints and the trend shows the most recent %d. "
+            "The %d older %s not on it; trendSprints is %s."
+            % (offered, shown, dropped,
+               "one is" if dropped == 1 else "ones are",
+               window if isinstance(window, int) else "the window setting"))
 
 
 def series_note(merged):
@@ -495,6 +542,19 @@ def series_note(merged):
             % ("One recorded sprint is" if len(orphaned) == 1
                else "%d recorded sprints are" % len(orphaned),
                "was" if len(orphaned) == 1 else "were"))
+
+    # Not a fault, and said anyway. A trend showing six of a board's twenty
+    # sprints reads as the whole record unless it says which it is, and the
+    # window is a setting — so the sentence names the thing to change.
+    outside = (merged or {}).get("outsideWindow") or []
+    if outside:
+        out.append(
+            "%s recorded before the window this trend shows, so %s not on it. "
+            "Widen trendSprints to bring %s back."
+            % ("One further sprint was" if len(outside) == 1
+               else "%d further sprints were" % len(outside),
+               "it is" if len(outside) == 1 else "they are",
+               "it" if len(outside) == 1 else "them"))
 
     return " ".join(out)
 

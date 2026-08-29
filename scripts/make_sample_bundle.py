@@ -25,6 +25,8 @@ from datetime import date, timedelta
 # reading it off current issue status silently flatters every closed sprint.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "agent" / "tools"))
 from metrics import history_row  # noqa: E402
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from fetch_delivery_data import trend_window  # noqa: E402
 
 TYPES = ["Story", "Bug", "Task"]
 PRIOS = ["Highest", "High", "Medium", "Medium", "Low"]
@@ -212,7 +214,13 @@ def build(seed=42, sprints=6, as_of="2026-08-10", scale=1):
             hist.append(history_row(mine, c["sprintName"], c["asOfDate"]))
         for c in board_ctxs:
             upto = [h for h in hist if h["sprint"] <= c["sprintName"]]
-            by_ctx[c["id"]]["history"] = upto[-6:]
+            # The window, resolved by the same function the fetcher uses
+            # rather than a six of this generator's own — which is how a bundle
+            # and a live pull could disagree about how much history they carried
+            # while both looking complete. This sample states no organisation
+            # config, so it takes the default; `None` says that rather than
+            # hiding it behind a variable that is always empty. Roadmap 4b.
+            by_ctx[c["id"]]["history"] = upto[-trend_window(None):]
             by_ctx[c["id"]]["dora"] = {
                 "deploymentFrequencyPerWeek": rng.randint(4, 14),
                 "deploymentFrequencyTrend": [rng.randint(4, 14) for _ in range(6)],
