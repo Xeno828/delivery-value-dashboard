@@ -712,6 +712,93 @@ def score_calibration(forecast_log):
     }
 
 
+#: How many entries a board's log keeps. Roughly a year of daily forecasts at
+#: four claims each, which is more than `score_calibration` needs and small
+#: enough to sit in one stored value. Unresolved claims are never dropped — a
+#: claim waiting on its horizon is the only kind that cannot be replaced by
+#: making another one.
+MAX_LOG = 400
+
+
+def trim_log(log, keep=MAX_LOG):
+    """The log, bounded, oldest resolved entries first. Reports what it dropped.
+
+    No silent caps: a log that quietly forgets its oldest entries reads as a
+    complete history, and a Brier score over a window nobody chose is a figure
+    with an invented basis. The count comes back so the caller can say it.
+
+    Unresolved claims survive regardless of age. One waiting on a horizon is
+    evidence not yet collected; dropping it discards the only observation that
+    cannot be re-made.
+    """
+    entries = [e for e in (log or []) if isinstance(e, dict)]
+    if len(entries) <= keep:
+        return entries, 0
+    unresolved = [e for e in entries if e.get("resolved") is None]
+    resolved = sorted((e for e in entries if e.get("resolved") is not None),
+                      key=lambda e: str(e.get("horizon") or ""))
+    room = max(keep - len(unresolved), 0)
+    dropped = len(resolved) - room
+    kept = unresolved + (resolved[-room:] if room else [])
+    # Back into the order they were made, so a reader scrolling the log is not
+    # handed the unresolved ones first by accident of how they were trimmed.
+    kept.sort(key=lambda e: (str(e.get("madeOn") or ""), str(e.get("id") or "")))
+    return kept, max(dropped, 0)
+
+
+def update_log(log, claims, issues, today, keep=MAX_LOG):
+    """One board's forecast log, brought up to date, and what it now scores.
+
+    Everything item 4c does to a log happens here, in one function, because
+    every step of it is arithmetic or a judgement about evidence and neither
+    belongs in a resolver or an HTTP wrapper. Both transports call this.
+
+    In order:
+
+    **New claims are added by id, and an id already held is left alone.** A
+    forecast published twice in a day is one claim. Re-adding it would replace a
+    claim that may already carry a resolution, and would let a board that is
+    looked at often out-score one that is looked at rarely.
+
+    **Claims whose horizon has passed are resolved**, from completions in their
+    own window. `resolve_claims` never touches one that already has a verdict.
+
+    **The log is trimmed**, and what was dropped is reported rather than
+    silently forgotten.
+
+    **What is left is scored**, or refused with the scorer's own sentence when
+    there is not enough of it. Those are different statements and only one of
+    them is a criticism of the forecaster.
+    """
+    held = {e.get("id"): e for e in (log or []) if isinstance(e, dict)}
+    added = 0
+    for c in claims or []:
+        if not isinstance(c, dict) or not c.get("id"):
+            continue
+        if c["id"] in held:
+            continue
+        if problems_in_claim(c):
+            # Refused rather than stored. A bad entry is read by every scoring
+            # run from then on, and a calibration score is the last figure
+            # anybody would think to check.
+            continue
+        held[c["id"]] = c
+        added += 1
+
+    resolved, pending = resolve_claims(list(held.values()), issues, today)
+    kept, dropped = trim_log(resolved, keep)
+    scored = score_calibration(kept)
+    return {
+        "log": kept,
+        "added": added,
+        "dropped": dropped,
+        "pending": pending,
+        "calibration": (asdict(scored) if hasattr(scored, "__dataclass_fields__")
+                        else scored),
+        "note": calibration_note(scored, pending),
+    }
+
+
 # ------------------------------------------------------------------ assembly
 def build(dataset, as_of=None, remaining=None, target=None, snapshots=None,
           window_days=None):

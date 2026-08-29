@@ -847,6 +847,18 @@ resolver.define('forecast', answering(async ({ payload, context }) => {
   const projected = issues.map(projectIssue);
   assertNoFreeText(projected);
 
+  // The board's forecast log — roadmap item 4c, ADR 0017. Read before the
+  // call and handed over with it, so one round trip both publishes this
+  // forecast's claims and scores everything already resolved. The calculator
+  // computes all of it; this decides only where it is kept.
+  //
+  // A what-if carries no claims (`forecast_for` emits them for the default
+  // forecast alone), so dragging the tile's sliders reads the log and writes
+  // nothing back.
+  const board = parseContextId(asked)?.boardId;
+  const logKey = forecastLogKey(board);
+  const heldLog = board ? ((await kvs.get(logKey)) ?? []) : [];
+
   const answer = await callCalculator('/v1/forecast-context', {
     dataset: {
       issues: projected,
@@ -858,10 +870,21 @@ resolver.define('forecast', answering(async ({ payload, context }) => {
       orgConfig: (await orgConfigFor(projectKey)).config,
     },
     contextId: asked,
+    // The log, and the latest date this app's data can speak to. Forge reads
+    // Jira live, so that is today; a bundle over loopback stops where the file
+    // stops and sends its own as-of instead. One rule, two answers.
+    ...(board ? { log: Array.isArray(heldLog) ? heldLog : [], today: todayISO() } : {}),
     ...(payload?.items == null ? {} : { items: payload.items }),
     ...(payload?.date == null ? {} : { target: payload.date }),
   });
   if (answer.available === false) return { status: 200, body: noCalculator(answer.sentence) };
+
+  // Written only when it moved. This route runs whenever the tile is opened,
+  // and a store rewritten on every read is a write quota spent on nothing.
+  const cal = answer.result?.calibration;
+  if (board && cal && (cal.added || cal.dropped)) {
+    await kvs.set(logKey, cal.log);
+  }
 
   return { status: 200, body: reattach(answer.result, byKey) };
 }));
@@ -1393,6 +1416,11 @@ resolver.define('saveRecipients', answering(async ({ payload, context }) => {
  * run saying what is missing, not in an unretried trigger failure whose reason
  * is only in a stack trace.
  */
+/** One key per board, like the series. A forecast log is per board because a
+ *  claim is about a board's delivery, and two boards sharing a key would make
+ *  one board's calibration a statement about both. ADR 0017. */
+export const forecastLogKey = (boardId) => `forecastlog:${String(boardId)}`;
+
 export const RECIPIENTS_KEY = 'recipients';
 
 const recipientConfig = async () => {

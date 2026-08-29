@@ -453,6 +453,9 @@ RECIPIENTS_FILE = pathlib.Path("data/recipients.local.json")
 #: The durable series, over loopback. App storage on Forge, a git-ignored file
 #: here — same rule, same body shapes, different shelf. ADR 0015, ADR 0009.
 SERIES_FILE = pathlib.Path("data/series.local.json")
+#: The forecast log, over loopback. App storage on Forge, a git-ignored file
+#: here — the same rule and the same body shapes. ADR 0017.
+FORECAST_LOG_FILE = pathlib.Path("data/forecast-log.local.json")
 
 # A config bigger than this is refused rather than stored. Stated because a cap
 # that truncates silently reads as one that accepted everything.
@@ -580,6 +583,30 @@ def write_series(board_id, series):
     all_boards[str(board_id)] = series
     SERIES_FILE.parent.mkdir(parents=True, exist_ok=True)
     SERIES_FILE.write_text(json.dumps(all_boards, indent=2) + "\n")
+
+
+def read_forecast_log(board_id):
+    """One board's forecast log. Missing and unreadable both read as empty —
+    a caller that needed to tell those apart does not exist, and inventing an
+    error state for a file nobody has created yet is noise on first run."""
+    try:
+        all_boards = json.loads(FORECAST_LOG_FILE.read_text())
+    except (OSError, ValueError):
+        return []
+    got = (all_boards or {}).get(str(board_id))
+    return got if isinstance(got, list) else []
+
+
+def write_forecast_log(board_id, log):
+    try:
+        all_boards = json.loads(FORECAST_LOG_FILE.read_text())
+    except (OSError, ValueError):
+        all_boards = {}
+    if not isinstance(all_boards, dict):
+        all_boards = {}
+    all_boards[str(board_id)] = log
+    FORECAST_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    FORECAST_LOG_FILE.write_text(json.dumps(all_boards, indent=2) + "\n")
 
 
 def series_recordable(sprint_state, prior):
@@ -718,6 +745,30 @@ class Handler(SimpleHTTPRequestHandler):
             got = self.backend.forecast(cid, items, target)
             if got is None:
                 return self._json({"error": "unknown context %r" % cid}, 404)
+
+            # The forecast log — roadmap item 4c, ADR 0017. Same body shape as
+            # the Forge route and the same one tool function behind it; the
+            # only difference is the shelf the log sits on. A what-if carries no
+            # claims, so nothing is written for one.
+            claims = got.get("claims") or []
+            board = None
+            for c in self.backend.contexts():
+                if c.get("id") == cid:
+                    board = c.get("boardId")
+                    break
+            if board is not None:
+                log = read_forecast_log(board)
+                today = (got.get("asked") or {}).get("as_of")
+                cal = FC.update_log(log, claims,
+                                    self.backend.context(cid).get("issues") or []
+                                    if self.backend.context(cid) else [],
+                                    today)
+                # Written only when it changed. This route runs on every panel
+                # load, and rewriting an unchanged log is a file touched for
+                # nothing.
+                if cal["added"] or cal["dropped"] or cal["log"] != log:
+                    write_forecast_log(board, cal["log"])
+                got = dict(got, calibration=cal)
             return self._json(got)
         if path in ("api/sequence", "dist/api/sequence"):
             cid = urllib.parse.parse_qs(u.query).get("id", [""])[0]

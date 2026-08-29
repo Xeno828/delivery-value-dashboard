@@ -2442,6 +2442,24 @@ function renderForecast() {
     (inp.window_days != null ? inp.window_days + " days of history" : "full history") +
     "<br>20,000 seeded trials, computed by <code>forecast.py</code> as at " +
     esc(fmtD(fc.as_of)) + ". Same inputs, same answer, every time.</div>";
+
+  // How this forecaster has actually done — roadmap item 4c, ADR 0017. The
+  // sentence comes from the tool, refusal included: "too few resolved
+  // forecasts" and "badly calibrated" are different statements and only one of
+  // them is a criticism, so neither is softened into the other here.
+  //
+  // Silent when there is no log at all, which is every emailed copy and every
+  // board whose first forecast has not been published yet. A tile that
+  // announced "not scored" before anything could have been scored would be
+  // reporting the absence of evidence as a finding.
+  const cal = fc.calibration;
+  if (cal && cal.note) {
+    html += '<div class="note sr-note">' + esc(cal.note) +
+      (cal.dropped
+        ? " The oldest " + cal.dropped + " resolved forecast" +
+          (cal.dropped === 1 ? " is" : "s are") + " no longer kept."
+        : "") + "</div>";
+  }
   el.innerHTML = html;
 }
 

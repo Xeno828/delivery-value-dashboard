@@ -184,6 +184,20 @@ def forecast_for(contexts, issues, byContext, cid, items=None, target=None, org_
         "first_resolved": resolved[0].isoformat() if resolved else None,
         "last_resolved": resolved[-1].isoformat() if resolved else None,
     }
+    # The falsifiable claims this forecast makes, for the log — roadmap item 4c,
+    # ADR 0017. Emitted here, from the same computation that produced the
+    # figures, so a logged claim and the tile above it cannot disagree.
+    #
+    # **Only the default forecast.** The tile lets a reader ask "what if it were
+    # twenty items, or the end of the month?", and a what-if is not a published
+    # prediction — nobody said it. It is also not merely untidy to log one:
+    # `claim_id` is keyed on context, day and percentile, so a what-if with a
+    # different target would take the same id as the day's real forecast and
+    # overwrite it, replacing a claim somebody made with one nobody did.
+    out["claims"] = (
+        FC.claims_from(out.get("capacity_to_target"), cid, ctx.get("boardId"),
+                       as_of, ctx.get("boardName") or ctx.get("team"))
+        if items is None and target is None else [])
     return out
 
 

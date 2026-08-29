@@ -603,6 +603,31 @@ def route_forecast_context(body):
         # A context this dataset does not describe is a 404 and not a 400: the
         # request was well formed and named something that is not here.
         raise Refused("unknown context %r — nothing was simulated" % cid.strip(), 404)
+
+    # The forecast log — roadmap item 4c, ADR 0017. The caller sends the log it
+    # holds; `update_log` adds this forecast's claims, resolves the ones whose
+    # horizon has passed, trims and scores. This service still computes nothing
+    # of its own: one tool function does all of it and both transports call it.
+    #
+    # Optional, and absent means the caller keeps no log — the forecast comes
+    # back exactly as it did before, which is what `/v1/forecast` and every
+    # existing caller rely on.
+    log = body.get("log")
+    if log is not None:
+        if not isinstance(log, list):
+            raise Refused('"log" must be the caller\'s forecast log, or absent')
+        # **The latest date this caller's data can speak to**, which is one
+        # rule with two answers. Over Forge the issues are read live, so it is
+        # today. Over loopback the dataset is a file that stops where it stops,
+        # and resolving a claim whose window runs past the last day the file
+        # describes would count zero completions and call the forecast wrong —
+        # a false verdict from missing data rather than a missed prediction.
+        # Absent, it falls back to the forecast's own as-of, which is the
+        # conservative end of the same rule.
+        today = _iso_or_none(body, "today") or _iso_or_none(body, "asOf")
+        out["calibration"] = FC.update_log(
+            log, out.get("claims") or [], ds["issues"],
+            today or (out.get("asked") or {}).get("as_of"))
     return out
 
 

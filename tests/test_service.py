@@ -3508,6 +3508,108 @@ def test_the_image_takes_debians_security_updates():
           [l.strip() for l in scan.splitlines() if "exit-code 0" in l])
 
 
+def forecast_log_checks():
+    """The forecast log, wired — roadmap item 4c, ADR 0017.
+
+    The claims themselves are covered in `tests/test_agent.py`, which needs no
+    browser and no server. What is checked here is the wiring: that the service
+    computes none of it, that a what-if writes nothing, and that both transports
+    keep the log on their own shelf behind one set of body shapes.
+    """
+    print("the forecast log")
+    bundle = json.loads((ROOT / "data" / "sample-bundle.json").read_text())
+    proj = [{k: v for k, v in i.items() if k in SVC.CALC_FIELDS}
+            for i in bundle["issues"]]
+    ds = {"contexts": bundle["contexts"], "issues": proj,
+          "byContext": bundle.get("byContext") or {},
+          "orgConfig": bundle.get("orgConfig")}
+    cid = "BLC/42/S24"
+
+    # ---- the service computes none of it ----
+    served = SVC.route_forecast_context({"dataset": ds, "contextId": cid})
+    direct = SEL.forecast_for(bundle["contexts"], proj, bundle.get("byContext") or {},
+                              cid, org_cfg=bundle.get("orgConfig"))
+    check("with no log the route answers exactly as it always did",
+          served == direct, "forecast body changed")
+    check("a default forecast carries the claims it makes",
+          len(served.get("claims") or []) == len(FC.PERCENTILES),
+          len(served.get("claims") or []))
+
+    # A what-if is not a published prediction — nobody said it. It is also not
+    # merely untidy: `claim_id` is keyed on context, day and percentile, so a
+    # what-if with a different target would take the same id as the day's real
+    # forecast and overwrite a claim somebody made with one nobody did.
+    whatif = SVC.route_forecast_context({"dataset": ds, "contextId": cid, "items": 20})
+    check("a what-if makes no claim at all", (whatif.get("claims") or []) == [],
+          whatif.get("claims"))
+    after = SVC.route_forecast_context({"dataset": ds, "contextId": cid,
+                                        "items": 20, "log": []})
+    check("and so it adds nothing to a log",
+          (after.get("calibration") or {}).get("added") == 0,
+          (after.get("calibration") or {}).get("added"))
+
+    # ---- the log the route returns is the tool's, called directly ----
+    withlog = SVC.route_forecast_context({"dataset": ds, "contextId": cid, "log": []})
+    cal = withlog["calibration"]
+    same = FC.update_log([], direct.get("claims") or [], proj,
+                        (direct.get("asked") or {}).get("as_of"))
+    check("the route's calibration is update_log called directly",
+          cal == same, {"route": cal.get("added"), "direct": same.get("added")})
+    check("a first forecast adds every claim it made",
+          cal["added"] == len(FC.PERCENTILES), cal["added"])
+    check("and publishing the same forecast again adds none",
+          SVC.route_forecast_context(
+              {"dataset": ds, "contextId": cid, "log": cal["log"]}
+          )["calibration"]["added"] == 0, "re-added")
+
+    # ---- it refuses rather than scoring a young log ----
+    check("a log below the threshold is refused with the scorer's own sentence",
+          "10 resolved forecasts needed" in cal["note"], cal["note"])
+    check("and the sentence separates 'not yet' from 'badly calibrated'",
+          "Not scored yet" in cal["note"] and "calibrated" not in cal["note"],
+          cal["note"])
+
+    # ---- the bound, and what it says it dropped ----
+    filler = [dict((cal["log"] or [{}])[0], id="old-%d" % i, madeOn="2026-01-01",
+                   horizon="2026-01-15", resolved=True, observed=1)
+              for i in range(FC.MAX_LOG + 50)]
+    kept, dropped = FC.trim_log(filler)
+    check("the log is bounded", len(kept) == FC.MAX_LOG, len(kept))
+    check("and says how many it dropped rather than forgetting quietly",
+          dropped == 50, dropped)
+    unresolved = [dict(filler[0], id="waiting-%d" % i, resolved=None, observed=None)
+                  for i in range(5)]
+    kept2, _ = FC.trim_log(filler + unresolved)
+    check("a claim still waiting on its horizon is never dropped",
+          all(any(k["id"] == u["id"] for k in kept2) for u in unresolved),
+          len(kept2))
+
+    # ---- one shelf each, and the same body shape on both ----
+    live = (ROOT / "scripts" / "serve_live.py").read_text()
+    check("loopback keeps the log in a git-ignored file",
+          "forecast-log.local.json" in live,
+          [l.strip() for l in live.splitlines() if "forecast-log" in l][:1])
+    ignored = (ROOT / ".gitignore").read_text()
+    check("and that file is git-ignored, like every other local store",
+          any(pat in ignored for pat in ("data/*.local.json", "forecast-log.local.json")),
+          [l for l in ignored.splitlines() if "local" in l])
+    idx = (ROOT / "forge" / "src" / "index.js").read_text()
+    check("Forge keeps it in app storage, one key per board",
+          "forecastlog:" in idx,
+          [l.strip() for l in idx.splitlines() if "forecastlog" in l][:1])
+    # The scope it does not need. `storage:app` was granted for the recipient
+    # config and the series already uses it; a log of counts adds nothing.
+    manifest = (ROOT / "forge" / "manifest.yml").read_text()
+    check("and needs no scope the app did not already hold",
+          manifest.count("storage:app") == 1, manifest.count("storage:app"))
+
+    # Written only when it moved: this route runs whenever the tile is opened.
+    check("neither transport rewrites a log that did not change",
+          "cal.added || cal.dropped" in idx
+          and 'cal["added"] or cal["dropped"]' in live,
+          "unconditional write")
+
+
 if __name__ == "__main__":
     import os
     os.environ["SERVICE_SHARED_SECRET"] = SECRET
@@ -3571,6 +3673,7 @@ if __name__ == "__main__":
     print("the deploy trigger")
     test_the_deploy_trigger_covers_everything_the_image_ships()
     series_checks()
+    forecast_log_checks()
     print("the container image")
     test_dockerfile_copies_everything_the_service_imports()
     test_the_image_takes_debians_security_updates()

@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.42.0
+
+**The forecast log is wired, and the forecaster is falsifiable for the first time.** Roadmap item 4c, done. A published forecast now writes its capacity claims to the board's log — app storage on Forge, a git-ignored file over loopback, one key per board — and the tile prints how it has actually done. `score_calibration()` has had a reader since the tools were written; it has a writer now.
+
+**A what-if writes nothing, and that is a correctness rule rather than tidiness.** The tile lets a reader ask *"what if it were twenty items?"*, and nobody published that. `claim_id` is keyed on context, day and percentile, so a what-if with a different target would take the same id as the day's real forecast and **overwrite a claim somebody made with one nobody did**. `forecast_for` emits claims for the default forecast alone, which is where the rule belongs — the tool that computed the figures decides what was claimed, and neither transport can get it wrong separately.
+
+**One tool function does all of it.** `update_log` adds new claims by id, resolves the ones whose horizon has passed, trims, and scores. The service passes it a log and gets one back; `tests/test_service.py` holds the route's answer against the same function called directly. A resolver that merged a log itself would be the second implementation this repository spends most of its tests preventing.
+
+**Resolution runs against the latest date each transport's data can speak to** — one rule with two answers. Forge reads Jira live, so it is today. A bundle over loopback stops where the file stops, so it sends its own as-of: resolving a claim whose window runs past the last day the file describes would count zero completions and call the forecast wrong, which is a false verdict from missing data rather than a missed prediction.
+
+**The log is bounded and says what it dropped.** Four hundred entries, oldest resolved first, and a claim still waiting on its horizon is never dropped — it is evidence not yet collected, and the only kind that cannot be re-made. The count comes back so the tile can say it, because a Brier score over a window nobody chose is a figure with an invented basis.
+
+**Written only when it moved.** Both transports run this whenever the tile is opened, and a store rewritten on every read is a write quota spent on nothing.
+
+**What it will say for the next few weeks.** A log needs ten *resolved* forecasts before it scores, and a claim resolves only after its horizon passes. On a fortnightly board that is a few weeks of ordinary use before the first Brier score exists. Until then the tile says how many are made and waiting — the scorer's own refusal, verbatim, because *"too few resolved forecasts"* and *"badly calibrated"* are different statements and only one of them is a criticism of the forecaster.
+
 ## 1.41.0
 
 **The forecaster can be scored against its own history now, for the first time.** Roadmap item 4c, started. `score_calibration()` has been able to read a forecast log since the tools were written and **nothing has ever produced one**, so a product whose whole argument is that its numbers can be trusted has never checked whether its own probabilities mean anything. `claims_from`, `resolve_claims` and `problems_in_claim` sit beside the scorer in `agent/tools/forecast.py`, and the last of the twenty-six new checks is the one that matters: a log this produces is a log `score_calibration` reads, end to end, returning a Brier score.

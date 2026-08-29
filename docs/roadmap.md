@@ -23,7 +23,7 @@ references are wrong.
 | 1 | OAuth app on the Marketplace | 1 — make it connectable | 4–6 wk | **Done** |
 | 2 | Organisation configuration | 1 — make it connectable | 2–3 wk | **Done** |
 | 3 | Scheduled delivery of the two views | 2 — make it arrive | 3–4 wk | **Done** — delivered 2026-08-26 |
-| 4 | Durable sprint history | 3 — make it defensible | 3–4 wk | **Part done** — 4a delivered 2026-08-29; 4b and 4c open |
+| 4 | Durable sprint history | 3 — make it defensible | 3–4 wk | **Part done** — 4a and 4c delivered 2026-08-29; 4b open |
 | 5 | Permission mirroring | 3 — make it defensible | 5–8 wk | Open |
 | 6 | SSO, audit log, data residency | 3 — make it defensible | 6–10 wk | **Residency done**, SSO and audit open |
 | 7 | Cross-team roll-up and intake sequencing | 4 — sell it upward | 4–6 wk | Open, blocked on 4 and 5 |
@@ -133,7 +133,7 @@ that a changelog entry can say which piece it delivered.
 |---|---|---|
 | 4a | Record the figures a later re-derivation can disagree with | **Done** — 2026-08-29 |
 | 4b | Lift the six-sprint window | Open |
-| 4c | The forecast log | **In progress** — what a claim is, decided and tested; not wired |
+| 4c | The forecast log | **Done** — 2026-08-29; wired on both transports, waiting on horizons |
 
 **4a is done and in a tenant.** A board's sprint rows are recorded when the app
 sees them and re-derived, labelled as such, when it was not there; a recorded
@@ -163,7 +163,21 @@ customer-identifiable data in an app-level store and put item 4 behind item 5's
 permission model. So a forecast is logged as its **capacity** claims — *"p%
 confidence of at least N items by D"* — which resolve from a count and hold no
 issue identity. The functions and their tests are in `agent/tools/forecast.py`
-beside the scorer that has been waiting for them. Nothing writes the log yet.
+beside the scorer that has been waiting for them.
+
+**Wired.** A published forecast writes its claims to the board's log — app
+storage on Forge, a git-ignored file over loopback, one key per board and no
+new scope. A **what-if** writes nothing: the tile's sliders are not a
+prediction anybody made, and `claim_id` would have let one overwrite the day's
+real forecast. Claims resolve when their horizon passes, against the latest
+date each transport's data can speak to, and the tile prints the scorer's own
+sentence — including its refusal, because *"too few resolved forecasts"* and
+*"badly calibrated"* are different statements.
+
+The part nobody can hurry: a log needs ten **resolved** forecasts before it
+scores anything, and a claim resolves only after its horizon. On a fortnightly
+board that is a few weeks of ordinary use before the first Brier score exists.
+Until then the tile says how many are waiting, which is the honest state.
 
 ## Assets held but unclaimed
 
