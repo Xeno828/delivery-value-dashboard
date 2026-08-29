@@ -194,10 +194,17 @@ def forecast_for(contexts, issues, byContext, cid, items=None, target=None, org_
     # `claim_id` is keyed on context, day and percentile, so a what-if with a
     # different target would take the same id as the day's real forecast and
     # overwrite it, replacing a claim somebody made with one nobody did.
+    #
+    # The width the forecast sampled at travels with the claim. A reader who can
+    # see ten of a board's forty issues forecasts a smaller board, and a claim
+    # from that view stored as the board's would score the forecaster on a
+    # prediction it never made about the whole of it. ADR 0019.
     out["claims"] = (
         FC.claims_from(out.get("capacity_to_target"), cid, ctx.get("boardId"),
-                       as_of, ctx.get("boardName") or ctx.get("team"))
+                       as_of, ctx.get("boardName") or ctx.get("team"),
+                       len(team_issues))
         if items is None and target is None else [])
+    out["issuesSeen"] = len(team_issues)
     return out
 
 

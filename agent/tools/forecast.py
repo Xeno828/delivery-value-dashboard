@@ -499,7 +499,7 @@ def size_stability(issues, as_of=None, window_days: int = 120, cfg=None):
 #: into it. Nothing here identifies an issue or a person.
 CLAIM_FIELDS = ("id", "contextId", "boardId", "madeOn", "horizon", "kind",
                 "probability", "claimItems", "label", "resolved", "observed",
-                "seed", "trials")
+                "seed", "trials", "issuesSeen")
 
 
 def claim_id(context_id, made_on, percentile):
@@ -514,7 +514,8 @@ def claim_id(context_id, made_on, percentile):
     return "%s|%s|p%d" % (context_id, made_on, int(percentile))
 
 
-def claims_from(capacity, context_id, board_id, made_on, label_board=None):
+def claims_from(capacity, context_id, board_id, made_on, label_board=None,
+                seen=None):
     """The falsifiable claims one published capacity forecast makes.
 
     `capacity` is what `forecast_count_by_date` returned — or a refusal, in
@@ -559,6 +560,13 @@ def claims_from(capacity, context_id, board_id, made_on, label_board=None):
             "observed": None,
             "seed": SEED,
             "trials": TRIALS,
+            # How wide the view that published this was — the size of the slice
+            # the forecast sampled. A count, naming no issue. ADR 0019 made a
+            # sprint row a fact about the board; a claim is the same, and this
+            # is what lets the log tell its own claims from one reader's
+            # narrower version of them.
+            "issuesSeen": seen if isinstance(seen, int) and not isinstance(seen, bool)
+                          else None,
         })
     return out
 
@@ -599,7 +607,7 @@ def problems_in_claim(entry):
     return out
 
 
-def resolve_claims(entries, issues, today):
+def resolve_claims(entries, issues, today, seen=None):
     """Score every claim whose horizon has passed, from completions in its window.
 
     Returns `(entries, pending)` — the entries with `resolved` and `observed`
@@ -641,6 +649,23 @@ def resolve_claims(entries, issues, today):
             pending.append({"id": e.get("id"),
                             "why": "its horizon of %s has not passed yet" % horizon})
             continue
+        # **The irreversible one.** A claim is resolved once and never rescored,
+        # so a view that can see fewer of the board's issues than the view that
+        # made the claim would count fewer completions, mark a good forecast
+        # wrong, and there would be no second chance to correct it. Left pending
+        # instead: the horizon has passed and the claim will resolve the moment
+        # somebody who can see what it was about opens the tile.
+        made_seen = e.get("issuesSeen")
+        if (isinstance(made_seen, int) and isinstance(seen, int)
+                and seen < made_seen):
+            out.append(e)
+            pending.append({
+                "id": e.get("id"),
+                "why": "this view can see %d of the board's issues and the claim "
+                       "was made over %d, so resolving it here would score a "
+                       "forecast against work this reader cannot see"
+                       % (seen, made_seen)})
+            continue
         observed = sum(1 for i in (issues or [])
                        if i.get("resolved")
                        and str(made) < str(i["resolved"])[:10] <= str(horizon))
@@ -651,7 +676,7 @@ def resolve_claims(entries, issues, today):
     return out, pending
 
 
-def calibration_note(scored, pending=None):
+def calibration_note(scored, pending=None, narrowed=None):
     """What a reader is told above a calibration score, or instead of one.
 
     The scorer's own refusal is quoted rather than softened — *"too few
@@ -662,14 +687,41 @@ def calibration_note(scored, pending=None):
     if isinstance(scored, Refusal):
         base = ("Not scored yet: %d of the %d resolved forecasts needed."
                 % (scored.have, scored.need))
-        return (base + " %d more %s made and waiting on %s horizon."
+        base = (base + " %d more %s made and waiting on %s horizon."
                 % (waiting, "is" if waiting == 1 else "are",
                    "its" if waiting == 1 else "their")) if waiting else base
+        # Appended here too. Returning early from this branch left the sentence
+        # unsaid for exactly the readers most likely to need it: a log below the
+        # scoring threshold is the state every young board is in.
+        return base + _narrow_sentence(narrowed)
     if not isinstance(scored, dict) or not scored.get("available"):
-        return ""
+        return _narrow_sentence(narrowed)
     return ("Scored over %d resolved forecast%s — Brier %s, %s."
             % (scored["n"], "" if scored["n"] == 1 else "s",
-               scored["brier_score"], scored["interpretation"]))
+               scored["brier_score"], scored["interpretation"])
+            + _narrow_sentence(narrowed))
+
+
+def _narrow_sentence(narrowed):
+    """What is said when this reader's view was too narrow to publish.
+
+    Silent when it was not, which is every reader on a board without
+    issue-level security. When it fires it is not a fault of the forecaster and
+    must not read as one — and on a board whose issues were genuinely archived
+    it is the only signal that the log's idea of the board has gone stale.
+    """
+    items = [n for n in (narrowed or []) if isinstance(n, dict)]
+    if not items:
+        return ""
+    seen = min((n.get("seen") for n in items
+                if isinstance(n.get("seen"), int)), default=None)
+    widest = max((n.get("widest") for n in items
+                  if isinstance(n.get("widest"), int)), default=None)
+    return (" This forecast was not added to the log: it was made over %s of "
+            "the board's issues and the log's claims were made over %s, so "
+            "scoring it beside them would compare two different boards."
+            % (seen if seen is not None else "fewer",
+               widest if widest is not None else "more"))
 
 
 def score_calibration(forecast_log):
@@ -746,7 +798,7 @@ def trim_log(log, keep=MAX_LOG):
     return kept, max(dropped, 0)
 
 
-def update_log(log, claims, issues, today, keep=MAX_LOG):
+def update_log(log, claims, issues, today, keep=MAX_LOG, seen=None):
     """One board's forecast log, brought up to date, and what it now scores.
 
     Everything item 4c does to a log happens here, in one function, because
@@ -771,7 +823,13 @@ def update_log(log, claims, issues, today, keep=MAX_LOG):
     them is a criticism of the forecaster.
     """
     held = {e.get("id"): e for e in (log or []) if isinstance(e, dict)}
-    added = 0
+    # The widest view this log has ever been written from. A claim published
+    # from a narrower one is not the board's claim, it is one reader's — and a
+    # log that mixed the two would score the forecaster partly on predictions it
+    # never made about the whole board. ADR 0019, applied to a claim.
+    widest = max((e.get("issuesSeen") for e in held.values()
+                  if isinstance(e.get("issuesSeen"), int)), default=None)
+    added, narrowed = 0, []
     for c in claims or []:
         if not isinstance(c, dict) or not c.get("id"):
             continue
@@ -782,10 +840,14 @@ def update_log(log, claims, issues, today, keep=MAX_LOG):
             # run from then on, and a calibration score is the last figure
             # anybody would think to check.
             continue
+        mine = c.get("issuesSeen")
+        if (isinstance(widest, int) and isinstance(mine, int) and mine < widest):
+            narrowed.append({"id": c["id"], "seen": mine, "widest": widest})
+            continue
         held[c["id"]] = c
         added += 1
 
-    resolved, pending = resolve_claims(list(held.values()), issues, today)
+    resolved, pending = resolve_claims(list(held.values()), issues, today, seen)
     kept, dropped = trim_log(resolved, keep)
     scored = score_calibration(kept)
     return {
@@ -793,9 +855,14 @@ def update_log(log, claims, issues, today, keep=MAX_LOG):
         "added": added,
         "dropped": dropped,
         "pending": pending,
+        # Claims this view was not wide enough to publish. Reported rather than
+        # dropped quietly: on a board whose issues were genuinely archived this
+        # is the signal that the log's idea of the board has gone stale, and
+        # there is nothing else that would say so.
+        "narrowed": narrowed,
         "calibration": (asdict(scored) if hasattr(scored, "__dataclass_fields__")
                         else scored),
-        "note": calibration_note(scored, pending),
+        "note": calibration_note(scored, pending, narrowed),
     }
 
 

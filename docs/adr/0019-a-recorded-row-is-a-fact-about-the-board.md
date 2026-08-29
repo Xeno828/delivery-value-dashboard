@@ -65,11 +65,32 @@ sentence — the rule this repository has now had to apply three times.
 
 ## What this does not fix
 
-**The forecast log has the same shape and is not addressed here.** Claims are
-derived from whichever view published them and scored for every reader. The
-same `issuesSeen` treatment applies and is the next slice; it is not folded in
-here because a claim is made once and resolved later, so "widening" means
-something different for it and deserves its own thought.
+### The forecast log, addressed the same day and not the same way
+
+A claim is the board's for the same reasons a row is, and the thought it needed
+turned out to matter: **a row is observed repeatedly and can be widened; a claim
+is made once and resolved once, and is never rescored.** So the irreversible
+hazard is not publishing a narrow claim — it is *resolving* a good one from a
+view that cannot see the work, which marks a correct forecast wrong with no
+second chance. That asymmetry, not the disclosure, is what shapes it.
+
+Two gates, not one:
+
+**Publishing.** A claim made over a narrower view than the log's widest is not
+added. It would score the forecaster on a prediction it never made about the
+whole board. The reader is told, with both numbers — and on a board whose
+issues were genuinely archived, that sentence is the only signal the log's idea
+of the board has gone stale.
+
+**Resolving.** A claim is left *pending* rather than resolved when the resolving
+view is narrower than the view that made it. The horizon has passed and the
+claim will settle the moment somebody who can see what it was about opens the
+tile. This is the gate that matters, because the other one is recoverable and
+this one is not.
+
+**A claim with no recorded width still resolves.** Entries written before this
+rule carry none, and refusing to score them would make the rule retroactively
+delete the evidence it exists to protect.
 
 **Nothing detects a reader who sees *more* than the record.** That is the
 harmless direction — the row under-reports rather than over-reports — and it is

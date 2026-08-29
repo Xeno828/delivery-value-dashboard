@@ -3607,6 +3607,73 @@ def forecast_log_checks():
     check("and needs no scope the app did not already hold",
           manifest.count("storage:app") == 1, manifest.count("storage:app"))
 
+    # ---- a claim is the board's too, and the score is the fragile part ----
+    #
+    # ADR 0019 made a sprint row a fact about the board. A claim is the same,
+    # with one difference that decides the design: a row is observed repeatedly
+    # and can be widened, while a claim is made once and **resolved once, never
+    # rescored**. So the irreversible hazard is not publishing a narrow claim,
+    # it is resolving a good one against a view that cannot see the work — which
+    # marks a correct forecast wrong with no second chance.
+    cap = {"available": True, "target_date": "2026-09-11",
+           "percentiles": {50: 9, 85: 5}}
+    wide = FC.claims_from(cap, "M/2/12", "2", "2026-08-28", "B", seen=40)
+    check("a claim records how wide the view that published it was",
+          [c["issuesSeen"] for c in wide] == [40, 40],
+          [c["issuesSeen"] for c in wide])
+    check("and the width is a count, inside the allow-list, naming no issue",
+          "issuesSeen" in FC.CLAIM_FIELDS and FC.problems_in_claim(wide[0]) == [],
+          FC.problems_in_claim(wide[0]))
+
+    published = FC.update_log([], wide, [], "2026-09-01", seen=40)
+    check("a first claim publishes with nothing to compare against",
+          published["added"] == 2 and published["narrowed"] == [],
+          published["added"])
+
+    # Publishing: a narrower view is not the board's claim, it is one reader's.
+    narrow = FC.claims_from(cap, "M/2/13", "2", "2026-08-29", "B", seen=10)
+    held = FC.update_log(published["log"], narrow, [], "2026-09-01", seen=10)
+    check("a claim from a narrower view is not added to the board's log",
+          held["added"] == 0 and len(held["narrowed"]) == 2, held["narrowed"])
+    check("and the reader is told, with both widths, that it was held back",
+          "made over 10" in held["note"] and "made over 40" in held["note"],
+          held["note"])
+    check("a reader whose view is wide enough is told nothing about it",
+          "not added to the log" not in published["note"], published["note"])
+
+    # Resolving: the half that cannot be undone.
+    landed = [{"resolved": "2026-09-0%d" % d} for d in range(1, 9)]
+    by_narrow = FC.update_log(published["log"], [], landed, "2026-09-30", seen=10)
+    check("a narrow view does not resolve a claim made over a wider board",
+          all(e["resolved"] is None for e in by_narrow["log"]),
+          [e["resolved"] for e in by_narrow["log"]])
+    check("...and says why, rather than leaving it looking merely unresolved",
+          any("cannot see" in p["why"] for p in by_narrow["pending"]),
+          [p["why"][:80] for p in by_narrow["pending"]][:1])
+    by_wide = FC.update_log(published["log"], [], landed, "2026-09-30", seen=40)
+    check("a view as wide as the claim resolves it",
+          [e["resolved"] for e in by_wide["log"]] == [False, True],
+          [e["resolved"] for e in by_wide["log"]])
+    check("and counts the completions it could see",
+          [e["observed"] for e in by_wide["log"]] == [8, 8],
+          [e["observed"] for e in by_wide["log"]])
+
+    # An unknown width is not treated as narrow. A log written before this rule
+    # existed carries no `issuesSeen`, and refusing to score any of it would
+    # make the rule retroactively delete two years of evidence.
+    legacy = [dict(wide[0], id="legacy", issuesSeen=None)]
+    old, _ = FC.resolve_claims(legacy, landed, "2026-09-30", seen=1)
+    check("a claim with no recorded width still resolves",
+          old[0]["resolved"] is not None, old[0]["resolved"])
+
+    # The forecast route carries the width, or none of the above can fire.
+    check("the forecast tells its caller how wide the view it sampled was",
+          isinstance(direct.get("issuesSeen"), int), direct.get("issuesSeen"))
+    check("and the claims it emits carry the same number",
+          all(c["issuesSeen"] == direct["issuesSeen"]
+              for c in (direct.get("claims") or [])),
+          [c.get("issuesSeen") for c in (direct.get("claims") or [])][:2])
+
     # Written only when it moved: this route runs whenever the tile is opened.
     check("neither transport rewrites a log that did not change",
           "cal.added || cal.dropped" in idx

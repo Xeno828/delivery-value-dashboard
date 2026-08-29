@@ -627,7 +627,13 @@ def route_forecast_context(body):
         today = _iso_or_none(body, "today") or _iso_or_none(body, "asOf")
         out["calibration"] = FC.update_log(
             log, out.get("claims") or [], ds["issues"],
-            today or (out.get("asked") or {}).get("as_of"))
+            today or (out.get("asked") or {}).get("as_of"),
+            # How wide this caller's view is, from the slice the forecast
+            # actually sampled. It gates two things: publishing a claim the log
+            # would mistake for the board's, and resolving one against work this
+            # reader cannot see — which is the irreversible half, because a
+            # claim is scored once and never rescored.
+            seen=out.get("issuesSeen"))
     return out
 
 

@@ -24,7 +24,7 @@ references are wrong.
 | 2 | Organisation configuration | 1 — make it connectable | 2–3 wk | **Done** |
 | 3 | Scheduled delivery of the two views | 2 — make it arrive | 3–4 wk | **Done** — delivered 2026-08-26 |
 | 4 | Durable sprint history | 3 — make it defensible | 3–4 wk | **Done** — 2026-08-29 |
-| 5 | Permission mirroring | 3 — make it defensible | 5–8 wk | **Started** — surveyed and one of three exposures answered, 2026-08-29 |
+| 5 | Permission mirroring | 3 — make it defensible | 5–8 wk | **Started** — surveyed; the two stores answered, the brief open |
 | 6 | SSO, audit log, data residency | 3 — make it defensible | 6–10 wk | **Residency done**, SSO and audit open |
 | 7 | Cross-team roll-up and intake sequencing | 4 — sell it upward | 4–6 wk | Open, blocked on 4 and 5 |
 
@@ -112,9 +112,13 @@ these:
   first: a recorded row belongs to the **board**, so the aggregate leak is
   accepted and named, a narrow view may no longer write a row that claims to be
   the board's, a wider view repairs one, and a reader whose own sight is
-  narrower is told which of the two they are looking at. The forecast log has
-  the same shape and is next. The estimate is still untested; nothing here
-  prices it.
+  narrower is told which of the two they are looking at. The **forecast log**
+  is answered the same day and not the same way: a claim is made once and
+  resolved once and never rescored, so the gate that matters there is
+  *resolution* — a narrow view leaves a claim pending rather than scoring a
+  good forecast wrong with no second chance. What remains open is the
+  **brief**, which ADR 0018 found leaks least. The estimate is still untested;
+  nothing here prices it.
 - **7** is blocked on both of them.
 - The **audit log** in item 6 is blocked on **5** alone. **SSO**, the other
   third of item 6, is blocked on nothing; item 6's 6–10 weeks covered all three

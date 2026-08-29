@@ -780,7 +780,7 @@ class Handler(SimpleHTTPRequestHandler):
                 cal = FC.update_log(log, claims,
                                     self.backend.context(cid).get("issues") or []
                                     if self.backend.context(cid) else [],
-                                    today)
+                                    today, seen=got.get("issuesSeen"))
                 # Written only when it changed. This route runs on every panel
                 # load, and rewriting an unchanged log is a file touched for
                 # nothing.

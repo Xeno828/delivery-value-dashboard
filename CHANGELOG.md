@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.46.0
+
+**The forecast log is the board's too, and the asymmetry with a sprint row decided the design.** A row is observed repeatedly and can be widened. **A claim is made once and resolved once, and is never rescored** — so the irreversible hazard is not publishing a narrow claim, it is *resolving* a good one from a view that cannot see the work, which marks a correct forecast wrong with no second chance to correct it. That, rather than the disclosure, is what shapes this.
+
+**Two gates.** A claim made over a narrower view than the log's widest is **not published** — it would score the forecaster on a prediction it never made about the whole board — and the reader is told, with both numbers. A claim is **left pending rather than resolved** when the resolving view is narrower than the view that made it; the horizon has passed and it settles the moment somebody who can see what it was about opens the tile. The second gate is the one that matters, because the first is recoverable and it is not.
+
+**A claim with no recorded width still resolves.** Entries written before this rule carry none, and refusing to score them would make the rule retroactively delete the evidence it exists to protect.
+
+**The held-back sentence appears in both branches**, which it did not at first: the refusal branch of `calibration_note` returned early, leaving the sentence unsaid for exactly the readers most likely to need it, since a log below the scoring threshold is the state every young board is in.
+
+**On a board whose issues were genuinely archived, that sentence is the only signal the log's idea of the board has gone stale** — nothing else in the product would say so.
+
+Item 5's two stores are answered. The **brief** remains open, and ADR 0018 records it as the exposure that leaks least: counts only, no identity, and a recipient who can browse the anchor issue is already on the board.
+
 ## 1.45.0
 
 **A recorded sprint row belongs to the board, and that decision has teeth.** [ADR 0019](docs/adr/0019-a-recorded-row-is-a-fact-about-the-board.md) answers the question ADR 0018 left at the front of item 5. The aggregate disclosure is accepted and named: under issue-level security a reader who may browse ten of a sprint's forty issues is shown *"committed 40"*. What leaks is a count, never a title — which is exactly what ADR 0015 and ADR 0017 refused issue identity for, and this is that path arriving.
