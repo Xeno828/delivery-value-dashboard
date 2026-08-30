@@ -139,3 +139,22 @@ on a basis and nothing may.
 three empty states are all about the *number*. The basis is a sentence beside it
 and is counted at no level at all — it is carried, printed, and read by a
 person.
+
+## Correction: "declaring a module always is" was too broad
+
+*What it costs*, above, says a major version upgrade and a forced reinstall,
+because **declaring a module always is**. The first half is right about this
+record's own change and the second half is not right in general, and it misled a
+later session into writing the same cost into
+[ADR 0027](0027-a-value-basis-is-prose-carried-to-a-reader.md) before a deploy
+contradicted it.
+
+**Introducing a module type is major. Adding an entry to a module block that is
+already declared is minor.** This record introduced `jira:customField` to a
+manifest that had none, so it paid the major-version price for the block. ADR
+0027 adds a second field under that same block: it deployed as **7.2.0**, needed
+no `MAJOR_VERSION_RULE` approval, and the installation reported *Up-to-date*
+with no `forge install --upgrade`.
+
+The practical rule, which is what a reader wants: **a new module type or a scope
+change is major; another entry under an existing one is not.**

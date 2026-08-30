@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.57.1
+
+**The cost stated in 1.57.0 was wrong, and the deploy is what said so.** That entry, and ADR 0027 with it, priced the Value Basis field at *"a major version upgrade and a forced reinstall for every tenant"*, on ADR 0025's claim that **declaring a module always is**. It deployed as **7.2.0** — no `MAJOR_VERSION_RULE` approval, and the installation reporting *Up-to-date* with no `forge install --upgrade`.
+
+**Introducing a module type is major; adding an entry to a block already declared is minor.** ADR 0025 was the first `jira:customField` in this manifest and paid for the block. This is a second entry under it, and a second entry consents to nothing the tenant has not already consented to. Scope changes stay major.
+
+The over-broad sentence is corrected where it was written rather than only where it was repeated: ADR 0025 carries the correction, because that is the record the next reader will reach for and it is the one that produced the wrong estimate here.
+
+**Worth noticing how it was caught.** The stated cost was checked by doing the thing, not by reasoning about it — the same pattern as the six defects found by looking rather than testing in 1.36.0–1.56.0. A wrong number in a *cost* is the same class as a wrong number in a forecast: plausible, quotable, and invisible until somebody acts on it.
+
 ## 1.57.0
 
 **The app declares a Value Basis field, and it is free text on purpose.** `intake.sequence` compares orderings of competing asks: it returns the delivery consequence of each, which is computable, and prints each ask's **value basis** beside it, which is not. Nothing carried one. `valueBasis` has been in the schema, the CSV importer, the value tile and the security suite since long before any of it reached Jira, and on Forge `issueFrom` hardcoded it to `''` because no Jira field held a basis — the gap ADR 0025 closed by naming. [ADR 0027](docs/adr/0027-a-value-basis-is-prose-carried-to-a-reader.md).
@@ -18,7 +28,7 @@
 
 **The `sequence` refusal named two causes and now names one.** It said there was no issue type meaning an ask *and* no field carrying a value basis. The second is answered, so the sentence no longer says it: a refusal that outlives its reason is the same failure as a figure that does, and this repository has already printed *"no sprint calendar"* for three different causes including a calendar that was present. What is still missing is the ask — a document with a problem, a success measure, a needed-by date, a size and a value with a basis. An epic carrying a value and a basis has two of those six.
 
-**Costs, stated rather than discovered.** Declaring a module is a **major version upgrade and a forced reinstall for every tenant** — free today with no external installs, expensive after the first, the same argument ADR 0025 and the `llm` module landed under. And a Jira admin must add this field to a screen before anyone can type in it, which is a *separate* act from adding the value field, so a tenant will routinely have one and not the other. Nothing new crosses the boundary: `valueBasis` was already in `NEVER_SEND` and `FREE_TEXT_FIELDS`, so the calculator still receives a number with no sentence and no issue key beside it.
+**Costs, stated rather than discovered.** Declaring a module is a **major version upgrade and a forced reinstall for every tenant** — free today with no external installs, expensive after the first, the same argument ADR 0025 and the `llm` module landed under. *(Wrong, and corrected in 1.57.1: this deployed as a minor version and upgraded on its own. Adding an entry to a module block that is already declared is not the same as introducing the block.)* And a Jira admin must add this field to a screen before anyone can type in it, which is a *separate* act from adding the value field, so a tenant will routinely have one and not the other. Nothing new crosses the boundary: `valueBasis` was already in `NEVER_SEND` and `FREE_TEXT_FIELDS`, so the calculator still receives a number with no sentence and no issue key beside it.
 
 **One stale comment fixed in passing.** `issueFrom`'s header listed the fields the Forge projection does not produce, said *"three"*, and listed four — `businessValue` had been on that list since before ADR 0025 made it a real figure.
 

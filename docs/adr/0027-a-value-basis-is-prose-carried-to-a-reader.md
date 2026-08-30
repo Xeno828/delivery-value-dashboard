@@ -63,10 +63,20 @@ telling us something true about how much they believe their own value figures.
 
 ## What it costs
 
-**A major version upgrade and a forced reinstall for every tenant.** Declaring a
-module always is — the same price
-[ADR 0025](0025-the-app-declares-a-business-value-field.md) and the `llm` module
-paid, and free only until the first external install.
+**A minor version, and it upgraded on its own.** This was written expecting the
+opposite — *"declaring a module is a major version and a forced reinstall"*,
+which is what [ADR 0025](0025-the-app-declares-a-business-value-field.md) says
+and what the `llm` module cost. The deploy settled it: **7.2.0**, no
+`MAJOR_VERSION_RULE` approval, and the installation reporting *Up-to-date*
+without `forge install --upgrade`.
+
+The distinction is worth stating because the wrong half of it was about to be
+written into two documents. **Introducing a module type is major; adding an
+entry to one that is already declared is minor.** ADR 0025 was the first
+`jira:customField` in this manifest and paid the major-version price for the
+module block itself. This field is a second list entry under the same block, and
+a second entry consents to nothing the tenant has not already consented to.
+Scope changes are major for the same reason and remain so.
 
 **A second screen configuration.** A Jira admin must add this field to a screen
 before anyone can type in it, and that is a separate act from adding the value
