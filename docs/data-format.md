@@ -24,6 +24,7 @@ One row per issue drives every chart on the page. You do **not** need these exac
 | `statusTransitions` | array of `{to, at}` | no | Raw material for `started` when the producer could not resolve it |
 | `businessValue` | number | no | Value card |
 | `valueBasis` | string | no | The justification shown under each value figure |
+| `candidate` | string | no | Whether this is being weighed for sequencing — `Yes`/`Y`/`True`; anything else is reported, not read as no |
 | `labels` | array or `;`-separated | no | Shown in drill-downs |
 | `url` | string | no | Deep link; built from `meta.baseUrl` if absent |
 

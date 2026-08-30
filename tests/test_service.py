@@ -898,7 +898,12 @@ def test_the_two_transports_answer_the_same_shape():
     # because free text is stripped on the way in. Sizing over that route
     # therefore grouped nothing and refused, for every board, always. It groups
     # on the key now — see `test_epic_sizing_survives_the_projection`.
-    read_by_tools = {"epicKey", "isSubtask", "hierarchyLevel"}
+    # `candidate` joins them for the same reason: `orgconfig.candidate_issues`
+    # decides which issues are asks, and the page does not read it yet — slice
+    # one of item 7 is recognising candidates, not rendering them. The check
+    # below still has to find it in agent/tools, so this is not a way to send
+    # a field nothing reads. ADR 0028.
+    read_by_tools = {"epicKey", "isSubtask", "hierarchyLevel", "candidate"}
     tools = "".join(f.read_text() for f in sorted((ROOT / "agent" / "tools").glob("*.py")))
     for f in sorted(read_by_tools):
         check("%s is read by agent/tools, so sending it is not a loophole either" % f,

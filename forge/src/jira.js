@@ -394,6 +394,66 @@ const basisOf = (fields, fieldId) => {
   return typeof raw === 'string' ? raw.trim() : '';
 };
 
+/** The module key of this app's own Candidate field. ADR 0028. */
+export const CANDIDATE_KEY = 'candidate';
+
+/**
+ * The field that says whether an issue is an ask, which is not always ours.
+ *
+ * `askField` is `'app'` — this app's declared **Candidate** field, found by its
+ * module key like the other two — or the name of a field the site already has.
+ * A site with a checkbox called "Ready for sequencing", or a single select, or
+ * a discovery flag, points the config at it and keeps working the way it
+ * already works. Candidacy is the one thing here that every organisation
+ * defines differently, so the app declares a default and refuses to insist on
+ * it.
+ *
+ * A named field is matched by **id first, then display name**, and matching a
+ * display name is safe here for the reason it is unsafe elsewhere: when the app
+ * picks a field by name it is guessing, and when the organisation names one it
+ * is an instruction.
+ */
+export const findAskField = (fields, askField) => {
+  const named = String(askField ?? 'app').trim();
+  if (!named || named.toLowerCase() === 'app') {
+    for (const f of fields || []) {
+      if (String(f?.key ?? f?.id ?? '').includes(CANDIDATE_KEY)) return f.id ?? null;
+    }
+    return null;
+  }
+  for (const f of fields || []) if (String(f?.id ?? '') === named) return f.id ?? null;
+  const want = named.toLowerCase();
+  for (const f of fields || []) {
+    if (String(f?.name ?? '').trim().toLowerCase() === want) return f.id ?? null;
+  }
+  return null;
+};
+
+/** One issue's raw candidacy answer, trimmed, or `''`.
+ *
+ *  The *string*, not a verdict. Whether it means yes is
+ *  `orgconfig.candidate_answer`, which has three answers rather than two — a
+ *  field reading "Maybe" is somebody trying to say something, and reading it as
+ *  a no would drop their epic out of a comparison silently. Deciding here would
+ *  throw that away before anything could report it.
+ *
+ *  A non-string is not coerced, for the same reason `basisOf` does not: a site
+ *  may point `askField` at a select or a checkbox, whose value is an object,
+ *  and `String(raw)` would make `[object Object]` an unrecognised answer
+ *  reported against somebody's epic. */
+const candidateOf = (fields, fieldId) => {
+  if (!fieldId) return '';
+  const raw = fields[fieldId];
+  if (typeof raw === 'string') return raw.trim();
+  // The shapes Jira uses for a checkbox or a single select, which is what a
+  // site pointing at its own field most often has.
+  if (raw && typeof raw === 'object' && typeof raw.value === 'string') return raw.value.trim();
+  if (Array.isArray(raw) && raw.length && typeof raw[0]?.value === 'string') {
+    return raw[0].value.trim();
+  }
+  return '';
+};
+
 /* ------------------------------------------------------------------ config
 
    The assumptions that are true of exactly one company: which statuses mean
@@ -717,6 +777,10 @@ export const issueFrom = (raw, opts) => {
     // figure it explains, which is the whole reason it is free text and not an
     // enumeration. An enumeration is one join away from a priority score.
     valueBasis: basisOf(f, o.valueBasisField),
+    // Whether somebody has put this forward as an ask — ADR 0028. The raw
+    // answer, not a verdict: `orgconfig.candidate_answer` decides, and it has
+    // three answers rather than two.
+    candidate: candidateOf(f, o.askFieldId),
     labels: f.labels || [],
     url: site && raw.key ? `${site}/browse/${encodeURIComponent(raw.key)}` : null,
   };

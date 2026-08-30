@@ -76,6 +76,29 @@ DEFAULTS = {
     # whether raw JQL was used, so before this the product could not say
     # whether its own counts included them.
     "countSubtasks": False,
+    # Which issues are **asks** — the candidates a sequencing comparison weighs
+    # against each other. Roadmap item 7.
+    #
+    # **Candidacy is a state, not a type.** An epic already committed and half
+    # built is not being weighed against anything, so "every epic" would
+    # sequence decisions already taken — worse than refusing, because it would
+    # look like advice. Somebody has to say *this one is a candidate*, and the
+    # saying is the thing that makes it an ask.
+    #
+    # `askField` is how they say it, and it is deliberately not one convention
+    # every site must adopt. `"app"` reads the **Candidate** field this app
+    # declares, which works on any site with nobody creating anything. Any other
+    # value names a field the site already has — a checkbox, a single select, a
+    # discovery flag — matched by id first and then by display name. Matching a
+    # name is a guess when the app picks the field and an instruction when the
+    # organisation names it, and this is the second case.
+    #
+    # `askFromHierarchy` is the level at or above which an issue may be a
+    # candidate at all: 1 is epic and above, the level business value is
+    # recorded at. It is separate from `valueFromHierarchy` because the two
+    # questions are separate, even where a site answers both the same way.
+    "askField": "app",
+    "askFromHierarchy": 1,
     # An allow-list of issue type names, matched case-insensitively. Empty means
     # every type that is not excluded above — which is the right default,
     # because naming the types means naming them per site and a site that adds
@@ -531,6 +554,57 @@ def value_of(issue, cfg=None):
         return float((issue or {}).get("businessValue") or 0)
     except (TypeError, ValueError):
         return 0
+
+
+#: What a candidate answer looks like, case-insensitively, after trimming.
+#: Deliberately short: Forge cannot declare a checkbox — `jira:customField`
+#: offers number, string, user, group, date and datetime, and creating a native
+#: Jira checkbox needs *Administer Jira*, refused by ADR 0020 and again by
+#: ADR 0021 — so the app's own field is text somebody types into.
+CANDIDATE_YES = ("yes", "y", "true")
+
+
+def candidate_answer(issue):
+    """`True`, `False`, or the unrecognised string somebody actually wrote.
+
+    Three answers and not two, because a value this does not understand is not
+    a "no". A field reading `Maybe` or `TBC` is somebody trying to say
+    something, and dropping their epic out of the comparison silently is how a
+    sequencing table comes to be missing the ask the meeting was about. The
+    caller names it; `candidate_issues` returns them for exactly that.
+    """
+    raw = (issue or {}).get("candidate")
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return False
+    if not isinstance(raw, str):
+        return False
+    return True if raw.strip().lower() in CANDIDATE_YES else raw.strip()
+
+
+def candidate_issues(issues, cfg=None):
+    """`(asks, unrecognised)` — the candidates, and the answers nobody can read.
+
+    An ask must also sit at or above `askFromHierarchy`, because candidacy is
+    asked of a piece of work somebody could schedule, not of a task inside one.
+    An issue with no recorded level still qualifies, for the same reason it
+    still carries value: every dataset written before levels existed would
+    otherwise read as having no candidates at all.
+    """
+    c = cfg or DEFAULTS
+    floor = c.get("askFromHierarchy")
+    if not isinstance(floor, (int, float)):
+        floor = DEFAULTS["askFromHierarchy"]
+    asks, unreadable = [], []
+    for i in issues or []:
+        lvl = (i or {}).get("hierarchyLevel")
+        if isinstance(lvl, (int, float)) and lvl < floor:
+            continue
+        ans = candidate_answer(i)
+        if ans is True:
+            asks.append(i)
+        elif ans is not False:
+            unreadable.append({"key": (i or {}).get("key"), "said": ans})
+    return asks, unreadable
 
 
 def value_issues(issues, cfg=None):

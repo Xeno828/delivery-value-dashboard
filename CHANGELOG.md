@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.63.0
+
+**Something in Jira can now say "this is being weighed against other things".** Roadmap item 7, slice one. Everything else an ask needs had already arrived — a title, a team, a size from the board's own reference class, a value (ADR 0025), a basis (ADR 0027) and a needed-by date in `dueDate`. What nothing said was **which epics are candidates**. [ADR 0028](docs/adr/0028-candidacy-is-a-state-somebody-declares.md).
+
+**Candidacy is a state, not a type,** and that is why the obvious answer is wrong. An epic already committed and half built is not being weighed against anything — it was weighed, months ago, and the answer was yes. Sequencing on issue type would produce a table of orderings for decisions already taken, which is worse than refusing because it would look like advice.
+
+**No site has to adopt this app's convention, which is the point rather than a concession.** `orgConfig.askField` defaults to `"app"` — the **Candidate** field the app declares, working on any site with nobody creating anything — and any other value names a field the site already has: a checkbox, a single select, a discovery flag, matched by id and then by display name. Matching a display name is a guess when the app picks the field and an *instruction* when the organisation names one, which is exactly why `findBusinessValueField` may not do it and this may.
+
+**Text, and it is not what anyone wants.** Forge cannot declare a checkbox — `jira:customField` offers number, string, user, group, date and datetime, and the object variants need a custom UI — and the app cannot create a native Jira checkbox either, because that needs *Administer Jira*, refused by ADR 0020 and again by ADR 0021. So the app's own field is text somebody types `Yes` into. A site that wants a checkbox points `askField` at one it made itself, which is the recommended path and the reason the override shipped in the same slice rather than after it.
+
+**Three answers, not two.** `Yes`, `Y` and `True`, case-insensitively after trimming; empty is not a candidate; **anything else is neither**. `candidate_answer` returns the string somebody actually wrote and the caller names it, because a field reading *"Maybe"* or *"ask Priya"* is somebody trying to say something — and reading it as a no would drop their epic out of the comparison silently, which is how a sequencing table comes to be missing the ask the meeting was about.
+
+**Read on both transports, and asked for on every path.** The Forge resolver reads the site's field list once and resolves three fields from it, and the config is resolved *before* the fields are, because which field marks an ask is config. The fetcher does the same and prints what it found: the number of candidates, and every unreadable answer by issue key.
+
+**A field the page does not read is not a loophole.** `tests/test_service.py` asserts the Forge projection invents nothing the page reads — `candidate` joins `epicKey`, `isSubtask` and `hierarchyLevel` in the tools-read set, and the check still has to find it in `agent/tools` to pass. Slice one is recognition, not rendering.
+
+**Deployed as 7.3.0 and confirmed against the live site**, where it reads *0 candidates for sequencing* — the field exists, nobody has answered it, and that is the state every board starts in. One thing worth knowing for next time: **Jira does not create the field the instant a deploy finishes.** A pull run immediately afterwards reported no such field and a second one a minute later found `customfield_10741`.
+
 ## 1.62.0
 
 **The fetcher reads the two fields this app declares, and fetches the issues that carry them.** It wrote `businessValue: 0` and `valueBasis: ""` on every issue of every pull ever made, so the Forge route reported a board's value and the file route reported the same board as worth nothing. ADR 0025, [0026](docs/adr/0026-items-and-value-are-counted-from-two-different-sets.md), 0027.

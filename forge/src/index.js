@@ -28,7 +28,7 @@ import {
   CONFIG_PROPERTY_KEY, contextEntry, contextsBody, contextBody, contextId,
   findStoryPointField, mergeOrgConfig, parseContextId, issueFrom, notFound,
   recentSprints, statusesFromJira, validateOrgConfig, findBusinessValueField,
-  findValueBasisField,
+  findValueBasisField, findAskField,
   WINDOW_DAYS, windowEntry, windowMembershipJql, contextsLabel,
   MAX_TREND_SPRINTS,
 } from './jira.js';
@@ -358,6 +358,7 @@ const issueFields = (storyPointField, appFields) => [
   ...(storyPointField ? [storyPointField] : []),
   ...(appFields?.value ? [appFields.value] : []),
   ...(appFields?.basis ? [appFields.basis] : []),
+  ...(appFields?.candidate ? [appFields.candidate] : []),
 ].join(',');
 
 const fetchSprintIssues = async (boardId, sprintId, storyPointField, as, appFields) => {
@@ -467,21 +468,35 @@ let storyPointField;
  * installed. That is reported rather than treated as "nobody has entered a
  * value", because the two have entirely different fixes.
  */
-let _appFields;
-const appFieldsFor = async (as) => {
-  if (_appFields !== undefined) return _appFields;
+let _fieldList;
+/** The site's field list, read once. Three fields come out of it, and two round
+ *  trips to answer one question are two chances to disagree about what is
+ *  installed. */
+const fieldListFor = async (as) => {
+  if (_fieldList !== undefined) return _fieldList;
   try {
     const res = await jira(as).requestJira(route`/rest/api/3/field`);
-    if (!res.ok) { _appFields = { value: null, basis: null }; return _appFields; }
-    const fields = await res.json();
-    // One read of the field list for both, because they are both this app's own
-    // fields found the same way, and two round trips to answer one question is
-    // two chances for them to disagree about what is installed.
-    _appFields = { value: findBusinessValueField(fields), basis: findValueBasisField(fields) };
+    _fieldList = res.ok ? await res.json() : [];
   } catch {
-    _appFields = { value: null, basis: null };
+    _fieldList = [];
   }
-  return _appFields;
+  return _fieldList;
+};
+
+/** The three fields this app reads off an issue.
+ *
+ *  Two are its own, found by module key. The third is whichever field the
+ *  organisation says marks an ask — ours by default, theirs if they name one —
+ *  which is why this takes the resolved config rather than memoising one
+ *  answer. Candidacy is the thing every organisation defines differently, and
+ *  the app declares a default rather than insisting on it. ADR 0028. */
+const appFieldsFor = async (as, askField) => {
+  const fields = await fieldListFor(as);
+  return {
+    value: findBusinessValueField(fields),
+    basis: findValueBasisField(fields),
+    candidate: findAskField(fields, askField),
+  };
 };
 
 const storyPointFieldFor = async (as) => {
@@ -801,7 +816,10 @@ const boardEpicsFor = async (boardId, as, appFields, spField) => {
 
 const issuesForEntry = async (entry, spField, siteUrl, as) => {
   const parsed = parseContextId(entry.id);
-  const appFields = await appFieldsFor(as);
+  // Which field marks an ask is config, so it is resolved before the fields
+  // are, not after. ADR 0028.
+  const askField = (await orgConfigFor(entry.projectKey, as)).config?.askField;
+  const appFields = await appFieldsFor(as, askField);
   const raw = entry.kind === 'window'
     ? await fetchWindowIssues(parsed.boardId, entry, spField, as, appFields)
     : await fetchSprintIssues(parsed.boardId, parsed.sprintId, spField, as, appFields);
@@ -825,6 +843,9 @@ const issuesForEntry = async (entry, spField, siteUrl, as) => {
       // field on one; the tile says "no basis recorded" for both, because from
       // a reader's seat they are the same missing sentence.
       valueBasisField: appFields.basis,
+      // ADR 0028. Absent until the site has the field on a screen and somebody
+      // has answered it, which is the state every board starts in.
+      askFieldId: appFields.candidate,
       // Only so an issue key is a link. Absent, the page leaves it as text
       // rather than guessing a host.
       siteUrl,
@@ -851,6 +872,7 @@ const issuesForEntry = async (entry, spField, siteUrl, as) => {
           storyPointField: spField,
           businessValueField: appFields.value,
           valueBasisField: appFields.basis,
+          askFieldId: appFields.candidate,
           siteUrl,
         }),
         contextId: entry.id,

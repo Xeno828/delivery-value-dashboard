@@ -14,6 +14,8 @@ is where they are decided now.
 | `countSubtasks` | `false` | Whether a subtask counts as an item. A parent and its three subtasks are one piece of work and four rows; counted, a team that breaks work down finely reports several times the throughput of one that does not. |
 | `countedTypes` | `[]` | Issue type names that count as items, matched case-insensitively. Empty means every type the rule above left — naming them means naming them per site, and a site that added one would silently stop counting it. |
 | `valueFromHierarchy` | `1` | The lowest Jira issue-type hierarchy level whose business value is counted. Subtask −1, story 0, epic 1, initiatives above. One means epic and everything above it: an epic and its stories both carrying a value would otherwise be added together. An issue with no recorded level still counts. |
+| `askField` | `"app"` | Which field says an issue is an **ask** — a candidate a sequencing comparison weighs against others. `"app"` reads the **Candidate** field this app declares; any other value names a field the site already has, matched by id and then by display name. Candidacy is the one thing every organisation defines differently, so this is a default rather than a convention anyone must adopt. [ADR 0028](adr/0028-candidacy-is-a-state-somebody-declares.md). |
+| `askFromHierarchy` | `1` | The level at or above which an issue may be a candidate at all. Separate from `valueFromHierarchy` because the two questions are separate, even where a site answers both the same way. |
 
 The file lives at `config/organisation.json`. Validate it with
 

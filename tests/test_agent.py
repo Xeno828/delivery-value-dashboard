@@ -484,6 +484,60 @@ def test_forecast_log():
 # =====================================================================
 # 3c. the search endpoint, which Atlassian removed
 # =====================================================================
+def test_which_issues_are_asks_and_who_decides():
+    """Candidacy — roadmap item 7, ADR 0028.
+
+    Sequencing compares orderings of *asks*, and until this nothing in a Jira
+    site said which issues were being weighed against each other. Candidacy is a
+    **state, not a type**: an epic already committed and half built is not a
+    candidate, so "every epic" would have sequenced decisions already taken —
+    worse than refusing, because it would look like advice.
+    """
+    lvl = lambda k, c, h=1: {"key": k, "hierarchyLevel": h, "candidate": c}
+
+    # Yes, Y and True, case-insensitively, after trimming.
+    for said in ("Yes", "yes", "  Y ", "true", "TRUE"):
+        check("%r means candidate" % said,
+              OC.candidate_answer({"candidate": said}) is True,
+              OC.candidate_answer({"candidate": said}))
+    for said in ("", "   ", None):
+        check("%r means not, and says so as a boolean" % said,
+              OC.candidate_answer({"candidate": said}) is False,
+              OC.candidate_answer({"candidate": said}))
+
+    # **Three answers, not two.** A value this does not understand is not a no.
+    # An epic whose field says "Maybe" is somebody trying to say something, and
+    # dropping it out of the comparison silently is how a sequencing table comes
+    # to be missing the ask the meeting was about.
+    check("an answer nobody can read is neither yes nor no",
+          OC.candidate_answer({"candidate": "Maybe"}) == "Maybe",
+          OC.candidate_answer({"candidate": "Maybe"}))
+
+    asks, unreadable = OC.candidate_issues([
+        lvl("E1", "Yes"), lvl("E2", "y"), lvl("E3", ""), lvl("E4", "Maybe"),
+        lvl("S1", "Yes", 0),                       # below the level
+        {"key": "OLD", "candidate": "Yes"},        # no level recorded at all
+    ])
+    check("candidates are the ones that said yes, at or above the level",
+          [i["key"] for i in asks] == ["E1", "E2", "OLD"], [i["key"] for i in asks])
+    check("a story below the level is not a candidate however it answers",
+          "S1" not in [i["key"] for i in asks], [i["key"] for i in asks])
+    # Every dataset written before levels existed would otherwise have no
+    # candidates at all — the same reason an unlevelled issue still carries
+    # value.
+    check("an issue with no recorded level still qualifies",
+          "OLD" in [i["key"] for i in asks], [i["key"] for i in asks])
+    check("and the unreadable answers come back named, not dropped",
+          unreadable == [{"key": "E4", "said": "Maybe"}], unreadable)
+
+    # The level is configurable and separate from valueFromHierarchy: the two
+    # questions are separate even where a site answers both the same way.
+    asks2, _ = OC.candidate_issues([lvl("S1", "Yes", 0)],
+                                   dict(OC.DEFAULTS, askFromHierarchy=0))
+    check("the level a candidate must reach is the config's to set",
+          [i["key"] for i in asks2] == ["S1"], [i["key"] for i in asks2])
+
+
 def test_the_fetcher_reads_the_fields_this_app_declares():
     """Business value reaches a file, epics included — ADR 0025, 0026, 0027.
 
@@ -604,6 +658,37 @@ def test_the_fetcher_reads_the_fields_this_app_declares():
     check("and that condition is still the one metrics uses",
           'any("businessValue" in i for i in issues)' in src,
           [l.strip() for l in src.splitlines() if "businessValue" in l][:2])
+
+    # ---- and which field marks an ask is the organisation's to choose ----
+    #
+    # Candidacy is the one thing every organisation defines differently, so the
+    # app declares a default and refuses to insist on it. ADR 0028.
+    SITE = [{"id": "customfield_10741", "name": "Candidate",
+             "key": "a1b2__DEVELOPMENT__candidate"},
+            {"id": "customfield_10500", "name": "Ready for sequencing",
+             "key": "customfield_10500"}]
+    jj = FD.Jira.__new__(FD.Jira)
+    check("'app' finds this app's own field by its module key",
+          jj.find_ask_field("app", SITE) == "customfield_10741",
+          jj.find_ask_field("app", SITE))
+    check("and so does an unset config",
+          jj.find_ask_field(None, SITE) == "customfield_10741",
+          jj.find_ask_field(None, SITE))
+    check("a named field is matched by id",
+          jj.find_ask_field("customfield_10500", SITE) == "customfield_10500",
+          jj.find_ask_field("customfield_10500", SITE))
+    # Matching a display name is a guess when the app picks the field and an
+    # instruction when the organisation names one. This is the second case.
+    check("and by display name when the organisation named one",
+          jj.find_ask_field("ready for sequencing", SITE) == "customfield_10500",
+          jj.find_ask_field("ready for sequencing", SITE))
+    check("a field the site does not have is None, not a guess",
+          jj.find_ask_field("Nope", SITE) is None, jj.find_ask_field("Nope", SITE))
+
+    # The three module keys are substring-matched, so none may contain another.
+    keys = [FD.Jira.BUSINESS_VALUE_KEY, FD.Jira.VALUE_BASIS_KEY, FD.Jira.CANDIDATE_KEY]
+    check("no module key is a substring of another",
+          all(a == b or a not in b for a in keys for b in keys), keys)
 
 
 def test_what_the_config_did_not_cover_is_recorded_with_its_evidence():
@@ -1393,6 +1478,8 @@ if __name__ == "__main__":
     test_calibration()
     print("the forecast log")
     test_forecast_log()
+    print("which issues are asks")
+    test_which_issues_are_asks_and_who_decides()
     print("the fields this app declares")
     test_the_fetcher_reads_the_fields_this_app_declares()
     print("statuses the config did not cover")

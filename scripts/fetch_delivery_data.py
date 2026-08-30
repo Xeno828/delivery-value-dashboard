@@ -257,6 +257,34 @@ class Jira:
     #: and ADR 0027. Change one, change both.
     BUSINESS_VALUE_KEY = "business-value"
     VALUE_BASIS_KEY = "value-basis"
+    CANDIDATE_KEY = "candidate"
+
+    def find_ask_field(self, ask_field, fields=None):
+        """The field that says an issue is an ask — ours, or the site's own.
+
+        `"app"` is this app's declared **Candidate** field, matched by module
+        key. Anything else names a field the site already has, matched by id
+        first and then by display name: a checkbox called "Ready for
+        sequencing", a single select, a discovery flag. Matching a display name
+        is a guess when the app picks the field and an instruction when the
+        organisation names one, and this is the second case. ADR 0028.
+        """
+        if fields is None:
+            fields = self.get("/rest/api/3/field")
+        named = str(ask_field or "app").strip()
+        if not named or named.lower() == "app":
+            for f in fields or []:
+                if self.CANDIDATE_KEY in str(f.get("key") or f.get("id") or ""):
+                    return f.get("id")
+            return None
+        for f in fields or []:
+            if str(f.get("id") or "") == named:
+                return f.get("id")
+        want = named.lower()
+        for f in fields or []:
+            if str(f.get("name") or "").strip().lower() == want:
+                return f.get("id")
+        return None
 
     def find_app_fields(self, fields=None):
         """This app's own Business Value and Value Basis fields on this site.
@@ -461,6 +489,9 @@ def jira_pull(args):
     # app registration — and it is reported rather than read as "nobody has
     # recorded a value". ADR 0025, ADR 0027.
     bv_field, vb_field = j.find_app_fields()
+    # Which field marks an ask is config, and it is deliberately not one
+    # convention every site must adopt. ADR 0028.
+    ask_field_id = j.find_ask_field(CFG.get("askField"))
     # Three states, three sentences — the same distinction ADR 0025 draws on the
     # Forge tile, because they have entirely different fixes.
     if not bv_field:
@@ -471,7 +502,7 @@ def jira_pull(args):
         print("  note: Business Value is on this site but Value Basis is not, so "
               "figures will arrive with no stated basis beside them.",
               file=sys.stderr)
-    for extra in (bv_field, vb_field):
+    for extra in (bv_field, vb_field, ask_field_id):
         if extra:
             fields.append(extra)
 
@@ -491,6 +522,27 @@ def jira_pull(args):
             return float(raw)
         except (TypeError, ValueError):
             return None
+
+    def candidate_of_raw(f):
+        """The raw answer, trimmed — a string, never a verdict.
+
+        Whether it means yes is `orgconfig.candidate_answer`, which has three
+        answers rather than two. Deciding here would throw away the third before
+        anything could report it. A select or checkbox on a site's own field
+        arrives as an object; those two shapes are read, and anything else is
+        left empty rather than becoming `[object Object]` on somebody's epic.
+        """
+        if not ask_field_id:
+            return ""
+        raw = f.get(ask_field_id)
+        if isinstance(raw, str):
+            return raw.strip()
+        if isinstance(raw, dict) and isinstance(raw.get("value"), str):
+            return raw["value"].strip()
+        if isinstance(raw, list) and raw and isinstance(raw[0], dict) \
+                and isinstance(raw[0].get("value"), str):
+            return raw[0]["value"].strip()
+        return ""
 
     def basis_of_raw(f):
         """The sentence under the number, or '' when there is none.
@@ -563,6 +615,8 @@ def jira_pull(args):
             out["businessValue"] = value_of_raw(f)
         if vb_field:
             out["valueBasis"] = basis_of_raw(f)
+        if ask_field_id:
+            out["candidate"] = candidate_of_raw(f)
         return out
 
     sprint_start = d(sprint.get("startDate")) if sprint else None
@@ -604,6 +658,24 @@ def jira_pull(args):
         if dropped:
             print("! %d epic%s beyond the cap were not read — value may be "
                   "understated" % (dropped, "" if dropped == 1 else "s"), file=sys.stderr)
+
+    # What was found, and what could not be read. An answer this does not
+    # understand is not a no: an epic whose field says "Maybe" is somebody
+    # trying to say something, and dropping it out of a sequencing comparison
+    # silently is how the table comes to be missing the ask the meeting was
+    # about. ADR 0028.
+    if ask_field_id:
+        cands, unreadable = OC.candidate_issues(issues, CFG)
+        print("  %d candidate%s for sequencing" % (len(cands), "" if len(cands) == 1 else "s"),
+              file=sys.stderr)
+        for u in unreadable:
+            print("! %s answers %r, which is not Yes, Y or True — it is not counted "
+                  "as a candidate and it is not a no either"
+                  % (u["key"], u["said"]), file=sys.stderr)
+    else:
+        print("  note: no field marks an ask on this site, so nothing can be "
+              "sequenced. Install the Forge app for its Candidate field, or set "
+              "orgConfig.askField to a field you already have.", file=sys.stderr)
 
     meta = {}
     if sprint:

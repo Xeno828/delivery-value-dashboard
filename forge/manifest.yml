@@ -127,6 +127,34 @@ modules:
         quote back at you. Not read by any calculation; shown next to the value
         it explains.
       type: string
+    # **Which epics are being weighed against each other.** ADR 0028.
+    #
+    # Sequencing compares orderings of *asks*. Candidacy is a state and not a
+    # type: an epic already committed and half built is not being weighed
+    # against anything, so "every epic" would sequence decisions already taken —
+    # which is worse than refusing, because it would look like advice.
+    #
+    # **Text, because Forge cannot declare a checkbox.** `jira:customField`
+    # offers number, string, user, group, date and datetime; the object variants
+    # need a custom UI. Creating a native Jira checkbox needs *Administer Jira*,
+    # which ADR 0020 refused and ADR 0021 refused again. So this is a field
+    # somebody types Yes into, and `orgconfig.candidate_answer` reads Yes, Y or
+    # True — and reports anything else as unrecognised rather than as a no,
+    # because "Maybe" is somebody trying to say something.
+    #
+    # **And no site has to use it.** `orgConfig.askField` names any field the
+    # site already has — a checkbox, a single select, a discovery flag — and the
+    # app reads that instead. Candidacy is the one thing every organisation
+    # defines differently; this is a default, not a convention anyone must
+    # adopt.
+    - key: candidate
+      name: Candidate
+      description: >-
+        Whether this is being weighed against other candidates for sequencing,
+        rather than work already committed. Yes, Y or True; anything else is
+        reported as unrecognised rather than read as no. Filled in on epics and
+        above.
+      type: string
 
   function:
     - key: resolver
