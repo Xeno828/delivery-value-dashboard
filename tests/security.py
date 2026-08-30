@@ -223,9 +223,35 @@ def secret_checks():
         "private key block": r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
         "bearer literal": r"(?i)bearer\s+[A-Za-z0-9\-_.]{24,}",
     }
+    # **Ask git what is committable, rather than walking the working tree.**
+    #
+    # This scanned every file under ROOT, which put it in direct contradiction
+    # with the check below it: that one asserts `.env` is git-ignored — i.e.
+    # that the credential belongs there — and this one then failed because a
+    # credential was there. Found on 2026-08-30, the first time anybody
+    # configured the fetcher and ran the suite: `make test` cannot go green on a
+    # correctly configured machine, which trains a reader to ignore a security
+    # check or to delete their `.env` before testing.
+    #
+    # `--cached --others --exclude-standard` is tracked files plus untracked
+    # ones git would add — exactly the set that can reach a commit, which is
+    # what the check is named for. `.env.example` stays in scope because it is
+    # tracked, and a token pasted into a doc still fails.
+    scanned, how = None, "everything git would commit"
+    try:
+        out = subprocess.run(["git", "ls-files", "-z", "--cached", "--others",
+                              "--exclude-standard"],
+                             cwd=str(ROOT), capture_output=True, check=True)
+        scanned = [ROOT / p for p in out.stdout.decode().split("\0") if p]
+    except Exception:
+        # No git, no meaningful notion of "committed". Fall back to the whole
+        # tree and say so, rather than silently checking something else.
+        scanned = [f for f in ROOT.rglob("*") if ".git" not in f.parts]
+        how = "the whole tree (no git available — ignored files included)"
+
     hits = []
-    for f in ROOT.rglob("*"):
-        if not f.is_file() or ".git" in f.parts or "__pycache__" in f.parts:
+    for f in scanned:
+        if not f.is_file() or "__pycache__" in f.parts:
             continue
         if f.suffix in (".png", ".mp4", ".webm", ".xlsx", ".zip"):
             continue
@@ -236,7 +262,7 @@ def secret_checks():
         for name, pat in pats.items():
             if re.search(pat, t):
                 hits.append("%s in %s" % (name, f.relative_to(ROOT)))
-    check("no credentials committed anywhere in the tree", hits == [], hits[:3])
+    check("no credentials in %s" % how, hits == [], hits[:3])
 
     gi = (ROOT / ".gitignore").read_text()
     check(".env is git-ignored", ".env" in gi)

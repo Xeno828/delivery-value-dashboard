@@ -209,6 +209,36 @@ class Jira:
     def get(self, path, **params):
         return self.t.get(path, **params)
 
+    def whoami(self):
+        """Who this connection is authenticated as — `(identity, None)`, or
+        `(None, why)` for nobody.
+
+        **A Jira site answers `/rest/api/3/field` anonymously.** Verified
+        against a live site on 2026-08-30: no credential at all returns 200 and
+        twenty-eight system fields, with every custom field missing. So a wrong
+        credential does not fail where this script first touches Jira.
+        `find_fields` finds no story-point field, prints *"! No story-point
+        field found — points will be 0"*, and the run carries on: every issue at
+        zero points, a burndown that flattens, and one warning line standing
+        between that and a reader.
+
+        That is the plausible-wrong-number class — not an error, a smaller
+        number that looks exactly like the right one — and it is the same lesson
+        `forge/src/jira.js` records about discovering the story-point field
+        rather than hardcoding an id. One identity check before any data call
+        turns it into a sentence.
+
+        `/rest/api/3/myself` is the endpoint that names you, and an anonymous
+        caller gets no `accountId` from it.
+        """
+        try:
+            me = self.get("/rest/api/3/myself")
+        except Exception as exc:                        # any failure here is "nobody"
+            return None, str(exc)
+        if not (me or {}).get("accountId"):
+            return None, "the site answered but named nobody — an anonymous read"
+        return me, None
+
     def find_fields(self, sp_hint=None, sprint_hint=None):
         """Locate the story-point and sprint custom fields by display name."""
         fields = self.get("/rest/api/3/field")
@@ -279,6 +309,31 @@ class Jira:
             "wrong and looks right." % (self.MAX_SEARCH_PAGES, jql, len(out)))
 
 
+def _verified(j, how):
+    """Prove the connection is somebody, before a single figure is pulled.
+
+    The check exists because the first data call cannot be trusted to fail. See
+    `Jira.whoami`. It is also where the run says *who* it is, which the note in
+    `connect_jira` about silent fallback already wanted: knowing a personal
+    token was used matters less than knowing whose.
+    """
+    me, why = j.whoami()
+    if not me:
+        sys.exit(
+            "Jira refused the credential — %s.\n"
+            "  %s\n"
+            "Nothing was pulled.\n"
+            "\n"
+            "This is checked before any data call on purpose. A Jira site answers\n"
+            "/rest/api/3/field to an anonymous caller, so an unauthenticated run\n"
+            "would otherwise find no story-point field, warn once, and go on to\n"
+            "produce a dashboard with every issue at zero points that looks\n"
+            "complete." % (how, why))
+    print("Jira: %s, as %s" % (how, me.get("displayName") or me.get("accountId")),
+          file=sys.stderr)
+    return j
+
+
 def connect_jira(args=None):
     """An OAuth grant if one is stored, otherwise the API token from the env.
 
@@ -295,9 +350,8 @@ def connect_jira(args=None):
         import jira_auth
         if jira_auth.TokenStore().read() or getattr(args, "auth", "auto") == "oauth":
             sess = jira_auth.OAuthSession(site)
-            print("Jira: OAuth grant, site %s (%s)"
-                  % (sess.site.get("name") or sess.cloud_id, sess.url), file=sys.stderr)
-            return Jira(sess, sess.url)
+            return _verified(Jira(sess, sess.url), "OAuth grant, site %s (%s)"
+                             % (sess.site.get("name") or sess.cloud_id, sess.url))
 
     url, email, token = (os.environ.get("JIRA_URL"), os.environ.get("JIRA_EMAIL"),
                          os.environ.get("JIRA_TOKEN"))
@@ -305,11 +359,8 @@ def connect_jira(args=None):
         sys.exit("No Jira connection. Either\n"
                  "  python3 scripts/jira_auth.py login        (OAuth, for a customer site)\n"
                  "or set JIRA_URL, JIRA_EMAIL and JIRA_TOKEN  (personal API token)")
-    if prefer_token:
-        print("Jira: API token (--auth token), %s" % url, file=sys.stderr)
-    else:
-        print("Jira: API token, %s" % url, file=sys.stderr)
-    return Jira(_TokenTransport(url, email, token), url)
+    how = ("API token (--auth token), %s" if prefer_token else "API token, %s") % url
+    return _verified(Jira(_TokenTransport(url, email, token), url), how)
 
 
 def jira_pull(args):

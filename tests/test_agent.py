@@ -13,6 +13,7 @@ Two jobs:
     python3 tests/test_agent.py
 """
 
+import io
 import json
 import pathlib
 import random
@@ -482,6 +483,90 @@ def test_forecast_log():
 # =====================================================================
 # 3c. the search endpoint, which Atlassian removed
 # =====================================================================
+def test_a_bad_credential_fails_before_it_can_flatten_a_burndown():
+    """An unauthenticated pull must stop, not degrade — found against live Jira.
+
+    `/rest/api/3/field` answers **200 to an anonymous caller**: verified on
+    2026-08-30 against a real site, which returned twenty-eight system fields
+    and no custom ones with no credential at all. So a wrong token does not fail
+    where the fetcher first touches Jira. `find_fields` finds no story-point
+    field, prints a warning, and the run continues — every issue at zero points
+    and a burndown that flattens with nothing saying why.
+
+    On the day this was found the next call happened to be an agile endpoint
+    that does demand auth, so the run died with a traceback. That ordering is
+    luck. A token with partial permissions, or a site with anonymous agile read,
+    gets a complete-looking dashboard instead.
+
+    The same class the Forge path already guards: `forge/src/jira.js` on why the
+    story-point field is discovered rather than hardcoded.
+    """
+    class Stub:
+        """Answers `/myself` however the case wants, and counts data calls."""
+
+        def __init__(self, me, boom=None):
+            self.me, self.boom, self.paths = me, boom, []
+
+        def get(self, path, **params):
+            self.paths.append(path)
+            if path == "/rest/api/3/myself":
+                if self.boom:
+                    raise RuntimeError(self.boom)
+                return self.me
+            return [{"id": "customfield_1", "name": "Story Points"}]
+
+    def connection(me, boom=None):
+        j = FD.Jira.__new__(FD.Jira)
+        j.t, j.url = Stub(me, boom), "https://x.atlassian.net"
+        return j
+
+    # ---- somebody ----
+    j = connection({"accountId": "abc", "displayName": "A Person"})
+    me, why = j.whoami()
+    check("a real identity comes back with no complaint",
+          (me or {}).get("displayName") == "A Person" and why is None, (me, why))
+
+    # ---- nobody, two ways ----
+    j = connection({})                       # 200, but names no one
+    me, why = j.whoami()
+    check("an anonymous 200 is nobody, not somebody",
+          me is None and "anonymous" in (why or ""), (me, why))
+
+    j = connection(None, boom="401 Client Error: Unauthorized")
+    me, why = j.whoami()
+    check("and a refused request is nobody, carrying its reason",
+          me is None and "401" in (why or ""), (me, why))
+
+    # ---- and the run stops there ----
+    #
+    # The point of the check is not that it detects nobody; it is that nothing
+    # downstream runs. A warning would have been the old behaviour.
+    j = connection({})
+    try:
+        FD._verified(j, "API token, https://x")
+        stopped = False
+    except SystemExit as e:
+        stopped, msg = True, str(e)
+    check("an unauthenticated connection exits rather than warning", stopped, stopped)
+    check("and says nothing was pulled",
+          "Nothing was pulled" in msg, msg[:80])
+    check("and says why the check has to come first",
+          "anonymous" in msg and "zero points" in msg, msg[:200])
+    check("no data call was made before the identity was known",
+          j.t.paths == ["/rest/api/3/myself"], j.t.paths)
+
+    # ---- and it names who, not only which credential ----
+    j = connection({"accountId": "abc", "displayName": "A Person"})
+    err = io.StringIO()
+    keep, sys.stderr = sys.stderr, err
+    try:
+        FD._verified(j, "API token, https://x")
+    finally:
+        sys.stderr = keep
+    check("a good connection says who it is, not just which credential",
+          "A Person" in err.getvalue(), err.getvalue().strip())
+
+
 def test_search_pages_by_token():
     """`/rest/api/3/search` was removed; `/search/jql` pages by token.
 
@@ -1129,6 +1214,8 @@ if __name__ == "__main__":
     test_calibration()
     print("the forecast log")
     test_forecast_log()
+    print("the fetcher's credential")
+    test_a_bad_credential_fails_before_it_can_flatten_a_burndown()
     print("the search endpoint")
     test_search_pages_by_token()
     print("intake — sizing")

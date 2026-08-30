@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.58.0
+
+**The fetcher made its first real request to a Jira, and three things were wrong that no stub could have shown.**
+
+**A bad credential did not fail — it flattened the burndown.** `/rest/api/3/field` answers **200 to an anonymous caller**: verified against a live site, twenty-eight system fields and no custom ones, identical response with no credential and with a wrong one. So the first place the fetcher touches Jira cannot fail. `find_fields` finds no story-point field, prints *"! No story-point field found — points will be 0"*, and the run continues — every issue at zero points, a burndown that flattens, and one warning line between that and a reader. It is the plausible-wrong-number class, and it is the same lesson `forge/src/jira.js` already carries about discovering the story-point field rather than hardcoding an id; the Python path had the hazard by a different route and no guard.
+
+On the day it was found the next call was an agile endpoint that does demand auth, so the run died with a traceback. **That ordering is luck.** A token with partial permissions, or a site with anonymous agile read, gets a complete-looking dashboard.
+
+`Jira.whoami()` and `_verified()` now prove the connection is somebody, once, before any data call, on both transports. An anonymous 200 is nobody — `/rest/api/3/myself` returns no `accountId` — and so is a refused request, which carries its reason. The run says **who** it is rather than only which credential, which is what the existing note about silent OAuth-to-token fallback already wanted. The confirmation is that the story-point warning disappeared the moment authentication worked: it had been an auth failure wearing a field's name.
+
+**Two security checks contradicted each other, and the correct configuration was the one that failed.** `secret_checks` walked every file under the repository root, so it flagged `.env` — three lines below the check asserting that `.env` is *git-ignored*, which is to say that the credential belongs there. `make test` could not go green on a machine where the fetcher was configured, which trains a reader to ignore a security failure or to delete their credentials before testing. The scan asks git now: `--cached --others --exclude-standard`, tracked files plus untracked ones git would add — exactly the set the check's own name is about. `.env.example` stays in scope because it is tracked, and a token pasted into a doc still fails. Both directions were exercised rather than assumed.
+
+**`.env.example` could not be sourced.** `refresh.sh` does `. ./.env`, and the template shipped `ORG_NAME=Your Company` unquoted, so bash split it and tried to run `Atlas`/`Company` as a command. Anyone who copied the template and filled it in hit `command not found` before reaching Jira. Quoted.
+
+**And the migration in 1.56.0 is proven, which needed more than a green pull.** The board returned 38 issues — one page — and a single-page board returns the same answer under the removed index loop and the token loop, so the successful pull proved the endpoint and nothing about the paging. Forced to page with `maxResults` shrunk on the wire and `search()` itself untouched, the real API gave **four requests, pages of 10/10/10/8, no token on the first and a token on every later one, 38 collected**, matching the single-page pull exactly. Under `body.get("total", 0)` that run stops at ten. The open risk recorded in the roadmap — *a pagination fault there is a silently short board* — is closed by observation rather than by argument.
+
 ## 1.57.1
 
 **The cost stated in 1.57.0 was wrong, and the deploy is what said so.** That entry, and ADR 0027 with it, priced the Value Basis field at *"a major version upgrade and a forced reinstall for every tenant"*, on ADR 0025's claim that **declaring a module always is**. It deployed as **7.2.0** — no `MAJOR_VERSION_RULE` approval, and the installation reporting *Up-to-date* with no `forge install --upgrade`.
