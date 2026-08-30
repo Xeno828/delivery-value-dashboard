@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.56.3
+
+**The second stale line in the same risks section, found by reading the rest of it after fixing the first.** *"Now live rather than hypothetical, since item 3 is what is being built"* — present tense for something delivered four days earlier. The risks are written against the drafting date and every one of them decays that way, which is why the section carries a preamble saying how many have moved.
+
+**What had actually moved is more than the tense.** The original's instruction was to treat an engagement spike after item 3 as evidence to *accelerate* phase 3 rather than defer it. That contingency never got to fire: phase 3 was built out first — items 4 and 6 done, 5 a first pass — before there was anybody whose engagement could be measured. There is one installation, `development`, on the dev site, so there is no engagement to read in either direction.
+
+The reason phase 3 was not deferred is unchanged and never depended on the signal: **without phase 3 the product cannot be sold to anyone whose security review has teeth.** What the bullet now names as open is the half that is genuinely still open — whether item 3 is what customers actually value, which only the first real installs answer.
+
 ## 1.56.2
 
 **`docs/roadmap.md` said item 5 had not started, four hundred lines after saying it had.** The state table records *"First pass done"* and the open-items section describes the three ADRs that started it; the risks section at the foot still read *"Untested — item 5 has not started."* Its own preamble already counted that risk among the three of four that have moved, so the file disagreed with itself twice over. A reader who reaches the risks last takes away the wrong state, and the risks section is what a plan is read for.

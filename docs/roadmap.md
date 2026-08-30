@@ -367,11 +367,17 @@ Recorded here because three of the four have moved since drafting.
   estimate has been spent against the thing that was estimated, and the risk
   stands where it was drafted. Plan against the upper bound, which is the same
   argument the forecaster makes about sprint commitments.
-- **Scheduled delivery may be the whole product.** Now live rather than
-  hypothetical, since item 3 is what is being built. If engagement spikes after
-  it, the original's instruction is to treat that as evidence to *accelerate*
-  phase 3, not to defer it: without phase 3 the product cannot be sold to anyone
-  whose security review has teeth.
+- **Scheduled delivery may be the whole product.** Delivered 2026-08-26, and
+  still untested as a claim: there is one installation, `development`, on the
+  dev site, so there is no engagement to read either way. The original's
+  instruction was to treat a spike after item 3 as evidence to *accelerate*
+  phase 3 rather than defer it — and that contingency never got to fire, because
+  phase 3 was built out first, items 4 and 6 done and 5 a first pass, before
+  there was anybody whose engagement could be measured. The reason it was not
+  deferred is unchanged and never depended on the signal: without phase 3 the
+  product cannot be sold to anyone whose security review has teeth. What is
+  still open is the half the first real installs will answer — whether item 3 is
+  what customers actually value.
 
 ## Keeping this honest
 
