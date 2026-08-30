@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.54.1
+
+**The Business Value field was declared, read, and never requested.** `issueFields` names the fields Jira should return, and `businessValue` was added to the projection without being added to that list — so Jira sent it on no issue, `issueFrom` read a missing key, and every value came back absent. No error, no empty response: a figure that would simply never have appeared. It was deployed that way, and lasted one deploy.
+
+That is the failure mode this repository fears most, arriving through a door it had not written down: **a field in the projection that nothing asks for is invisible, permanently and silently.** Both fetch paths ask for it now, and `tests/test_service.py` holds the projection and the request together — while still asserting the fields stay named, because `*navigable` would pull the free text this app has no business holding.
+
+**Found by checking, not by testing.** Nothing failed. The suite passed, the deploy succeeded, the installation went up-to-date — and the feature did nothing. It surfaced only from reading what the board fetch actually asks Jira for, after the deploy had already gone out.
+
 ## 1.54.0
 
 **The app declares a Business Value field, so a Forge tenant can report value for the first time.** Jira has no native field for what work is worth, so `businessValue` has been a hardcoded `0` in the Forge projection since it was written and `valueDelivered` came back *absent* on every tenant. [ADR 0025](docs/adr/0025-the-app-declares-a-business-value-field.md).

@@ -4418,6 +4418,24 @@ def business_value_checks():
     check("the field is found by its key, not its display name",
           "key.includes(BUSINESS_VALUE_KEY)" in jira_js,
           [l.strip() for l in jira_js.splitlines() if "BUSINESS_VALUE_KEY" in l][:2])
+    # **A field in the projection that is never requested is invisible.**
+    # `issueFields` names fields explicitly, so Jira returns only those — and
+    # `businessValue` was read out of the projection while nothing asked Jira
+    # for it. No error, no empty response: value would simply have been absent
+    # on every issue forever. It shipped that way for the length of one deploy.
+    idx = (ROOT / "forge" / "src" / "index.js").read_text()
+    fields_fn = idx.split("const issueFields", 1)[1].split("].join", 1)[0]
+    check("the field this app declares is one it actually asks Jira for",
+          "businessValueField" in fields_fn,
+          [l.strip() for l in fields_fn.splitlines() if "Field" in l])
+    check("on both the sprint path and the window path",
+          idx.count("issueFields(storyPointField, bvField)") == 2,
+          idx.count("issueFields(storyPointField, bvField)"))
+    # The other half of the same rule: asking for everything would pull free
+    # text this app has no business holding.
+    check("and it still names its fields rather than asking for all of them",
+          "*navigable" not in fields_fn and "*all" not in fields_fn, fields_fn[:120])
+
     check("and an unset field reads as absent rather than zero",
           "const valueOf = (fields, fieldId)" in jira_js
           and "return null;" in jira_js.split("const valueOf", 1)[1][:400],

@@ -337,18 +337,25 @@ const pagedValues = async (routeAt, what, as) => {
 /** Every issue in one sprint. `expand=changelog` is what makes addedMidSprint
  *  real rather than false-by-default — see the note in jira.js about why that
  *  particular default is a wrong answer rather than a missing one. */
-const issueFields = (storyPointField) => [
+// Named explicitly, so a field this app does not read is a field Jira does not
+// send. That is the right default and it has one consequence worth stating: a
+// field added to the *projection* and not to this list is a field that is never
+// returned, so it reads as absent on every issue forever — no error, no empty
+// response, just a figure that is quietly never there. `businessValue` was
+// exactly that for the length of one deploy. ADR 0025.
+const issueFields = (storyPointField, businessValueField) => [
   'summary', 'issuetype', 'status', 'assignee', 'priority', 'parent',
   'created', 'resolutiondate', 'duedate', 'labels', 'flagged',
   ...(storyPointField ? [storyPointField] : []),
+  ...(businessValueField ? [businessValueField] : []),
 ].join(',');
 
-const fetchSprintIssues = async (boardId, sprintId, storyPointField, as) => {
+const fetchSprintIssues = async (boardId, sprintId, storyPointField, as, bvField) => {
   // Named explicitly, and the story-point field is named by the id this site
   // actually uses rather than one guessed at. `*navigable` would also work and
   // would be worse: it pulls every custom field on every issue, including free
   // text this app has no business holding.
-  const fields = issueFields(storyPointField);
+  const fields = issueFields(storyPointField, bvField);
 
   const out = [];
   let startAt = 0;
@@ -390,8 +397,8 @@ const fetchSprintIssues = async (boardId, sprintId, storyPointField, as) => {
  * go on the wire, which is the field a flow board most needs. Kept so the two
  * fetches differ in their query and not in their shape.
  */
-const fetchWindowIssues = async (boardId, entry, storyPointField, as) => {
-  const fields = issueFields(storyPointField);
+const fetchWindowIssues = async (boardId, entry, storyPointField, as, bvField) => {
+  const fields = issueFields(storyPointField, bvField);
   const jql = `${windowMembershipJql(entry.startDate, entry.endDate)} ORDER BY created ASC`;
 
   const out = [];
@@ -723,8 +730,8 @@ const issuesForEntry = async (entry, spField, siteUrl, as) => {
   const parsed = parseContextId(entry.id);
   const bvField = await businessValueFieldFor(as);
   const raw = entry.kind === 'window'
-    ? await fetchWindowIssues(parsed.boardId, entry, spField, as)
-    : await fetchSprintIssues(parsed.boardId, parsed.sprintId, spField, as);
+    ? await fetchWindowIssues(parsed.boardId, entry, spField, as, bvField)
+    : await fetchSprintIssues(parsed.boardId, parsed.sprintId, spField, as, bvField);
   return raw.map((r) => ({
     ...issueFrom(r, {
       // Undefined for a window, which is the honest value: `addedMidSprint` is
