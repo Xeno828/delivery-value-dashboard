@@ -360,9 +360,13 @@ Recorded here because three of the four have moved since drafting.
   stays the arbiter — no network calls, no browser storage in the produced file —
   and every future feature answers the fork out loud. A tile that degrades to an
   honest notice is acceptable; three of them is a dashboard URL with extra steps.
-- **Permission mirroring is under-estimated.** Untested — item 5 has not started.
-  Plan against the upper bound, which is the same argument the forecaster makes
-  about sprint commitments.
+- **Permission mirroring is under-estimated.** Still untested, and the first
+  pass does not test it: ADRs 0018–0020 surveyed three exposures and answered
+  each by accepting a disclosure and naming it, which is a coherent position
+  and is not the permission model the 5–8 weeks was for. So none of that
+  estimate has been spent against the thing that was estimated, and the risk
+  stands where it was drafted. Plan against the upper bound, which is the same
+  argument the forecaster makes about sprint commitments.
 - **Scheduled delivery may be the whole product.** Now live rather than
   hypothetical, since item 3 is what is being built. If engagement spikes after
   it, the original's instruction is to treat that as evidence to *accelerate*

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.56.2
+
+**`docs/roadmap.md` said item 5 had not started, four hundred lines after saying it had.** The state table records *"First pass done"* and the open-items section describes the three ADRs that started it; the risks section at the foot still read *"Untested — item 5 has not started."* Its own preamble already counted that risk among the three of four that have moved, so the file disagreed with itself twice over. A reader who reaches the risks last takes away the wrong state, and the risks section is what a plan is read for.
+
+The risk itself was never wrong and is unchanged: **plan against the upper bound.** What the entry now says is *why* it survives a first pass — ADRs 0018–0020 answered three exposures by accepting a disclosure and naming each, which is a coherent position and is not the permission model the 5–8 weeks was for. So none of that estimate has been spent against the thing that was estimated. "First pass done" is not progress against the number, and a plan that reads it as progress is the failure this line exists to prevent.
+
 ## 1.56.1
 
 **ADR 0026 was referenced in five places and had never been written.** Code comments in `orgconfig.py`, `metrics.py`, `src/app.js` and `forge/src/index.js` all pointed at it, and so did two changelog entries and a manifest comment. It exists now, and a sweep for `ADR NNNN` references against `docs/adr/` reports none missing.
