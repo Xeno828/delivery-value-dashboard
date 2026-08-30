@@ -252,6 +252,77 @@ class Jira:
                 sprint = f["id"]
         return sp, sprint
 
+    #: The module keys the Forge app declares its own fields under. Mirrors
+    #: BUSINESS_VALUE_KEY and VALUE_BASIS_KEY in `forge/src/jira.js`; ADR 0025
+    #: and ADR 0027. Change one, change both.
+    BUSINESS_VALUE_KEY = "business-value"
+    VALUE_BASIS_KEY = "value-basis"
+
+    def find_app_fields(self, fields=None):
+        """This app's own Business Value and Value Basis fields on this site.
+
+        **Matched on the field's key, not its display name.** A Forge custom
+        field's key carries the module key that declared it, so it identifies
+        *this app's* field rather than any field a site happens to have called
+        "Business Value" — and a site with one of its own is exactly the case
+        where matching a display name reads somebody else's numbers and reports
+        them as value. `find_fields` above matches story points by name because
+        that is a field this app did not create and cannot identify any other
+        way; the difference is worth keeping.
+
+        `(None, None)` when the Forge app is not installed on this site, which
+        is the ordinary case for the OAuth route — pulling your own board needs
+        no app registration. That is reported rather than treated as "nobody has
+        recorded a value", because the two have entirely different fixes.
+        """
+        if fields is None:
+            fields = self.get("/rest/api/3/field")
+        value = basis = None
+        for f in fields or []:
+            key = str(f.get("key") or f.get("id") or "")
+            if value is None and self.BUSINESS_VALUE_KEY in key:
+                value = f.get("id")
+            if basis is None and self.VALUE_BASIS_KEY in key:
+                basis = f.get("id")
+        return value, basis
+
+    def board_epics(self, board_id, fields, cap=200):
+        """The board's epics as issues — ADR 0026.
+
+        **Epics are not on a scrum board.** *"Epic issues do not belong to the
+        scrum boards"* is Jira's own description of the design, so a
+        `sprint = N` search never returns one, and the epic carrying the value
+        is exactly the issue that never arrives. Declaring the field was
+        necessary and not sufficient on Forge for this reason, and the same is
+        true here.
+
+        Capped, and what the cap dropped is returned rather than swallowed: a
+        board whose epics were truncated would report less value than it
+        delivered, with nothing saying so.
+        """
+        listed, start = [], 0
+        for _ in range(20):
+            try:
+                page = self.get("/rest/agile/1.0/board/%s/epic" % board_id,
+                                startAt=start, maxResults=50)
+            except Exception:
+                # A board with no epic support answers 4xx here. That is not an
+                # error, it is a board without epics, and it has no value to
+                # report.
+                break
+            vals = page.get("values") or []
+            listed.extend(vals)
+            start += len(vals)
+            if not vals or page.get("isLast") or len(listed) >= cap:
+                break
+        out = []
+        for e in listed[:cap]:
+            try:
+                out.append(self.get("/rest/api/3/issue/%s" % e["key"], fields=",".join(fields)))
+            except Exception:
+                pass          # one unreadable epic is not a reason to report no value
+        return out, max(len(listed) - cap, 0)
+
     def active_sprint(self, board_id):
         data = self.get("/rest/agile/1.0/board/%s/sprint" % board_id, state="active")
         vals = data.get("values") or []
@@ -385,11 +456,56 @@ def jira_pull(args):
         if f:
             fields.append(f)
 
-    raw = j.search(jql, fields)
-    issues, added_mid = [], []
-    sprint_start = d(sprint.get("startDate")) if sprint else None
+    # This app's own fields, if the Forge app is installed on this site. Absent
+    # is the ordinary case for the OAuth route — pulling your own board needs no
+    # app registration — and it is reported rather than read as "nobody has
+    # recorded a value". ADR 0025, ADR 0027.
+    bv_field, vb_field = j.find_app_fields()
+    # Three states, three sentences — the same distinction ADR 0025 draws on the
+    # Forge tile, because they have entirely different fixes.
+    if not bv_field:
+        print("  note: this site has no Business Value field from this app, so "
+              "value is reported as unmeasured rather than as nil. Install the "
+              "Forge app on the site, or supply --values-csv.", file=sys.stderr)
+    elif not vb_field:
+        print("  note: Business Value is on this site but Value Basis is not, so "
+              "figures will arrive with no stated basis beside them.",
+              file=sys.stderr)
+    for extra in (bv_field, vb_field):
+        if extra:
+            fields.append(extra)
 
-    for it in raw:
+    def value_of_raw(f):
+        """A number, or None when nobody has recorded one.
+
+        None and not zero, and the distinction is the whole reason this is a
+        function: a field nobody filled in and a piece of work genuinely worth
+        nothing are different facts. Mirrors `valueOf` in `forge/src/jira.js`.
+        """
+        if not bv_field:
+            return None
+        raw = f.get(bv_field)
+        if raw in (None, ""):
+            return None
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
+    def basis_of_raw(f):
+        """The sentence under the number, or '' when there is none.
+
+        A non-string is not coerced: the app declares this field as text, so
+        anything else means the field being read is not the one declared, and
+        `str()` would put a dict's repr under a currency figure on an executive
+        dashboard. Mirrors `basisOf` in `forge/src/jira.js`.
+        """
+        if not vb_field:
+            return ""
+        raw = f.get(vb_field)
+        return raw.strip() if isinstance(raw, str) else ""
+
+    def build(it, sprint_start):
         f = it["fields"]
         # first transition into an "In Progress" category = start of active work
         started = None
@@ -409,7 +525,7 @@ def jira_pull(args):
                        d(h.get("created")) > sprint_start:
                         mid = True
         status = f.get("status") or {}
-        issues.append({
+        out = {
             "key": it["key"],
             "summary": f.get("summary") or "",
             "type": (f.get("issuetype") or {}).get("name"),
@@ -434,13 +550,60 @@ def jira_pull(args):
             "dueDate": d(f.get("duedate")),
             "flagged": bool(f.get("flagged")),
             "addedMidSprint": mid,
-            # Jira has no native value field. Point --value-field at a numeric
-            # custom field, or maintain values in a side CSV — see README.
-            "businessValue": 0,
-            "valueBasis": "",
             "labels": f.get("labels") or [],
             "url": "%s/browse/%s" % (j.url, it["key"]),
-        })
+        }
+        # **The keys are absent when the site has no such field**, and that is
+        # deliberate: `metrics` reports value as *unmeasured* when no issue
+        # carries the key and as a figure when they do. Writing 0 — which this
+        # did for every pull ever made — is the claim that the sprint delivered
+        # nothing worth anything, which is a much stronger statement than
+        # "nobody has told us", and only one of them was ever true here.
+        if bv_field:
+            out["businessValue"] = value_of_raw(f)
+        if vb_field:
+            out["valueBasis"] = basis_of_raw(f)
+        return out
+
+    sprint_start = d(sprint.get("startDate")) if sprint else None
+    raw = j.search(jql, fields)
+    issues = [build(it, sprint_start) for it in raw]
+
+    # The epics that *finished* inside this sprint — ADR 0026. A `sprint = N`
+    # search never returns an epic, so the issue carrying the value is the one
+    # that never arrives; declaring the field was necessary and not sufficient
+    # on Forge for exactly this reason. Value is credited to the period an epic
+    # completed in, because that is the only moment about it this product can
+    # date: an epic spans sprints, and spreading its value across them by
+    # counting its children would be the double count the level rule prevents.
+    #
+    # The board and the window come from an argument when the caller resolved
+    # the sprint itself: the multi-board path passes a jql and no board, so
+    # without this it would read the value fields and never fetch the issues
+    # that carry them — the same silent half-fix ADR 0026 was written for, on
+    # the one path that produces the richer dataset.
+    epic_board = getattr(args, "epic_board", None) or args.jira_board
+    window = getattr(args, "epic_window", None) or (
+        (sprint.get("startDate"), sprint.get("endDate")) if sprint else None)
+    if bv_field and epic_board and window:
+        start, end = d(window[0]), d(window[1])
+        seen = {i["key"] for i in issues}
+        epics, dropped = j.board_epics(epic_board, fields)
+        added = 0
+        for e in epics:
+            if e["key"] in seen:
+                continue
+            done = d((e.get("fields") or {}).get("resolutiondate"))
+            if not (start and end and done and start <= done <= end):
+                continue
+            issues.append(build(e, sprint_start))
+            added += 1
+        if added:
+            print("  %d epic%s finished in this sprint and carried value"
+                  % (added, "" if added == 1 else "s"), file=sys.stderr)
+        if dropped:
+            print("! %d epic%s beyond the cap were not read — value may be "
+                  "understated" % (dropped, "" if dropped == 1 else "s"), file=sys.stderr)
 
     meta = {}
     if sprint:
@@ -550,7 +713,12 @@ def jira_bundle(args):
             print("  %s — %s" % (info.get("name"), sp.get("name")), file=sys.stderr)
             sub = argparse.Namespace(jira_board=None,
                                      jira_jql="sprint = %s ORDER BY created ASC" % sp["id"],
-                                     sp_field=sp_field, sprint_field=sprint_field)
+                                     sp_field=sp_field, sprint_field=sprint_field,
+                                     # This path resolves its own sprint, so it
+                                     # hands the epic pass the board and window
+                                     # jira_pull would otherwise have derived.
+                                     epic_board=b,
+                                     epic_window=(sp.get("startDate"), sp.get("endDate")))
             iss, _ = jira_pull(sub)
             for i in iss:
                 i["contextId"] = cid
@@ -817,9 +985,13 @@ def main():
     if not out["dora"]:
         print("  note: no DORA metrics — that card will show as unavailable. "
               "Add them to the JSON from your deployment tooling.", file=sys.stderr)
-    if all(not i.get("businessValue") for i in issues):
-        print("  note: no business value on any issue — use --values-csv or an "
-              "Asana number field to populate the value card.", file=sys.stderr)
+    if any("businessValue" in i for i in issues) \
+            and all(not i.get("businessValue") for i in issues):
+        # The field is readable and empty, which is a different fact from the
+        # field being absent — that one is reported where it is discovered.
+        print("  note: the value field is on this site but no issue carries a "
+              "figure. An admin must add it to a screen before anyone can fill "
+              "it in, and the tile says so.", file=sys.stderr)
     report_unmatched()
 
 

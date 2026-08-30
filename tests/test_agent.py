@@ -13,6 +13,7 @@ Two jobs:
     python3 tests/test_agent.py
 """
 
+import argparse
 import io
 import json
 import pathlib
@@ -483,6 +484,128 @@ def test_forecast_log():
 # =====================================================================
 # 3c. the search endpoint, which Atlassian removed
 # =====================================================================
+def test_the_fetcher_reads_the_fields_this_app_declares():
+    """Business value reaches a file, epics included — ADR 0025, 0026, 0027.
+
+    The fetcher wrote `businessValue: 0` and `valueBasis: ""` on every issue of
+    every pull ever made. Zero is not absent: `metrics` reports value as
+    *unmeasured* when no issue carries the key and as a figure when they do, so
+    a hardcoded 0 was the claim that the sprint delivered nothing worth
+    anything — a much stronger statement than "nobody has told us", and the
+    wrong one.
+
+    Declaring the field is necessary and not sufficient, which is the lesson
+    ADR 0026 records: **epics are not on a scrum board**, so a `sprint = N`
+    search never returns the issue the value is recorded on. Driven through a
+    stub transport, because none of this needs a Jira.
+    """
+    SITE_FIELDS = [
+        {"id": "customfield_10016", "key": "com.pyxis:sp", "name": "Story Points"},
+        # A site's own field of the same display name. Matching on the name
+        # would read somebody else's numbers and report them as value.
+        {"id": "customfield_10077", "key": "acme.custom:bv", "name": "Business Value"},
+        {"id": "customfield_10090", "key": "a1b2__business-value", "name": "Business Value"},
+        {"id": "customfield_10091", "key": "a1b2__value-basis", "name": "Value Basis"},
+    ]
+
+    class Stub:
+        def __init__(self, site_fields=SITE_FIELDS):
+            self.site_fields, self.asked = site_fields, []
+
+        def get(self, path, **params):
+            self.asked.append((path, params))
+            if path == "/rest/api/3/field":
+                return self.site_fields
+            if path.endswith("/sprint"):
+                return {"values": [{"id": 7, "name": "S1", "startDate": "2026-08-01",
+                                    "endDate": "2026-08-14"}]}
+            if path.endswith("/epic"):
+                return {"values": [{"key": "E-1"}, {"key": "E-2"}], "isLast": True}
+            if path == "/rest/api/3/issue/E-1":
+                return _issue("E-1", "Epic", 1, "Done", "2026-08-07",
+                              {"customfield_10090": 40000, "customfield_10091": "  three renewals  "})
+            if path == "/rest/api/3/issue/E-2":          # finished outside the window
+                return _issue("E-2", "Epic", 1, "Done", "2026-07-02",
+                              {"customfield_10090": 99999})
+            raise AssertionError("unexpected GET %s" % path)
+
+        def post(self, path, json=None):
+            class R:
+                def raise_for_status(self): return None
+                def json(self):
+                    return {"issues": [
+                        _issue("S-1", "Story", 0, "Done", "2026-08-05",
+                               {"customfield_10090": 5000, "customfield_10091": "a guess"}),
+                        _issue("S-2", "Story", 0, "To Do", None,
+                               {"customfield_10077": 12345}),   # the *other* site's field
+                    ]}
+            return R()
+
+    def _issue(key, typ, level, status, resolved, extra):
+        f = {"summary": key, "issuetype": {"name": typ, "subtask": False,
+                                           "hierarchyLevel": level},
+             "status": {"name": status, "statusCategory": {"name": status}},
+             "created": "2026-08-01", "resolutiondate": resolved, "labels": []}
+        f.update(extra)
+        return {"key": key, "fields": f, "changelog": {"histories": []}}
+
+    def pull(site_fields=SITE_FIELDS):
+        j = FD.Jira(Stub(site_fields), "https://x.atlassian.net")
+        args = argparse.Namespace(jira_board=2, jira_jql=None, sp_field=None,
+                                  sprint_field=None)
+        keep, FD.connect_jira = FD.connect_jira, lambda a=None: j
+        try:
+            return j, FD.jira_pull(args)
+        finally:
+            FD.connect_jira = keep
+
+    j, (issues, meta) = pull()
+    by = {i["key"]: i for i in issues}
+
+    check("the app's own field is found by key, not by display name",
+          by["S-1"]["businessValue"] == 5000, by["S-1"]["businessValue"])
+    check("and a site's own field of the same name is not read as value",
+          by["S-2"]["businessValue"] is None, by["S-2"]["businessValue"])
+    check("an issue with nothing recorded is null, not zero",
+          by["S-2"]["businessValue"] is None, by["S-2"]["businessValue"])
+
+    # Epics are not on a scrum board, so the value is on the issue the search
+    # never returns. Credited to the period it finished in, and only that one.
+    check("the epic that finished in the window is fetched and carries its value",
+          by["E-1"]["businessValue"] == 40000, sorted(by))
+    check("one that finished outside it is not credited to this sprint",
+          "E-2" not in by, sorted(by))
+    check("and the basis comes with it, trimmed",
+          by["E-1"]["valueBasis"] == "three renewals", repr(by["E-1"]["valueBasis"]))
+
+    # A field in the projection that nothing requests is absent on every issue
+    # forever. The rule that caught `businessValue` on Forge for one deploy.
+    epic_get = [p for p in j.t.asked if p[0] == "/rest/api/3/issue/E-1"][0]
+    check("the value fields are asked for, not merely read",
+          "customfield_10090" in epic_get[1]["fields"]
+          and "customfield_10091" in epic_get[1]["fields"], epic_get[1]["fields"])
+
+    # A site without the app installed — the ordinary case for the OAuth route,
+    # which needs no app registration. The key is absent rather than zero, so
+    # `metrics` reports value as unmeasured instead of as nil.
+    _, (plain, _m) = pull([SITE_FIELDS[0], SITE_FIELDS[1]])
+    check("with no such field on the site the key is omitted, not set to zero",
+          all("businessValue" not in i for i in plain), plain[0])
+    # `metrics.history_row` decides measured-vs-unmeasured on exactly this:
+    # `any("businessValue" in i for i in issues)`. Absent means the row reports
+    # `valueDelivered: None`; present means it reports a figure, which for a
+    # site with no such field would have been a confident nil.
+    check("which is the condition metrics keys unmeasured off",
+          any("businessValue" in i for i in issues)
+          and not any("businessValue" in i for i in plain),
+          {"with field": any("businessValue" in i for i in issues),
+           "without": any("businessValue" in i for i in plain)})
+    src = (ROOT / "agent" / "tools" / "metrics.py").read_text()
+    check("and that condition is still the one metrics uses",
+          'any("businessValue" in i for i in issues)' in src,
+          [l.strip() for l in src.splitlines() if "businessValue" in l][:2])
+
+
 def test_what_the_config_did_not_cover_is_recorded_with_its_evidence():
     """Which statuses were inferred, what each was read as, and on what.
 
@@ -1270,6 +1393,8 @@ if __name__ == "__main__":
     test_calibration()
     print("the forecast log")
     test_forecast_log()
+    print("the fields this app declares")
+    test_the_fetcher_reads_the_fields_this_app_declares()
     print("statuses the config did not cover")
     test_what_the_config_did_not_cover_is_recorded_with_its_evidence()
     print("the fetcher's credential")

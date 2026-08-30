@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.62.0
+
+**The fetcher reads the two fields this app declares, and fetches the issues that carry them.** It wrote `businessValue: 0` and `valueBasis: ""` on every issue of every pull ever made, so the Forge route reported a board's value and the file route reported the same board as worth nothing. ADR 0025, [0026](docs/adr/0026-items-and-value-are-counted-from-two-different-sets.md), 0027.
+
+**Zero was not "absent", and that was the worse half.** `metrics` decides measured-from-unmeasured on `any("businessValue" in i for i in issues)` — the key's presence, not its value. A hardcoded `0` on every issue therefore made every file claim *the sprint delivered nothing worth anything*, which is a far stronger statement than *nobody has told us*, and it was never the true one. The key is now **omitted** when the site has no such field, so the tools report unmeasured; present and `null` when the field exists and nobody filled it in.
+
+**Matched on the field's key, never its display name.** A Forge custom field's key carries the module key that declared it, so it identifies *this app's* field rather than any field a site happens to have called "Business Value" — and a site with one of its own is exactly the case where matching a name reads somebody else's numbers and reports them as value. Story points are still matched by name, because that is a field this app did not create and cannot identify any other way; the difference is worth keeping.
+
+**Declaring the field was necessary and not sufficient, again.** *"Epic issues do not belong to the scrum boards"* is Jira's own description of the design, so a `sprint = N` search never returns an epic — and the epic is where value is recorded. Reading the field without fetching them would have been the same half-fix ADR 0026 was written for. The board's epics are fetched separately and those that **finished inside the period** are added, because the moment an epic completed is the only moment about it this product can date. The cap is reported rather than applied quietly.
+
+**Both pull paths, not just the one being tested.** The multi-board history path calls `jira_pull` with a JQL and no board, so the epic pass would never have run there — on the path that produces the richer dataset. It hands down the board and window it resolved itself.
+
+**Three states, three sentences**, the same distinction ADR 0025 draws on the Forge tile because the fixes differ: the app is not installed on this site; it is installed and an admin has not put the field on a screen; somebody has filled it in.
+
+**Proved against a live Jira, and it is the whole chain.** MOBL-2 — an epic outside the sprint's issue search, marked Done, carrying US$40,000 — now arrives with its figure *and* the sentence typed into the Value Basis field declared earlier the same day. A story priced below epic level arrives too and is correctly not counted, which is the two-set rule holding rather than an omission.
+
+**Driven through a stub transport in `test_agent.py`**, because none of it needs a Jira: the key-not-name match with a decoy field of the same display name present, null rather than zero, the epic in the window fetched and the one outside it not, the basis trimmed, and the fields actually *requested* rather than only read — the rule that caught `businessValue` on Forge for the length of one deploy.
+
 ## 1.61.0
 
 **A reader who knows the board can now say what each status means.** Phase one said which statuses the config did not name; this is the same chip made answerable. It lists every status the data mentions, what each currently means, and a control to change it — and applying re-derives every figure from the raw issues underneath.
