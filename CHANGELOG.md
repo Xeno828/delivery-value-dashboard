@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.56.1
+
+**ADR 0026 was referenced in five places and had never been written.** Code comments in `orgconfig.py`, `metrics.py`, `src/app.js` and `forge/src/index.js` all pointed at it, and so did two changelog entries and a manifest comment. It exists now, and a sweep for `ADR NNNN` references against `docs/adr/` reports none missing.
+
+It is the record for the two things that made business value reach a figure: **epics are not on a scrum board** and are fetched separately, and **items and value are counted from two different sets** — the split that put *"−1 of the 0 completed items"* on a screen when only half its readers were updated.
+
+**`docs/roadmap.md` records item 7's roll-up as done** and states plainly what sequencing is still missing: an ask now has a size and a value, and no source for a value *basis*. It also gains a section on what stands between here and a Marketplace listing — one piece of engineering, two decisions that are irreversible after the first external install, and Console work with no code in this repository.
+
 ## 1.56.0
 
 **The fetcher called an endpoint Atlassian has removed, and the migration was not a URL swap.** `scripts/fetch_delivery_data.py` posted to `/rest/api/3/search`, which now answers *"The requested API has been removed. Please migrate to the /rest/api/3/search/jql API."* Found while looking for a way to fetch epics; the Forge route was never affected, because it uses the agile endpoints.

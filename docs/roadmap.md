@@ -26,7 +26,7 @@ references are wrong.
 | 4 | Durable sprint history | 3 — make it defensible | 3–4 wk | **Done** — 2026-08-29 |
 | 5 | Permission mirroring | 3 — make it defensible | 5–8 wk | **First pass done** — three exposures answered by accepting and naming them; no permission model built |
 | 6 | SSO, audit log, data residency | 3 — make it defensible | 6–10 wk | **Done** — residency, activity log and SSO, all 2026-08-29; two of the three needed no engineering |
-| 7 | Cross-team roll-up and intake sequencing | 4 — sell it upward | 4–6 wk | **Started** — roll-up selection built 2026-08-29; sequencing blocked on a product question, not on 4 or 5 |
+| 7 | Cross-team roll-up and intake sequencing | 4 — sell it upward | 4–6 wk | **Roll-up done** 2026-08-30. Sequencing has what it counts but not what it ranks by |
 
 Sizes are engineering weeks at planning time, never reconciled against actuals —
 the same caveat the dashboard puts on its own value figures. They are a floor.
@@ -152,7 +152,22 @@ these:
   written down here as impossible. It is deferred, with the three things that
   would change that decision written down and a test that fails if the
   manifest quietly enables it.
-- **7** was recorded as blocked on both of them, and was wrong about each.
+- **7**'s roll-up half is **done and wired**: `rollteams:<project>` is offered as
+  *"— all boards —"*, names the boards it covers, and refuses to forecast
+  ([ADR 0023](adr/0023-a-cross-team-rollup-spans-what-the-reader-can-see.md)).
+  **Sequencing is half-answered.** The product question — *what is an ask?* —
+  got its first answer on 2026-08-29: an ask is an **issue type**, at story
+  level or epic level. Acting on that turned up a bug older than the question
+  (subtasks were counted as items, [ADR 0024](adr/0024-a-parent-and-its-subtasks-are-one-piece-of-work.md))
+  and produced the reader's own type filter, a declared **Business Value** field
+  ([ADR 0025](adr/0025-the-app-declares-a-business-value-field.md)) and the
+  two-pool split ([ADR 0026](adr/0026-items-and-value-are-counted-from-two-different-sets.md)).
+  So an ask now has a **size** and a **value**. What it still has no source for
+  is a **value basis** — the sentence saying *why* a number is what it is, which
+  `intake.sequence` compares orderings against and which no Jira field carries.
+  That is the remaining half of the question, and it is a product decision
+  rather than a coding task.
+- **7** was recorded as blocked on both 4 and 5, and was wrong about each.
   [ADR 0023](adr/0023-a-cross-team-rollup-spans-what-the-reader-can-see.md) has
   it. **Intake sequencing is built** — `intake.sequence()`, a CLI, a service
   route, a renderer and tests — and refuses on Forge for a reason that has
@@ -258,6 +273,48 @@ The part nobody can hurry: a log needs ten **resolved** forecasts before it
 scores anything, and a claim resolves only after its horizon. On a fortnightly
 board that is a few weeks of ordinary use before the first Brier score exists.
 Until then the tile says how many are waiting, which is the honest state.
+
+## What stands between here and a Marketplace listing
+
+Asked on 2026-08-30 and answered from the repository rather than from memory,
+because two of these are not on the numbered list at all.
+
+**Engineering.** One thing: **sequencing needs a value basis**. Everything else
+either works or is a decision rather than a build. Item 5 is a first pass — all
+three exposures answered by *accepting a disclosure and naming it*, which is a
+coherent position and is not the permission model its 5–8 weeks was for.
+
+**Two decisions that are cheap now and expensive after the first external
+install.** Both are irreversible in the same way: changing them later is a major
+version and a forced reinstall for every customer.
+
+1. **A custom domain, or `*.run.app` for ever?** §9 of
+   `docs/hosting-the-calculator.md`. Free to decide today.
+2. **Which residency regions?** EU and US exist. Nine more are available and
+   each is another deployment. §5, §14.
+
+**And one that already bit.** The app has been through two major versions on
+the dev site this week — the `llm` module and `read:epic:jira-software` — both
+free because nothing external is installed. Every remaining module or scope is
+in the same window, and the window closes at the first install.
+
+**Console and commercial, with no code in this repository.** The app has never
+been deployed to `production`; there is one installation, `development`, on the
+dev site. The listing, Atlassian's review and billing are all Console work.
+`docs/forge-deployment.md` says so under *"What is still not here"*.
+
+**What a security review will probe**, all documented, none of them blockers:
+the activity log is **not tamper-evident** and says so
+([ADR 0021](adr/0021-the-audit-log-is-operational-and-says-so.md)); item 5
+accepts an aggregate disclosure rather than enforcing per-issue permissions
+(ADRs [0018](adr/0018-permission-mirroring-holds-by-accident-and-where-it-does-not.md)–[0020](adr/0020-the-anchor-issue-is-the-brief-s-access-control.md));
+and the calculator image carries sixteen HIGH and CRITICAL findings with no
+upstream fix, reported and blocking nothing exactly as
+[ADR 0016](adr/0016-the-image-takes-debians-security-updates-at-build-time.md)
+intends. The answers that would have been problems are all clean: no credential
+collected, no login of its own
+([ADR 0022](adr/0022-sso-is-inherited-because-the-app-owns-no-identity.md)),
+every scope read-only bar the two named and justified.
 
 ## Assets held but unclaimed
 

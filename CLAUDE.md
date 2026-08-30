@@ -120,6 +120,7 @@ These are product decisions, not style. Violating one is a bug even when the tes
 | What a cross-team roll-up covers, why it names its boards, and why it refuses to forecast | `docs/adr/0023-a-cross-team-rollup-spans-what-the-reader-can-see.md` |
 | Which issues count as items, and why a parent and its subtasks are one | `docs/adr/0024-a-parent-and-its-subtasks-are-one-piece-of-work.md` |
 | Where business value is entered, and why it is counted at one level only | `docs/adr/0025-the-app-declares-a-business-value-field.md` |
+| Why epics are fetched separately, and why items and value are two different sets | `docs/adr/0026-items-and-value-are-counted-from-two-different-sets.md` |
 | Which commercial roadmap item something is, and what is done | `docs/roadmap.md` |
 | What the dashboard does for a board with no sprints | `docs/kanban-boards.md` |
 | Finishing the Forge route — the three unfinished pieces | `docs/forge-deployment.md` |
