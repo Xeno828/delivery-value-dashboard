@@ -1626,6 +1626,56 @@ def main():
               page.evaluate("() => window.DVD.orgConfig().sprintLengthDays") == 10,
               page.evaluate("() => window.DVD.orgConfig()"))
 
+        # ---- every key the dataset states, not the four that once existed ----
+        #
+        # `orgConfigOf` named four keys and dropped the rest, while its own
+        # comment said it merged as the Python does. `countSubtasks`,
+        # `countedTypes`, `valueFromHierarchy` and `trendSprints` were each
+        # added to the defaults and to the code that reads them, and never to
+        # the merge — so a dataset that set one had it silently discarded and
+        # the page fell back to its own default. Three of the four decide what
+        # the page *counts*: a site setting `countSubtasks: true` had subtasks
+        # counted in the facts pack and dropped from the dashboard.
+        #
+        # **The check above could not have caught it.** It builds its config
+        # with `OC.merge(OC.DEFAULTS, ...)` and overrides only the calendar, so
+        # the counting keys held their defaults — and a dropped default and the
+        # fallback default are the same number. Hence a config that moves them.
+        counting = OC.merge(cfg, {"countSubtasks": True,
+                                  "countedTypes": ["Story", "Bug"],
+                                  "valueFromHierarchy": 0,
+                                  "trendSprints": 12})
+        ds2 = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        ds2["orgConfig"] = counting
+        page.evaluate("d => window.DVD.applyDataset(d)", ds2)
+        page.wait_for_timeout(700)
+        seen = page.evaluate("() => window.DVD.orgConfig()")
+        for k in ("countSubtasks", "countedTypes", "valueFromHierarchy", "trendSprints"):
+            check("the page keeps %s from the dataset rather than its own default" % k,
+                  seen.get(k) == counting[k],
+                  {"page": seen.get(k), "dataset": counting[k]})
+
+        # The whole merge, key for key, against the Python one. `version` is
+        # dropped from both sides: it is a schema marker rather than an
+        # assumption anything acts on, and it is the one key ORG_DEFAULTS does
+        # not carry — so the page has it only when a dataset states it, while
+        # the tools always do.
+        py_merged = {k: v for k, v in OC.merge(OC.DEFAULTS, counting).items()
+                     if k != "version"}
+        js_merged = {k: v for k, v in seen.items() if k != "version"}
+        check("the page's merged config matches orgconfig.merge exactly",
+              js_merged == py_merged, {"page": js_merged, "py": py_merged})
+
+        # And the counting rule that reads them moves with it — otherwise the
+        # keys could arrive and change nothing, which is the same bug wearing a
+        # different face.
+        subtask_kept = page.evaluate(
+            "() => window.DVD.countedIssues("
+            "  [{key:'A',isSubtask:true,type:'Story'}], window.DVD.orgConfig()"
+            ").kept.length")
+        check("and countedIssues acts on the value that arrived",
+              subtask_kept == 1, subtask_kept)
+
         js_days = page.evaluate(
             "a => window.DVD.workingDays(a[0], a[1], window.DVD.orgConfig())",
             ["2026-08-01", "2026-08-16"])

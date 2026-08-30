@@ -947,17 +947,41 @@ const DAY_INDEX = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
 const normStatus = s => String(s == null ? "" : s).trim().replace(/\s+/g, " ").toLowerCase();
 
 /** Merge a dataset's block over the defaults, one level down, as the Python does.
- *  A config naming only `done` keeps the default `inProgress` list — an empty
- *  list would claim no status is in progress, which nobody means by omission. */
+ *
+ *  **It used to name four keys and drop the rest**, while this comment claimed
+ *  it merged. `countSubtasks`, `countedTypes`, `valueFromHierarchy` and
+ *  `trendSprints` were each added to `ORG_DEFAULTS` and to the code that reads
+ *  them, and never here — so a dataset that set one had it silently discarded
+ *  and the page fell back to its own default. The tools read the same block
+ *  through `orgconfig.merge()`, which keeps everything.
+ *
+ *  Three of those four decide what the page *counts*. A site setting
+ *  `countSubtasks: true` had subtasks counted in the facts pack and dropped
+ *  from the dashboard: two item counts, two throughputs, two forecasts, both
+ *  looking right. That is the disagreement the "config travels inside the
+ *  data" rule exists to prevent, arriving through the one function that
+ *  implements it.
+ *
+ *  So: copy every key the dataset states, rather than the keys that existed on
+ *  the day this was written. `statuses` still merges key by key, because a
+ *  config naming only `done` must keep the default `inProgress` — an empty list
+ *  would mean "no status is in progress", which nobody claims by omission. */
 function orgConfigOf(d) {
   const o = (d && d.orgConfig) || {};
-  const st = Object.assign({}, ORG_DEFAULTS.statuses, o.statuses || {});
-  return {
-    statuses: st,
-    workingWeek: o.workingWeek || ORG_DEFAULTS.workingWeek,
-    holidays: o.holidays || ORG_DEFAULTS.holidays,
-    sprintLengthDays: o.sprintLengthDays || ORG_DEFAULTS.sprintLengthDays
-  };
+  const out = JSON.parse(JSON.stringify(ORG_DEFAULTS));
+  Object.keys(o).forEach(k => {
+    const v = o[k];
+    if (v === null || v === undefined) return;
+    if (k === "statuses" && typeof v === "object" && !Array.isArray(v)) {
+      out.statuses = Object.assign({}, out.statuses);
+      Object.keys(v).forEach(sk => {
+        if (v[sk] !== null && v[sk] !== undefined) out.statuses[sk] = v[sk];
+      });
+    } else {
+      out[k] = v;
+    }
+  });
+  return out;
 }
 
 /** The active config. Set by normalise(); never read from anywhere else. */
@@ -5575,6 +5599,10 @@ window.DVD = {
   orgConfig: () => ORG(),
   orgSummary: orgSummary,
   statusCategoryOf: statusCategoryOf,
+  /* Exported for the same reason `statusCategoryOf` is: it mirrors
+     `orgconfig.counted_issues()` and a test has to be able to run both over one
+     config and compare. ADR 0024. */
+  countedIssues: countedIssues,
   /** Hooks for tests/perf.py. Not used by the page itself. */
   debug: {
     /** Which transport live mode picked, or null for none. The page must

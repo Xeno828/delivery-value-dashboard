@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.59.0
+
+**The page dropped four of the organisation's own settings and used its defaults instead.** `orgConfigOf()` in `src/app.js` named four keys — `statuses`, `workingWeek`, `holidays`, `sprintLengthDays` — and built a fresh object from them, discarding everything else a dataset stated. Its own comment said *"Merge a dataset's block over the defaults, one level down, as the Python does."* It did not. `orgconfig.merge()` and the Forge `mergeOrgConfig()` both copy every key; this copied a list written before four more keys existed.
+
+**`countSubtasks`, `countedTypes`, `valueFromHierarchy` and `trendSprints` were each added to `ORG_DEFAULTS` and to the code that reads them, and never here.** Three of the four decide what the page *counts*. A site setting `countSubtasks: true` had subtasks counted in the facts pack and dropped from the dashboard: two item counts, two throughputs, two forecast inputs, both looking exactly right. That is the disagreement the *"the config travels inside the data"* rule exists to prevent, arriving through the one function that implements it.
+
+**Live on Forge, not only in a file.** `mergeOrgConfig` preserves whatever a project states in its `orgConfig` property, so a tenant that set any of these had it reach the page and be discarded there.
+
+**Why nothing caught it.** `tests/e2e.py` already compares the page's config against `orgconfig.py` under a deliberately non-default config — and overrode only the calendar, building the rest with `OC.merge(OC.DEFAULTS, ...)`. So the counting keys sat at their defaults, and a dropped default and the fallback default are the same number. The check now moves all four and asserts the whole merged config matches `orgconfig.merge()` key for key, `version` aside. Reverted against the old code it fails six ways.
+
+**And it asserts the value arrives *and* is acted on**, because a key that reaches the page and changes nothing is the same bug wearing a different face. `countedIssues` is exported on `window.DVD` for that, the same reason `statusCategoryOf` already was.
+
+**Found while looking into a workflow control**, not by a failing test — the seventh defect this month found by reading the path a value actually takes rather than by running the suite.
+
+## 1.58.1
+
+**`Accepted` is stated rather than inferred.** The first real pull reported three statuses matched by no rule in `config/organisation.json` and resolved from Jira's own category instead. `Accepted` is confirmed In Progress, so the config says so rather than leaving it to a fallback that was right by luck on this board and silent either way. `Architecture Review` and `To Do` are still inferred.
+
 ## 1.58.0
 
 **The fetcher made its first real request to a Jira, and three things were wrong that no stub could have shown.**
