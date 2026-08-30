@@ -480,6 +480,113 @@ def test_forecast_log():
 
 
 # =====================================================================
+# 3c. the search endpoint, which Atlassian removed
+# =====================================================================
+def test_search_pages_by_token():
+    """`/rest/api/3/search` was removed; `/search/jql` pages by token.
+
+    Not a URL swap. The old endpoint paged by index and returned a `total`, and
+    the loop stopped when `startAt >= total`. Against the new shape `total` is
+    absent — so `body.get("total", 0)` is 0, the condition is true on the first
+    pass, and the pull stops after one page. **One hundred issues reported as
+    the whole board**, which is this repository's worst failure: not an error, a
+    smaller number that looks exactly like the right one.
+
+    Driven through a stub transport, because the mistake is in the *loop* and a
+    loop can be tested without a Jira.
+    """
+    class Stub:
+        """Pages by token, and never returns a `total` — as Jira now does."""
+
+        def __init__(self, pages, isLast_on=None):
+            self.pages, self.isLast_on = pages, isLast_on
+            self.seen = []            # every body posted, in order
+            self.paths = []
+
+        def post(self, path, json=None):
+            self.paths.append(path)
+            self.seen.append(json)
+            token = (json or {}).get("nextPageToken")
+            idx = 0 if token is None else int(token)
+            issues = self.pages[idx]
+            body = {"issues": issues}
+            if idx + 1 < len(self.pages):
+                body["nextPageToken"] = str(idx + 1)
+            if self.isLast_on == idx:
+                body["isLast"] = True
+            return _Resp(body)
+
+    class _Resp:
+        def __init__(self, body):
+            self.body = body
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.body
+
+    j = FD.Jira.__new__(FD.Jira)
+
+    # Three pages of two. The old loop would have returned two issues.
+    j.t = Stub([[{"key": "A"}, {"key": "B"}],
+                [{"key": "C"}, {"key": "D"}],
+                [{"key": "E"}]])
+    got = j.search("sprint = 1", ["summary"])
+    check("every page is followed, not just the first",
+          [i["key"] for i in got] == ["A", "B", "C", "D", "E"],
+          [i["key"] for i in got])
+    check("and it posts to the endpoint that still exists",
+          set(j.t.paths) == {"/rest/api/3/search/jql"}, set(j.t.paths))
+    check("the first request carries no page token",
+          "nextPageToken" not in j.t.seen[0], sorted(j.t.seen[0]))
+    check("and every later one carries the token it was given",
+          [b.get("nextPageToken") for b in j.t.seen[1:]] == ["1", "2"],
+          [b.get("nextPageToken") for b in j.t.seen[1:]])
+    check("the changelog is still expanded, which `started` depends on",
+          all(b.get("expand") == "changelog" for b in j.t.seen),
+          [b.get("expand") for b in j.t.seen][:1])
+    check("no request asks for startAt, which the endpoint no longer takes",
+          not any("startAt" in b for b in j.t.seen), j.t.seen[0])
+
+    # `isLast` is documented as not returned by every operation, so a missing
+    # token has to end it too — and where both are present they must agree.
+    j.t = Stub([[{"key": "A"}], [{"key": "B"}], [{"key": "C"}]], isLast_on=1)
+    check("isLast ends the walk even while a token is still offered",
+          [i["key"] for i in j.search("q", ["summary"])] == ["A", "B"],
+          "isLast honoured")
+
+    # One page, no token, no total: the case the old loop got right by accident
+    # and the new one must get right on purpose.
+    j.t = Stub([[{"key": "A"}, {"key": "B"}]])
+    check("a single page with no token and no total returns all of it",
+          len(j.search("q", ["summary"])) == 2, "single page")
+
+    # A server that keeps handing back a token must stop this, and it must
+    # **raise** rather than return what it has — a short pull is a dashboard
+    # that is wrong and looks right.
+    class Endless:
+        def __init__(self):
+            self.n = 0
+
+        def post(self, path, json=None):
+            self.n += 1
+            return _Resp({"issues": [{"key": "X%d" % self.n}],
+                          "nextPageToken": str(self.n)})
+
+    j.t = Endless()
+    raised = False
+    try:
+        j.search("q", ["summary"])
+    except RuntimeError as e:
+        raised = "looks right" in str(e)
+    check("an endless token stream raises rather than truncating",
+          raised, "no runaway, no silent short pull")
+    check("and it stopped at the stated cap rather than running on",
+          j.t.n == FD.Jira.MAX_SEARCH_PAGES, j.t.n)
+
+
+# =====================================================================
 # 4. backtest — would this forecast have been right?
 # =====================================================================
 # =====================================================================
@@ -1022,6 +1129,8 @@ if __name__ == "__main__":
     test_calibration()
     print("the forecast log")
     test_forecast_log()
+    print("the search endpoint")
+    test_search_pages_by_token()
     print("intake — sizing")
     test_intake_sizing()
     print("intake — scope")

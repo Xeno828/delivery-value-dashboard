@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.56.0
+
+**The fetcher called an endpoint Atlassian has removed, and the migration was not a URL swap.** `scripts/fetch_delivery_data.py` posted to `/rest/api/3/search`, which now answers *"The requested API has been removed. Please migrate to the /rest/api/3/search/jql API."* Found while looking for a way to fetch epics; the Forge route was never affected, because it uses the agile endpoints.
+
+**Changing only the path would have been worse than leaving it broken.** The old endpoint paged by index and returned a `total`, and the loop stopped when `startAt >= total`. The new one pages by **token** and returns no total — so `body.get("total", 0)` would be `0`, the condition true on the first pass, and the pull would stop after one page. **One hundred issues reported as the whole board**: not an error, a smaller number that looks exactly like the right one, which is the failure this repository fears most. A removed endpoint fails loudly; a half-done migration does not.
+
+The walk now ends on the **absence of a token**, and on `isLast` where it is present — the documentation is explicit that `isLast` *"is not returned for all operations"*, so a missing token has to end it too.
+
+**There is no total left to check the answer against.** The old code could in principle have compared what it collected with what Jira said existed; nothing can now. So the only guard remaining is a page cap, and it **raises** rather than returning what it has — there are community reports of `nextPageToken` arriving when the page was in fact the last, and a runaway that quietly returned a partial board would be the same silent short pull one level up.
+
+**Tested through a stub transport**, because the mistake is in the loop and a loop needs no Jira: three pages followed by token, `isLast` honoured while a token is still offered, a single page with neither token nor total returned whole, `startAt` never sent, `changelog` still expanded — `started` and `addedMidSprint` depend on it — and an endless token stream raising at the stated cap.
+
 ## 1.55.1
 
 **The value tile printed "−1 of the 0 completed items carry no value estimate."** Seen in a tenant, on the first sprint where an epic delivered value while the sprint's own items were all still open.

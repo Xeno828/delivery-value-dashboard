@@ -231,21 +231,52 @@ class Jira:
             vals = data.get("values") or []
         return vals[0] if vals else None
 
+    #: A page count no real board reaches, so a server that kept handing back a
+    #: token stops this rather than looping for ever. Community reports of
+    #: `nextPageToken` arriving when the page was in fact the last are the
+    #: reason this exists at all — and it raises rather than returning what it
+    #: has, because a short pull is a dashboard that is wrong and looks right.
+    MAX_SEARCH_PAGES = 200
+
     def search(self, jql, fields, expand="changelog"):
-        out, start = [], 0
-        while True:
-            page = self.t.post(
-                "/rest/api/3/search",
-                json={"jql": jql, "startAt": start, "maxResults": 100,
-                      "fields": fields, "expand": [expand]},
-            )
+        """Every issue matching `jql`, paged.
+
+        `/rest/api/3/search/jql`, because `/rest/api/3/search` **has been
+        removed** — it answers *"The requested API has been removed. Please
+        migrate to the /rest/api/3/search/jql API."* This was not a URL swap:
+
+        **The new endpoint pages by token, not by index.** `startAt` and `total`
+        are gone. The old loop stopped when `startAt >= total`, and against the
+        new shape `total` is absent, so `body.get("total", 0)` returned 0, the
+        condition was true on the first pass, and it would have stopped after
+        one page — one hundred issues reported as the whole board. That is the
+        failure this repository fears most, so the stop condition is now the
+        absence of a token and nothing else.
+
+        **There is no total to check the result against.** The old code could
+        have compared what it collected against what Jira said existed; nothing
+        can now. So the only guard left is the page cap above, and it raises.
+        """
+        out, token = [], None
+        for page_no in range(self.MAX_SEARCH_PAGES):
+            body = {"jql": jql, "maxResults": 100, "fields": fields,
+                    "expand": expand}
+            if token:
+                body["nextPageToken"] = token
+            page = self.t.post("/rest/api/3/search/jql", json=body)
             page.raise_for_status()
-            body = page.json()
-            out.extend(body.get("issues", []))
-            start += len(body.get("issues", []))
-            if start >= body.get("total", 0) or not body.get("issues"):
-                break
-        return out
+            got = page.json()
+            issues = got.get("issues") or []
+            out.extend(issues)
+            token = got.get("nextPageToken")
+            # Both conditions, because `isLast` is documented as not returned by
+            # every operation and a missing token is the reliable end marker.
+            if not token or got.get("isLast") is True or not issues:
+                return out
+        raise RuntimeError(
+            "search returned more than %d pages for %r. %d issues were read and "
+            "none are reported: a board pulled short is a dashboard that is "
+            "wrong and looks right." % (self.MAX_SEARCH_PAGES, jql, len(out)))
 
 
 def connect_jira(args=None):
