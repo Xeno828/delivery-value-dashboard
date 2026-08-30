@@ -89,9 +89,7 @@ alternative — the producer filtering before writing the dataset — was reject
 because it discards the raw issues, so changing the config would need a refetch,
 and a bundle could never be re-read under a different answer.
 
-## What this does not do
-
-### The reader's own selection, added the same day
+## The reader's own selection, added the same day
 
 The organisation decides what is *countable*; a reader chooses among what is
 left. The filter in the page's own row lists the types **this board actually
@@ -118,6 +116,8 @@ reason is printed under the list rather than left as an absence.
 **Selecting nothing is a refusal.** `null` means no restriction; an empty list
 means the reader unticked everything, and the page says the evidence is absent
 rather than quietly showing all of them or reporting zero. ADR 0010.
+
+## What this does not do
 
 **It does not answer what an ask is for sequencing.** That is the rest of the
 decision above — an ask is an issue type, at story level or epic level — and it
