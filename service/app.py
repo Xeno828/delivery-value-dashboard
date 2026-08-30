@@ -105,6 +105,16 @@ CALC_FIELDS = frozenset((
     # Jira's own flag. Neither is free text and neither identifies a person.
     # ADR 0024.
     "type", "isSubtask",
+    # Business value and the level it sits at — ADR 0025. The tools sum value
+    # and apply the hierarchy rule, so the tools have to see both.
+    #
+    # This is the most commercially sensitive figure in the product and sending
+    # it is a deliberate decision, not a field addition. It is a *number* with
+    # no label attached: `valueBasis`, the sentence explaining what the number
+    # means, stays in FREE_TEXT_FIELDS and is refused at the door. A currency
+    # amount with no issue key beside it and no basis is not something a reader
+    # of this service could act on, and the calculator stores nothing.
+    "businessValue", "hierarchyLevel",
 ))
 
 #: Fields refused outright if they arrive. A caller sending issue summaries to

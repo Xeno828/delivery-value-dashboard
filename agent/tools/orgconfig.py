@@ -81,6 +81,21 @@ DEFAULTS = {
     # because naming the types means naming them per site and a site that adds
     # one would silently stop counting it.
     "countedTypes": [],
+    # The lowest issue-type hierarchy level whose business value counts — ADR
+    # 0025. Jira levels its types: subtask −1, story/task/bug 0, epic 1, and a
+    # site with a higher tier puts initiatives and themes above that. **1 means
+    # epic and anything above it.**
+    #
+    # A level rather than a list of type names, for the reason `countedTypes`
+    # defaults to empty: naming types means naming them per site, and a site
+    # that adds "Initiative" above Epic would silently stop counting the tier
+    # it cares most about.
+    #
+    # Value belongs at one level and not several. A parent epic worth £40k and
+    # its five stories each worth £8k are one piece of value and six rows, and
+    # summing them reports £80k — the same double count as a parent and its
+    # subtasks, one tier up.
+    "valueFromHierarchy": 1,
 }
 
 DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -189,6 +204,12 @@ def validate(cfg):
     # Two is the floor because a trend needs two points to be a trend, and the
     # ceiling exists because every sprint in the window is a sprint's worth of
     # issues fetched — an unbounded window is a tenant waiting on a page load.
+    v = cfg.get("valueFromHierarchy")
+    if not isinstance(v, int) or isinstance(v, bool) or not (-1 <= v <= 10):
+        p.append("valueFromHierarchy must be a whole number between -1 and 10 — "
+                 "Jira levels its issue types, with subtasks at -1, stories at 0 "
+                 "and epics at 1")
+
     if not isinstance(cfg.get("countSubtasks"), bool):
         p.append("countSubtasks must be true or false")
     ct = cfg.get("countedTypes")
@@ -419,3 +440,41 @@ def counted_note(excluded, total):
             "subtasks are one piece of work; counting both would report a team "
             "that breaks work down finely as delivering several times more."
             % (gone, total, parts))
+
+
+def value_counts(issue, cfg=None):
+    """Whether this issue's business value is counted — ADR 0025.
+
+    Value belongs at one level of the hierarchy, not several: a parent epic
+    worth £40k and its five stories at £8k each are one piece of value and six
+    rows, and summing them reports £80k. The same double count as a parent and
+    its subtasks, one tier up.
+
+    **An issue with no recorded level is counted.** Every dataset written before
+    hierarchy levels were captured carries none — including the sample bundle,
+    whose value sits on stories — and reading absence as "below the line" would
+    zero them. Only a level this *knows* is too low excludes anything.
+    """
+    cfg = cfg or DEFAULTS
+    floor = cfg.get("valueFromHierarchy")
+    if not isinstance(floor, int) or isinstance(floor, bool):
+        floor = DEFAULTS["valueFromHierarchy"]
+    lvl = (issue or {}).get("hierarchyLevel")
+    if not isinstance(lvl, int) or isinstance(lvl, bool):
+        return True
+    return lvl >= floor
+
+
+def value_of(issue, cfg=None):
+    """One issue's business value as it should be counted, or zero.
+
+    The one place the rule is applied, so a caller cannot sum the raw field by
+    accident — which is how a parent and its stories came to be added together
+    in the first draft of this.
+    """
+    if not value_counts(issue, cfg):
+        return 0
+    try:
+        return float((issue or {}).get("businessValue") or 0)
+    except (TypeError, ValueError):
+        return 0

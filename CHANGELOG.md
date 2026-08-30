@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.54.0
+
+**The app declares a Business Value field, so a Forge tenant can report value for the first time.** Jira has no native field for what work is worth, so `businessValue` has been a hardcoded `0` in the Forge projection since it was written and `valueDelivered` came back *absent* on every tenant. [ADR 0025](docs/adr/0025-the-app-declares-a-business-value-field.md).
+
+**Declared, not created, and that is what makes it cheap.** A `jira:customField` module makes Jira create the field on install. Creating one through `POST /rest/api/3/field` would need **Administer Jira** — the grant ADR 0020 refused for checking recipients and ADR 0021 refused again for reading the audit log. This needs no scope the app did not already hold, and **no write scope either**: the field is editable in Jira's own UI because what work is worth is a judgement made by whoever is accountable for it, not by an app.
+
+**Found by key, never by display name.** A Forge field's key carries the module key that declared it, so this identifies *this app's* field. `findStoryPointField` beside it matches on three known names because it is looking for a field the app did not create — the difference is deliberate. A site that already has its own field called "Business Value" is exactly the case where a name match reads somebody else's numbers and reports them as delivered value. And an unset field is `null`, not `0`: a field nobody filled in and work genuinely worth nothing are different facts.
+
+**Counted at epic level and above, and only at one level.** An epic worth £40k and its five stories at £8k each are **one piece of value and six rows** — summing both reports £80k, which is the subtask double count of 1.52.0 one tier up and with money on it. `orgConfig.valueFromHierarchy` defaults to `1`, using Jira's own issue-type hierarchy: subtask −1, story 0, epic 1, initiatives above. **A level rather than a list of type names**, for the same reason `countedTypes` defaults to empty — a site that adds "Initiative" above Epic would otherwise silently stop counting the tier it cares most about. An issue with no recorded level still counts, or every dataset written before levels existed reads as worthless.
+
+**The manifest cannot restrict a field to issue types**, so which levels count is the app's rule rather than the customer's field context. That is the right way round: relying on their configuration to prevent a double count is relying on a setting nobody checks.
+
+**Three ways the value tile is empty, and three sentences.** It had one for all of them, and on Forge it was always the wrong one. Nothing carries a value; nothing that carries one counts because it sits below the line; or **the field is not on a screen yet** — a Jira admin must add it before anyone can type in it, the module cannot do that, and the tile says so plainly rather than letting a reader take it as "we delivered nothing of value". The third is the state every installation is in on the day it upgrades.
+
+**Two costs, stated rather than discovered.** Declaring a module is a **major version upgrade and a forced reinstall for every tenant** — free today with no external installs, expensive after the first, which is the argument the `llm` module landed under. And business value now reaches the calculator, which is a decision and not a field addition: it travels as a bare number, with `valueBasis` still refused at the door, so a currency amount arrives with no issue key and no explanation beside it.
+
+**Three guards caught this change.** The projection-parity check, until both new fields were in the resolver's list as well as the service's. *"The Forge issue invents no field the page does not read"*, until `hierarchyLevel` was declared with its justification. And the app-level store inventory, which matched `BUSINESS_VALUE_KEY` — a module key, not a store — because it is spelled like one. That scan now follows `kvs` calls back to their literals through a helper, which is what it should always have done; two earlier versions of it were wrong in opposite directions.
+
 ## 1.53.0
 
 **An issue-type filter that changes what the dashboard counts, not only what it lists.** It pulls the types the selected board actually uses — read off the loaded issues rather than from what Jira could return, so a board that has never raised a Bug does not offer Bug and a site that invents a type next week gets it without anybody editing code — with the count of each beside it.

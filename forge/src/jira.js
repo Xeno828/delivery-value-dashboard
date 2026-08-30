@@ -313,6 +313,47 @@ export const findStoryPointField = (fields) => {
   return null;
 };
 
+/** One issue's business value, or null when nobody has recorded one.
+ *
+ *  Null rather than zero, and the distinction is the whole reason this is a
+ *  function. A field nobody has filled in and a piece of work genuinely worth
+ *  nothing are different facts; `metrics.facts` reports value as *unmeasured*
+ *  for the first and as zero for the second, and collapsing them here would
+ *  make that impossible one layer down. */
+const valueOf = (fields, fieldId) => {
+  if (!fieldId) return null;
+  const raw = fields[fieldId];
+  if (raw === null || raw === undefined || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+};
+
+/** The module key of this app's own business-value field, as declared in
+ *  `forge/manifest.yml`. ADR 0025. */
+export const BUSINESS_VALUE_KEY = 'business-value';
+
+/**
+ * This app's own Business Value field, from `/rest/api/3/field`.
+ *
+ * Matched on the field's **key** and not its name. A Forge custom field's key
+ * carries the module key that declared it, so it identifies *this app's* field
+ * rather than any field a site happens to have called "Business Value" — and a
+ * site that already has one of its own is exactly the case where matching on a
+ * display name would read somebody else's numbers and report them as value.
+ *
+ * `findStoryPointField` above matches on names because it is looking for a
+ * field this app did not create and cannot identify any other way. The
+ * difference is worth keeping: one is a guess with three known spellings, the
+ * other is a fact.
+ */
+export const findBusinessValueField = (fields) => {
+  for (const f of fields || []) {
+    const key = String(f.key ?? f.id ?? '');
+    if (key.includes(BUSINESS_VALUE_KEY)) return f.id ?? null;
+  }
+  return null;
+};
+
 /* ------------------------------------------------------------------ config
 
    The assumptions that are true of exactly one company: which statuses mean
@@ -598,6 +639,9 @@ export const issueFrom = (raw, opts) => {
     // can call anything. Recorded on every issue; `counted_issues` decides what
     // to do with it. ADR 0024.
     isSubtask: Boolean((f.issuetype || {}).subtask),
+    // Jira levels its issue types: subtask -1, story 0, epic 1, initiatives
+    // above. Business value is counted at one level and not several. ADR 0025.
+    hierarchyLevel: (f.issuetype || {}).hierarchyLevel ?? null,
     status: status.name ?? null,
     assignee: (f.assignee || {}).displayName || 'Unassigned',
     // Read from whichever field this site calls story points, discovered by
@@ -616,7 +660,17 @@ export const issueFrom = (raw, opts) => {
     flagged: Boolean(f.flagged),
     addedMidSprint: addedMidSprint(raw, o.sprintStart),
     statusTransitions: statusTransitions(raw),
-    businessValue: 0,
+    // This app's own Business Value field, where the site has it on a screen and
+    // somebody has filled it in — ADR 0025. It read a hardcoded 0 before,
+    // because Jira has no native field for what work is worth and this app had
+    // not declared one.
+    //
+    // `null` and not 0 when the field is absent or empty. The two are different
+    // facts and the tools already act on the difference: `valueDelivered` comes
+    // back *unmeasured* rather than nil when nothing carried a value, because
+    // "this sprint delivered nothing worth anything" is a much stronger claim
+    // than "nobody has told us".
+    businessValue: valueOf(f, o.businessValueField),
     valueBasis: '',
     labels: f.labels || [],
     url: site && raw.key ? `${site}/browse/${encodeURIComponent(raw.key)}` : null,

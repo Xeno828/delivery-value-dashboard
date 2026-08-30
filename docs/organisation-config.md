@@ -13,6 +13,7 @@ is where they are decided now.
 | `trendSprints` | `6` | How many sprints the predictability and load trends show. Two is the floor because a trend needs two points; forty is the ceiling because every sprint in the window is a sprint's worth of issues fetched. What it cuts is named on the page rather than implied. |
 | `countSubtasks` | `false` | Whether a subtask counts as an item. A parent and its three subtasks are one piece of work and four rows; counted, a team that breaks work down finely reports several times the throughput of one that does not. |
 | `countedTypes` | `[]` | Issue type names that count as items, matched case-insensitively. Empty means every type the rule above left — naming them means naming them per site, and a site that added one would silently stop counting it. |
+| `valueFromHierarchy` | `1` | The lowest Jira issue-type hierarchy level whose business value is counted. Subtask −1, story 0, epic 1, initiatives above. One means epic and everything above it: an epic and its stories both carrying a value would otherwise be added together. An issue with no recorded level still counts. |
 
 The file lives at `config/organisation.json`. Validate it with
 

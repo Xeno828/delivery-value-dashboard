@@ -56,6 +56,45 @@ modules:
       model:
         - claude
 
+  # Business value, declared rather than created — roadmap item 7, ADR 0025.
+  #
+  # Jira has no native field for what a piece of work is worth, so every Forge
+  # tenant has reported `valueDelivered` as *absent* rather than nil since the
+  # series was built. This is the field that makes it a figure.
+  #
+  # **Declared, not created.** A `jira:customField` module makes Jira create a
+  # locked instance of the field on install. Creating one through
+  # `POST /rest/api/3/field` would need *Administer Jira*, which ADR 0020 and
+  # ADR 0021 both refused — so this needs no scope the app did not already hold.
+  #
+  # Not `readOnly`, so a person edits it in Jira's own UI. The app never writes
+  # it, which is why there is no `write:` scope here: value is a judgement made
+  # by whoever is accountable for it, and an app that wrote it would be making
+  # that judgement.
+  #
+  # **A Jira admin must add it to a screen before anyone can fill it in.** The
+  # module cannot do that and no scope grants it. The tile says so, and says it
+  # differently from "nobody has entered a value yet", because those have
+  # different fixes.
+  #
+  # Nothing here restricts which issue types carry it — the manifest has no such
+  # property. Which levels *count* is `orgConfig.valueFromHierarchy`, applied by
+  # the tools, because relying on the customer's field context would be relying
+  # on their configuration to prevent a double count.
+  #
+  # Declaring this module is a MAJOR VERSION upgrade and a forced reinstall for
+  # every tenant — free today with no external installs, expensive after the
+  # first, which is why it lands now. The same argument the `llm` module above
+  # was added under.
+  jira:customField:
+    - key: business-value
+      name: Business Value
+      description: >-
+        What this piece of work is worth, in the currency this board reports in.
+        Filled in on epics and above; a value on a story below an epic that also
+        carries one would be counted twice, so it is not counted at all.
+      type: number
+
   function:
     - key: resolver
       handler: index.handler

@@ -875,7 +875,11 @@ def test_the_two_transports_answer_the_same_shape():
     #   isSubtask           read by countedIssues(), which decides what counts
     #                       as an item — a parent and its subtasks are one
     #                       piece of work and several rows. ADR 0024.
-    read_by_page = {"contextId", "statusTransitions", "isSubtask"}
+    #   hierarchyLevel      read by valueCounts(), which decides whether an
+    #                       issue's business value counts — value belongs at
+    #                       one level, not at an epic and its stories both.
+    #                       ADR 0025.
+    read_by_page = {"contextId", "statusTransitions", "isSubtask", "hierarchyLevel"}
     for f in sorted(read_by_page):
         check("the page really reads %s, so allowing it here is not a loophole" % f,
               re.search(r"\b%s\b" % f, app_js) is not None, f)
@@ -887,7 +891,7 @@ def test_the_two_transports_answer_the_same_shape():
     # because free text is stripped on the way in. Sizing over that route
     # therefore grouped nothing and refused, for every board, always. It groups
     # on the key now — see `test_epic_sizing_survives_the_projection`.
-    read_by_tools = {"epicKey", "isSubtask"}
+    read_by_tools = {"epicKey", "isSubtask", "hierarchyLevel"}
     tools = "".join(f.read_text() for f in sorted((ROOT / "agent" / "tools").glob("*.py")))
     for f in sorted(read_by_tools):
         check("%s is read by agent/tools, so sending it is not a loophole either" % f,
@@ -3427,12 +3431,20 @@ def series_checks():
           served["merged"] == MT.merge_series(
               {}, [{"sprintId": r["contextId"], "row": r["row"]} for r in direct],
               None)["rows"], served["sprints"])
-    # Jira has no value field and CALC_FIELDS carries none, so the calculator
-    # can only ever answer null here. Zero would say the sprint delivered
-    # nothing worth anything, which is a much stronger claim.
-    check("value delivered comes back absent, never zero, over the calculator",
-          all(r["row"]["valueDelivered"] is None for r in served["rows"]),
-          [r["row"]["valueDelivered"] for r in served["rows"][:3]])
+    # This asserted that value could *never* reach the calculator, because Jira
+    # had no field for it and `CALC_FIELDS` carried none. ADR 0025 declares the
+    # field, so it can — and the check now holds the thing that is still true:
+    # a value nobody recorded is absent rather than nil. `valueDelivered` is
+    # None only when nothing in the set carried the field at all.
+    check("value now reaches the calculator, where a site records one",
+          {"businessValue", "hierarchyLevel"} <= set(SVC.CALC_FIELDS),
+          sorted(SVC.CALC_FIELDS))
+    novalue = [{k: v for k, v in i.items() if k != "businessValue"} for i in proj]
+    check("and a set that carries none reports value unmeasured, never zero",
+          all(r["row"]["valueDelivered"] is None
+              for r in SVC.route_history({"dataset": {"contexts": bundle["contexts"],
+                                                      "issues": novalue}})["rows"]),
+          "absent, not nil")
     upto = SVC.route_history({"dataset": {"contexts": bundle["contexts"],
                                           "issues": proj,
                                           "orgConfig": bundle.get("orgConfig")},
@@ -3794,6 +3806,7 @@ def window_checks():
 #: computed over issues that every reader of it may see?
 APP_LEVEL_STORES = {
     "recipients": {
+        "kvs": True,
         "authority": "admin",
         "exposes": "who a board's brief goes to. Written by a project "
                    "administrator and shown to viewers who cannot edit it, "
@@ -3802,6 +3815,7 @@ APP_LEVEL_STORES = {
         "mirrors": True,
     },
     "series:": {
+        "kvs": True,
         "authority": "user",
         "exposes": "sprint counts computed from whichever viewer's read "
                    "recorded them, shown to every later reader. Under "
@@ -3815,6 +3829,10 @@ APP_LEVEL_STORES = {
     # an inventory — and because "it is not our store" is exactly the reasoning
     # that should be written down rather than assumed by the next reader.
     "orgConfig": {
+        # Not a `kvs` store, which is why the scan below does not find it and
+        # must not be expected to. Listed anyway: an inventory with a silent
+        # exception is not an inventory.
+        "kvs": False,
         "authority": "jira",
         "exposes": "which statuses mean done, the working week and the "
                    "holidays — a project property read under the reader's own "
@@ -3827,6 +3845,7 @@ APP_LEVEL_STORES = {
     # from issues, which is why it needed nothing from item 5. The one identity
     # it holds is the actor, and it is sent to administrators only. ADR 0021.
     "audit": {
+        "kvs": True,
         "authority": "admin",
         "exposes": "when a recipient list changed and who changed it, and "
                    "whether a brief went out. Counts and field names, plus the "
@@ -3835,6 +3854,7 @@ APP_LEVEL_STORES = {
         "mirrors": True,
     },
     "forecastlog:": {
+        "kvs": True,
         "authority": "user",
         "exposes": "capacity claims derived from whichever viewer's read "
                    "published them, scored for every later reader. Same shape "
@@ -3881,17 +3901,46 @@ def permission_mirroring_checks():
     # a regex found the *function* `forecastLogKey` instead of the `forecastlog:`
     # it builds — a check that passed by matching the wrong thing.
     #
-    # Across all of forge/src, not just index.js: `seriesKey` is declared in
-    # series.js, and scanning one file found two of the three stores while
-    # reporting success. The guard below is why that showed.
+    # Followed back from the `kvs` calls, one hop through a helper if need be.
+    #
+    # Two earlier versions of this were wrong in opposite directions. Resolving
+    # the call sites' locals naively found the *function* `forecastLogKey`
+    # instead of the `forecastlog:` it builds. Scanning key *declarations*
+    # instead fixed that and then matched `BUSINESS_VALUE_KEY` — a Forge module
+    # key that is not a store at all — because it is spelled like one. A store
+    # is something written to `kvs`, so that is what this follows.
+    forge_src = "\n".join(f.read_text()
+                          for f in sorted((ROOT / "forge" / "src").glob("*.js")))
+
+    def literal_for(name, depth=0):
+        """The key string `name` resolves to, following one helper call."""
+        if depth > 2:
+            return None
+        m = re.search(r"(?:export\s+)?const\s+%s\s*=\s*(?:\([^)]*\)\s*=>\s*)?(.+)"
+                      % re.escape(name), forge_src)
+        if not m:
+            return None
+        rhs = m.group(1).strip()
+        lit = re.match(r"[`'\"]([A-Za-z][\w-]*:?)", rhs)
+        if lit:
+            return lit.group(1)
+        call = re.match(r"(\w+)\s*\(", rhs)
+        if call:
+            return literal_for(call.group(1), depth + 1)
+        return None
+
     named = set()
-    for src in sorted((ROOT / "forge" / "src").glob("*.js")):
-        for m in re.finditer(r"(?:export\s+)?const\s+\w*(?:Key|KEY)\s*=\s*"
-                             r"(?:\([^)]*\)\s*=>\s*)?[`'\"]([A-Za-z][\w-]*:?)",
-                             src.read_text()):
-            named.add(m.group(1))
-    check("the key declarations were found at all, or this checks nothing",
-          len(named) >= len(APP_LEVEL_STORES), sorted(named))
+    for m in re.finditer(r"kvs\.(?:get|set)\(\s*([A-Za-z_]\w*)", forge_src):
+        got = literal_for(m.group(1))
+        if got:
+            named.add(got)
+    # Compared against the `kvs` half of the inventory, because that is all this
+    # scan can see — `orgConfig` is a Jira project property. A guard that
+    # counted both would fail for the wrong reason and be "fixed" by loosening
+    # the scan, which is how a check stops checking.
+    in_kvs = {k for k, v in APP_LEVEL_STORES.items() if v.get("kvs")}
+    check("every store written to app storage was found, or this checks nothing",
+          named >= in_kvs, {"found": sorted(named), "declared": sorted(in_kvs)})
     undeclared = {n for n in named if n not in APP_LEVEL_STORES}
     check("every app-level store is declared with what it exposes",
           not undeclared, {"undeclared": sorted(undeclared),
@@ -4282,6 +4331,114 @@ def counting_checks():
           SVC.FREE_TEXT_FIELDS)
 
 
+def business_value_checks():
+    """The Business Value field — roadmap item 7, ADR 0025.
+
+    Jira has no native field for what a piece of work is worth, so every Forge
+    tenant reported `valueDelivered` as *absent* from the day the series was
+    built. The app declares one now, and the two things worth checking are that
+    it is declared rather than created — creating one needs Administer Jira,
+    refused twice — and that a value is counted at **one** level of the
+    hierarchy rather than at an epic and its stories both.
+    """
+    print("business value")
+    manifest = (ROOT / "forge" / "manifest.yml").read_text()
+
+    # ---- declared, not created ----
+    check("the app declares a custom field module",
+          "jira:customField" in manifest and "key: business-value" in manifest,
+          [l.strip() for l in manifest.splitlines() if "customField" in l])
+    check("it is a number, so a currency amount is not free text",
+          "type: number" in manifest,
+          [l.strip() for l in manifest.splitlines() if "type: number" in l])
+    # Creating a field through the REST API needs Administer Jira, which
+    # ADR 0020 and ADR 0021 both refused. Declaring one needs nothing.
+    check("and it costs no scope the app did not already hold",
+          "manage:jira-configuration" not in manifest
+          and "admin:jira" not in manifest, "no admin grant")
+    # The app never writes a value: what work is worth is a judgement made by
+    # whoever is accountable for it.
+    check("the app does not write values, so it asks for no write scope",
+          "write:jira-work" not in manifest, "no write scope")
+
+    # ---- one level, not several ----
+    #
+    # An epic worth 40,000 and its five stories at 8,000 each are one piece of
+    # value and six rows. Summing both reports 80,000 — the subtask double
+    # count, one tier up.
+    epic = {"key": "E", "businessValue": 40000, "hierarchyLevel": 1}
+    story = {"key": "S", "businessValue": 8000, "hierarchyLevel": 0}
+    above = {"key": "I", "businessValue": 100000, "hierarchyLevel": 2}
+    sub = {"key": "T", "businessValue": 500, "hierarchyLevel": -1}
+    check("an epic's value counts", OC.value_of(epic) == 40000, OC.value_of(epic))
+    check("a story's does not, so an epic and its stories are not added together",
+          OC.value_of(story) == 0, OC.value_of(story))
+    check("and anything above an epic counts, without naming the tier",
+          OC.value_of(above) == 100000, OC.value_of(above))
+    check("a subtask's certainly does not", OC.value_of(sub) == 0, OC.value_of(sub))
+    # Every dataset written before levels were captured carries none —
+    # including the sample bundle, whose value sits on stories.
+    check("an issue with no recorded level still counts",
+          OC.value_of({"businessValue": 5000}) == 5000,
+          OC.value_of({"businessValue": 5000}))
+    check("a site can move the line, and only to a level Jira has",
+          OC.value_of(story, dict(OC.DEFAULTS, valueFromHierarchy=0)) == 8000
+          and OC.validate(dict(OC.DEFAULTS, valueFromHierarchy=99)),
+          OC.validate(dict(OC.DEFAULTS, valueFromHierarchy=99)))
+
+    # The rule is applied where value is summed, not left to callers.
+    ds = {"issues": [dict(epic, resolved="2026-01-10", created="2026-01-02",
+                          statusCategory="Done"),
+                     dict(story, resolved="2026-01-10", created="2026-01-02",
+                          statusCategory="Done")],
+          "meta": {}, "orgConfig": {}}
+    check("the facts pack sums value at one level only",
+          MT.facts(ds)["value"]["closed_estimate"] == 40000,
+          MT.facts(ds)["value"]["closed_estimate"])
+    rows = [dict(i, storyPoints=0) for i in ds["issues"]]
+    check("and the trend row does too",
+          MT.history_row(rows, "S1", "2026-01-16")["valueDelivered"] == 40000,
+          MT.history_row(rows, "S1", "2026-01-16")["valueDelivered"])
+
+    # ---- the page mirrors it, because the browser cannot call Python ----
+    app_js = (ROOT / "src" / "app.js").read_text()
+    check("the page carries the same rule",
+          "function valueCounts" in app_js and "valueFromHierarchy" in app_js,
+          [l.strip() for l in app_js.splitlines() if "valueFromHierarchy" in l][:1])
+    check("and only counts value the rule allows",
+          "i.valueCounts !== false" in app_js,
+          [l.strip() for l in app_js.splitlines() if "valueItems:" in l])
+
+    # ---- the field is this app's, identified by key and not by name ----
+    #
+    # A site with its own field called "Business Value" is exactly the case
+    # where matching on a display name reads somebody else's numbers and
+    # reports them as value.
+    jira_js = (ROOT / "forge" / "src" / "jira.js").read_text()
+    check("the field is found by its key, not its display name",
+          "key.includes(BUSINESS_VALUE_KEY)" in jira_js,
+          [l.strip() for l in jira_js.splitlines() if "BUSINESS_VALUE_KEY" in l][:2])
+    check("and an unset field reads as absent rather than zero",
+          "const valueOf = (fields, fieldId)" in jira_js
+          and "return null;" in jira_js.split("const valueOf", 1)[1][:400],
+          "valueOf returns null")
+
+    # ---- three empty states, three sentences ----
+    #
+    # Before the field existed there was one sentence for all of them, and on
+    # Forge it was always the wrong one. The third is the state every
+    # installation is in on the day it upgrades.
+    value_tile = app_js.split("function renderValue", 1)[1].split("\n}", 1)[0]
+    for phrase, why in (
+            ("below the level value is", "value sits under the line"),
+            ("carries a value estimate yet", "the field is there and empty"),
+            ("add it to a screen", "the field is not on a screen yet")):
+        check("the value tile names the case: %s" % why,
+              phrase in value_tile, phrase)
+    check("and does not tell an administrator to do something the app could do",
+          "the app cannot do that for them" in value_tile, "admin action named")
+
+
 if __name__ == "__main__":
     import os
     os.environ["SERVICE_SHARED_SECRET"] = SECRET
@@ -4351,6 +4508,7 @@ if __name__ == "__main__":
     audit_log_checks()
     cross_team_checks()
     counting_checks()
+    business_value_checks()
     print("the container image")
     test_dockerfile_copies_everything_the_service_imports()
     test_the_image_takes_debians_security_updates()

@@ -27,7 +27,7 @@ import { kvs } from '@forge/kvs';
 import {
   CONFIG_PROPERTY_KEY, contextEntry, contextsBody, contextBody, contextId,
   findStoryPointField, mergeOrgConfig, parseContextId, issueFrom, notFound,
-  recentSprints, statusesFromJira, validateOrgConfig,
+  recentSprints, statusesFromJira, validateOrgConfig, findBusinessValueField,
   WINDOW_DAYS, windowEntry, windowMembershipJql, contextsLabel,
   MAX_TREND_SPRINTS,
 } from './jira.js';
@@ -64,6 +64,7 @@ const CALC_FIELDS = [
   'key', 'created', 'started', 'resolved', 'statusCategory', 'status',
   'storyPoints', 'priority', 'dueDate', 'flagged', 'addedMidSprint',
   'contextId', 'epicKey', 'type', 'isSubtask',
+  'businessValue', 'hierarchyLevel',
 ];
 
 /** Everything the calculator must never see. Kept here so the two lists can be
@@ -435,6 +436,32 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
  * request would not change it.
  */
 let storyPointField;
+/**
+ * This app's own Business Value field id on this site — ADR 0025.
+ *
+ * Looked up the same way and cached the same way as the story-point field, but
+ * for a different reason: that one is a guess among three known spellings,
+ * because it is a field this app did not create. This one is a *fact* — the
+ * key carries the module key that declared it — so a site with its own field
+ * called "Business Value" is not mistaken for this one.
+ *
+ * `null` means the module has not produced a field on this site yet, which is
+ * the state every installation is in until the app version declaring it is
+ * installed. That is reported rather than treated as "nobody has entered a
+ * value", because the two have entirely different fixes.
+ */
+let _bvField;
+const businessValueFieldFor = async (as) => {
+  if (_bvField !== undefined) return _bvField;
+  try {
+    const res = await jira(as).requestJira(route`/rest/api/3/field`);
+    _bvField = res.ok ? findBusinessValueField(await res.json()) : null;
+  } catch {
+    _bvField = null;
+  }
+  return _bvField;
+};
+
 const storyPointFieldFor = async (as) => {
   if (storyPointField !== undefined) return storyPointField;
   const res = await jira(as).requestJira(route`/rest/api/3/field`);
@@ -694,6 +721,7 @@ resolver.define('contexts', answering(async ({ context }) => {
  */
 const issuesForEntry = async (entry, spField, siteUrl, as) => {
   const parsed = parseContextId(entry.id);
+  const bvField = await businessValueFieldFor(as);
   const raw = entry.kind === 'window'
     ? await fetchWindowIssues(parsed.boardId, entry, spField, as)
     : await fetchSprintIssues(parsed.boardId, parsed.sprintId, spField, as);
@@ -707,6 +735,11 @@ const issuesForEntry = async (entry, spField, siteUrl, as) => {
       // than scoring it, which is where that has to be honoured.
       sprintStart: entry.kind === 'window' ? null : entry.startDate,
       storyPointField: spField,
+      // This app's own field, so a value somebody typed in Jira reaches the
+      // page. Null until the version declaring the module is installed, and
+      // `issueFrom` reads that as "nobody has said" rather than as zero.
+      // ADR 0025.
+      businessValueField: bvField,
       // Only so an issue key is a link. Absent, the page leaves it as text
       // rather than guessing a host.
       siteUrl,

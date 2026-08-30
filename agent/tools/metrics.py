@@ -101,7 +101,7 @@ def in_sprint(i, start):
 
 
 # --------------------------------------------------------------------- facts
-def history_row(issues, sprint_name, as_of):
+def history_row(issues, sprint_name, as_of, cfg=None):
     """One sprint's row of the trend series, as it stood at `as_of`.
 
     **Every count here is a statement about a moment, and the moment is
@@ -190,7 +190,9 @@ def history_row(issues, sprint_name, as_of):
         # every sprint as having delivered nothing of value, which is a much
         # stronger claim than "nobody told us". A set where the field is
         # present and sums to zero keeps its zero.
-        "valueDelivered": (round(sum(i.get("businessValue") or 0 for i in done), 0)
+        # Through `value_of`, which applies the hierarchy rule — a parent epic
+        # and its stories are one piece of value and several rows. ADR 0025.
+        "valueDelivered": (round(sum(OC.value_of(i, cfg) for i in done), 0)
                            if any("businessValue" in i for i in issues) else None),
     }
 
@@ -755,7 +757,7 @@ def facts(ds, previous=None, scope="sprint"):
     committed = hist[-1].get("committedSP") if hist else sp([i for i in issues if not i.get("addedMidSprint")])
     committed_items = len([i for i in issues if not i.get("addedMidSprint")])
 
-    valued = [i for i in done if (i.get("businessValue") or 0) > 0]
+    valued = [i for i in done if OC.value_of(i, cfg) > 0]
 
     f = {
         "meta": {
@@ -866,10 +868,10 @@ def facts(ds, previous=None, scope="sprint"):
             },
         },
         "value": {
-            "closed_estimate": round(sum(i.get("businessValue") or 0 for i in valued)),
+            "closed_estimate": round(sum(OC.value_of(i, cfg) for i in valued)),
             "items_with_estimate": len(valued),
             "items_without_estimate": len(done) - len(valued),
-            "bases": [{"key": i["key"], "amount": i["businessValue"], "basis": i.get("valueBasis") or ""}
+            "bases": [{"key": i["key"], "amount": OC.value_of(i, cfg), "basis": i.get("valueBasis") or ""}
                       for i in valued],
         },
         "people": dict(by_person),

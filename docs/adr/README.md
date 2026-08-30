@@ -1,6 +1,6 @@
 # Decision records
 
-Twenty-four decisions that explain why the product is shaped the way it is. Each one exists because the alternative was tried, argued for, or nearly shipped — none of them is a statement of general principle.
+Twenty-five decisions that explain why the product is shaped the way it is. Each one exists because the alternative was tried, argued for, or nearly shipped — none of them is a statement of general principle.
 
 Read these before proposing a change that a constraint in `CLAUDE.md` appears to block. The constraint is the rule; the record is the reason, and the reason is what tells you whether your case is the exception.
 
@@ -30,6 +30,7 @@ Read these before proposing a change that a constraint in `CLAUDE.md` appears to
 | [0022](0022-sso-is-inherited-because-the-app-owns-no-identity.md) | SSO needs nothing built: the app has no login, and the suite checks what would falsify that | Building a login, storing an Atlassian credential, and answering a questionnaire's SSO question with "yes" |
 | [0023](0023-a-cross-team-rollup-spans-what-the-reader-can-see.md) | A cross-team roll-up names the boards it covers and does not forecast | A total that does not say what it covers, and pooling teams because team_slice would accept it |
 | [0024](0024-a-parent-and-its-subtasks-are-one-piece-of-work.md) | Subtasks do not count as items; which types do is the organisation's answer | Guessing subtask-ness from a type's name, and a default that leaves the unit inflatable |
+| [0025](0025-the-app-declares-a-business-value-field.md) | The app declares a Business Value field and counts it at epic level and above | Creating the field via REST, writing values from the app, and counting value at more than one level |
 
 ## Writing a new one
 

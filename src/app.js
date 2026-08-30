@@ -54,7 +54,11 @@ const ORG_DEFAULTS = {
   // says they do; an empty type list counts every type the first rule left.
   // ADR 0024.
   countSubtasks: false,
-  countedTypes: []
+  countedTypes: [],
+  // Mirrors orgconfig.DEFAULTS. Business value is counted at one level of the
+  // hierarchy, not several: an epic worth £40k and its five stories at £8k
+  // each are one piece of value and six rows. ADR 0025.
+  valueFromHierarchy: 1
 };
 const DAY_INDEX = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
 const normStatus = s => String(s == null ? "" : s).trim().replace(/\s+/g, " ").toLowerCase();
@@ -276,6 +280,12 @@ function normaliseIssue(i, meta, cfg) {
   const o = Object.assign({}, i);
   o.storyPoints = Number(o.storyPoints) || 0;
   o.businessValue = Number(o.businessValue) || 0;
+  /* Whether that value is *counted* — the hierarchy rule, mirrored from
+     `orgconfig.value_counts` because the browser cannot call Python. An
+     issue with no recorded level is counted: every dataset written before
+     levels were captured carries none, including the demo, and reading
+     absence as "below the line" would zero them. ADR 0025. */
+  o.valueCounts = valueCounts(o, ORG());
   o.flagged = o.flagged === true || o.flagged === "true";
   o.addedMidSprint = o.addedMidSprint === true || o.addedMidSprint === "true";
   // Only when the producer did not resolve it. A file that already carries a
@@ -553,6 +563,20 @@ function contextWorkingDays(ctx) {
  * `isSubtask` absent means *not* a subtask. Every dataset written before this
  * existed carries none, and reading absence as "subtask" would empty them.
  */
+/** Whether this issue's business value is counted — `orgconfig.value_counts`
+ *  in JavaScript, because the browser cannot call Python. Value belongs at one
+ *  level of the hierarchy: an epic worth 40k and its five stories at 8k each
+ *  are one piece of value and six rows, and summing both reports 80k. An issue
+ *  with no recorded level is counted, or every dataset written before levels
+ *  existed would read as worthless. ADR 0025. */
+function valueCounts(issue, cfg) {
+  let floor = cfg && cfg.valueFromHierarchy;
+  if (typeof floor !== "number" || !isFinite(floor)) floor = 1;
+  const lvl = issue && issue.hierarchyLevel;
+  if (typeof lvl !== "number" || !isFinite(lvl)) return true;
+  return lvl >= floor;
+}
+
 function countedIssues(issues, cfg) {
   const keepSub = !!(cfg && cfg.countSubtasks);
   const named = ((cfg && cfg.countedTypes) || [])
@@ -702,7 +726,7 @@ function derive(items) {
     avgLead: lead.length ? sum(lead) / lead.length : null,
     flowEff: null,
     done, open, closedTimed,
-    valueItems: done.filter(i => i.businessValue > 0),
+    valueItems: done.filter(i => i.businessValue > 0 && i.valueCounts !== false),
     prev, cur, recentAvg, recentAvgN
   };
   /* An empty selection is a refusal, not a zero. Everything downstream that
@@ -2500,6 +2524,42 @@ function renderValue(m) {
     host.onclick = null;
     return;
   }
+  /* Three ways this tile can have nothing to show, and they have three
+     different fixes — so it says which. Before the field existed there was one
+     sentence for all of them, and on Forge it was always the wrong one.
+
+       nothing carries a value   the field is there and nobody has filled it in
+       nothing *could*           every completed item sits below the level
+                                 value is counted at — an epic's stories, say
+       the field is not here     the app declares it (ADR 0025) but a Jira
+                                 admin has to add it to a screen before anybody
+                                 can type in it, and no scope lets the app do
+                                 that for them
+
+     The third is the state every installation is in on the day it upgrades,
+     and it is the one a reader would otherwise read as "we have delivered
+     nothing of value". */
+  const priced = m.done.filter(i => i.businessValue > 0);
+  if (!m.valueItems.length) {
+    const belowLine = priced.filter(i => i.valueCounts === false);
+    const anyField = S.view.issues.some(i => i.businessValue > 0);
+    host.innerHTML = '<div class="fc-refusal"><b>No value to report.</b> ' +
+      (belowLine.length
+        ? esc(belowLine.length + " completed item" + (belowLine.length === 1 ? "" : "s") +
+          " carr" + (belowLine.length === 1 ? "ies" : "y") + " a value, and " +
+          (belowLine.length === 1 ? "it sits" : "they sit") + " below the level value is " +
+          "counted at — value belongs on an epic or above, or an epic and its stories " +
+          "would be added together.")
+        : anyField
+        ? "Nothing completed here carries a value estimate yet."
+        : "No completed item carries a value estimate. If this site has just " +
+          "installed the app, its Business Value field exists but a Jira " +
+          "administrator has to add it to a screen before anyone can fill it in " +
+          "— the app cannot do that for them.") + "</div>";
+    host.onclick = null;
+    return;
+  }
+
   const h = S.view.history || [];
   const items = m.valueItems.slice().sort((a, b) => b.businessValue - a.businessValue);
   const unpriced = m.done.length - items.length;

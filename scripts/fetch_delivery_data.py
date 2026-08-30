@@ -335,6 +335,10 @@ def jira_pull(args):
             # call a subtask anything. Recorded on every issue so a consumer can
             # decide; `orgconfig.counted_issues` is what decides. ADR 0024.
             "isSubtask": bool((f.get("issuetype") or {}).get("subtask")),
+            # Jira levels its issue types: subtask -1, story 0, epic 1, and a
+            # site with a higher tier puts initiatives above that. Business
+            # value is counted at one level and not several. ADR 0025.
+            "hierarchyLevel": (f.get("issuetype") or {}).get("hierarchyLevel"),
             "status": status.get("name"),
             "statusCategory": status_category(status.get("name"),
                                               (status.get("statusCategory") or {}).get("name")),
