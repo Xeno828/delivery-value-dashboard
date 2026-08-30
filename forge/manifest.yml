@@ -94,6 +94,39 @@ modules:
         Filled in on epics and above; a value on a story below an epic that also
         carries one would be counted twice, so it is not counted at all.
       type: number
+    # **The sentence under the number.** ADR 0027.
+    #
+    # `valueBasis` has been in the schema, the importer, the value tile and the
+    # security suite since long before any of it reached Jira, and on Forge it
+    # was hardcoded to `''` because no field carried one. This is that field.
+    #
+    # **Free text, and that is the design rather than the cheap option.** Nothing
+    # sizes, ranks or scores on this string — `intake.sequence` carries it
+    # through untouched and prints it beside each ordering's delivery
+    # consequence, because the ordering's cost is computable and the worth of the
+    # thing ordered is not. An enumeration here would be one join away from a
+    # weight, and a weight is the priority score ADR 0004 refuses.
+    #
+    # Everything the field above says about declaration applies unchanged: Jira
+    # creates it, the app never writes it, and an admin must add it to a screen
+    # before anyone can type in it. It is a *separate* screen configuration from
+    # the value field's, so a tenant can easily have one and not the other.
+    #
+    # It never leaves the tenant. `valueBasis` is in `NEVER_SEND` in
+    # `forge/src/index.js` and in `FREE_TEXT_FIELDS` in `service/app.py`, so the
+    # calculator gets the number with no sentence beside it and no issue key —
+    # a rule that predates this field and is the reason declaring it costs no
+    # new egress. ADR 0025 made that argument for the number; it is stronger
+    # here, because prose about why work matters is the most quotable thing in
+    # a customer's backlog.
+    - key: value-basis
+      name: Value Basis
+      description: >-
+        Why the Business Value figure beside it is what it is — one sentence a
+        reader can challenge. A number with no basis is a figure someone will
+        quote back at you. Not read by any calculation; shown next to the value
+        it explains.
+      type: string
 
   function:
     - key: resolver

@@ -354,6 +354,46 @@ export const findBusinessValueField = (fields) => {
   return null;
 };
 
+/** The module key of this app's own Value Basis field, as declared in
+ *  `forge/manifest.yml`. ADR 0027. */
+export const VALUE_BASIS_KEY = 'value-basis';
+
+/**
+ * This app's own Value Basis field, from `/rest/api/3/field`.
+ *
+ * Matched on the key for the same reason `findBusinessValueField` is, and the
+ * two keys are checked against each other in `tests/test_service.py`: neither
+ * module key is a substring of the other, and if a later rename made one of
+ * them so, this would read a sentence into the number field or a currency
+ * amount into the basis. Both would render. Neither would look wrong.
+ */
+export const findValueBasisField = (fields) => {
+  for (const f of fields || []) {
+    const key = String(f.key ?? f.id ?? '');
+    if (key.includes(VALUE_BASIS_KEY)) return f.id ?? null;
+  }
+  return null;
+};
+
+/** One issue's value basis, or `''` when nobody has written one.
+ *
+ *  `''` and not null, because that is what the schema has always said this
+ *  field is (`docs/data-format.md`) and what every other producer writes — the
+ *  page renders `valueBasis || "no basis recorded"` and has since before any
+ *  of this reached Jira.
+ *
+ *  **A non-string is not coerced.** This app declares the field as
+ *  `type: string`, so anything else means the field being read is not the one
+ *  declared; `String(raw)` would put `[object Object]` under a currency figure
+ *  on an executive dashboard, which is the plausible-wrong-answer class this
+ *  repository fears. Absent is the honest reading and the page already has a
+ *  sentence for it. */
+const basisOf = (fields, fieldId) => {
+  if (!fieldId) return '';
+  const raw = fields[fieldId];
+  return typeof raw === 'string' ? raw.trim() : '';
+};
+
 /* ------------------------------------------------------------------ config
 
    The assumptions that are true of exactly one company: which statuses mean
@@ -611,8 +651,6 @@ export const contextsBody = (label, contexts, orgConfig) => ({
  *                   recognise it. It sends the raw transitions instead and the
  *                   page decides what they mean, exactly as it does for a raw
  *                   status name. See `statusTransitions` below.
- *   businessValue   Jira has no native value field, and the fetcher writes 0
- *                   here too.
  *   contextId       The page tags these itself in `loadContext()`, and does it
  *                   deliberately — "never let normalise() re-tag these". A
  *                   value sent from here would be overwritten, so sending one
@@ -671,7 +709,14 @@ export const issueFrom = (raw, opts) => {
     // "this sprint delivered nothing worth anything" is a much stronger claim
     // than "nobody has told us".
     businessValue: valueOf(f, o.businessValueField),
-    valueBasis: '',
+    // The sentence under the number — ADR 0027. Hardcoded `''` before, because
+    // no Jira field carried one; the app declares that field now too.
+    //
+    // It is deliberately *not* an input to anything. Nothing sizes, ranks or
+    // scores on this string: it is carried to a reader and printed beside the
+    // figure it explains, which is the whole reason it is free text and not an
+    // enumeration. An enumeration is one join away from a priority score.
+    valueBasis: basisOf(f, o.valueBasisField),
     labels: f.labels || [],
     url: site && raw.key ? `${site}/browse/${encodeURIComponent(raw.key)}` : null,
   };

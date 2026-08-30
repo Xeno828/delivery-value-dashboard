@@ -111,3 +111,17 @@ entitled to. The list of names does the honest half of that job.
 
 **Pooling teams into one forecast because the machinery would accept it.**
 `team_slice` would return something. That is the danger, not the feature.
+
+## Superseded in part: half of that refusal has been answered
+
+The refusal quoted above named two things. One of them now exists.
+[ADR 0027](0027-a-value-basis-is-prose-carried-to-a-reader.md) declares a Value
+Basis field, so the resolver's sentence no longer says no field carries one —
+which means the words quoted here are no longer the words in
+`forge/src/index.js`, and a reader who goes looking for them should know why.
+
+**The argument this record makes is unchanged.** Sequencing was never blocked on
+items 4 or 5, and it is still not. What remains missing is the *ask* — nothing
+in a Jira site marks an issue as a request being weighed against others, and the
+problem, the success measure and the needed-by date have no field either. That
+is still a product question, and this record still does not answer it.

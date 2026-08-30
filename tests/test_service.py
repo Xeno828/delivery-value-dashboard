@@ -3483,6 +3483,105 @@ def _refuses(fn):
     return False
 
 
+def value_basis_checks():
+    """The Value Basis field — roadmap item 7, ADR 0027.
+
+    `valueBasis` has been in the schema, the importer, the value tile and the
+    security suite since long before any of it reached Jira, and on Forge it
+    was hardcoded to `''` because no field carried one. This is that field.
+
+    Four things are worth checking: that it is declared and free text, that it
+    is actually *asked for* rather than only read, that it cannot be confused
+    with the number standing next to it, and that the refusal which used to
+    name its absence no longer does.
+    """
+    print("value basis")
+    manifest = (ROOT / "forge" / "manifest.yml").read_text()
+    jira_js = (ROOT / "forge" / "src" / "jira.js").read_text()
+    idx = (ROOT / "forge" / "src" / "index.js").read_text()
+
+    # ---- declared, and free text on purpose ----
+    check("the app declares a second custom field for the basis",
+          "key: value-basis" in manifest,
+          [l.strip() for l in manifest.splitlines() if "value-basis" in l])
+    check("it is free text, so nothing can join it to a weight",
+          "type: string" in manifest,
+          [l.strip() for l in manifest.splitlines() if "type: string" in l])
+
+    # ---- the two module keys cannot be mistaken for each other ----
+    #
+    # Both finders match on `key.includes(...)`, which is right — a Forge field
+    # key carries the module key that declared it, so it identifies *this app's*
+    # field rather than a site's own field of the same name. It is also a
+    # substring test. If either module key were a substring of the other, one
+    # finder would return the other's field, and the failure would be silent in
+    # both directions: `valueOf` returns null for a sentence and `basisOf`
+    # returns '' for a number, so a board carrying both would report "nobody has
+    # recorded a value" and "no basis recorded". Nothing throws and nothing on
+    # screen looks wrong.
+    bv = re.search(r"BUSINESS_VALUE_KEY = '([^']+)'", jira_js).group(1)
+    vb = re.search(r"VALUE_BASIS_KEY = '([^']+)'", jira_js).group(1)
+    check("neither module key is a substring of the other",
+          bv not in vb and vb not in bv, (bv, vb))
+
+    # The rule itself, over a realistic pair of Forge field keys.
+    site_fields = [{"id": "customfield_10050", "key": "a1b2c3__" + bv},
+                   {"id": "customfield_10051", "key": "a1b2c3__" + vb}]
+
+    def find(module_key):          # mirrors key.includes(K), Jira's own order
+        for f in site_fields:
+            if module_key in f["key"]:
+                return f["id"]
+        return None
+
+    check("each finder returns its own field and not the other's",
+          (find(bv), find(vb)) == ("customfield_10050", "customfield_10051"),
+          (find(bv), find(vb)))
+    check("the basis field is found by its key, not its display name",
+          "key.includes(VALUE_BASIS_KEY)" in jira_js,
+          [l.strip() for l in jira_js.splitlines() if "VALUE_BASIS_KEY" in l][:2])
+
+    # ---- asked for, not merely read ----
+    #
+    # The same rule that caught `businessValue`: a field in the projection that
+    # nothing requests is absent on every issue forever, with no error and no
+    # empty response. It shipped that way once for the length of one deploy.
+    fields_fn = idx.split("const issueFields", 1)[1].split("].join", 1)[0]
+    check("the basis is a field this app actually asks Jira for",
+          "appFields.basis" in fields_fn,
+          [l.strip() for l in fields_fn.splitlines() if "appFields" in l])
+    check("the projection reads that field rather than hardcoding empty",
+          "valueBasis: basisOf(f, o.valueBasisField)" in jira_js
+          and "valueBasis: ''" not in jira_js,
+          [l.strip() for l in jira_js.splitlines() if "valueBasis" in l])
+
+    # ---- a non-string is absent, not coerced ----
+    #
+    # The field is declared `type: string`, so anything else means the field
+    # being read is not the one declared. `String(raw)` would put
+    # "[object Object]" under a currency figure on an executive dashboard.
+    check("a non-string basis reads as absent rather than [object Object]",
+          "typeof raw === 'string' ? raw.trim() : ''" in jira_js,
+          [l.strip() for l in jira_js.splitlines() if "typeof raw" in l])
+
+    # ---- the refusal no longer outlives its reason ----
+    #
+    # `sequence` refused for two stated reasons and one of them has been
+    # answered. A refusal that keeps naming a cause that has been fixed is the
+    # same failure as a figure that is quietly stale — and this repository has
+    # already printed "no sprint calendar" for three different causes, one of
+    # them a calendar that was present and correct.
+    seq = idx.split("resolver.define('sequence'", 1)[1].split("}));", 1)[0]
+    check("sequencing no longer claims no field carries a basis",
+          "no field that carries a value basis" not in seq, seq[:200])
+    check("and still says what is actually missing",
+          "no way to read an ask from Jira" in seq, seq[:200])
+    # The closing clause every refusal in this product carries: what was not
+    # done, and that nothing else on the page depends on it.
+    check("and still closes by saying nothing was sequenced",
+          "Nothing was sequenced" in seq, seq[:200])
+
+
 def test_the_image_takes_debians_security_updates():
     """The base lags Debian, and the build has to close the gap.
 
@@ -4446,7 +4545,7 @@ def business_value_checks():
           "resolutiondate" in idx.split("boardEpicsFor(parsed.boardId", 1)[1][:900],
           "credited by resolution date")
     check("an entry with no dates gets no epics rather than all of them",
-          "entry.startDate && entry.endDate && bvField" in idx,
+          "entry.startDate && entry.endDate && appFields.value" in idx,
           "guarded by dates")
     check("and the epic cap is reported rather than applied quietly",
           "dropped: Math.max(listed.length - MAX_EPICS" in idx, "cap reported")
@@ -4477,11 +4576,11 @@ def business_value_checks():
     idx = (ROOT / "forge" / "src" / "index.js").read_text()
     fields_fn = idx.split("const issueFields", 1)[1].split("].join", 1)[0]
     check("the field this app declares is one it actually asks Jira for",
-          "businessValueField" in fields_fn,
-          [l.strip() for l in fields_fn.splitlines() if "Field" in l])
+          "appFields.value" in fields_fn,
+          [l.strip() for l in fields_fn.splitlines() if "appFields" in l])
     check("on both the sprint path and the window path",
-          idx.count("issueFields(storyPointField, bvField)") == 2,
-          idx.count("issueFields(storyPointField, bvField)"))
+          idx.count("issueFields(storyPointField, appFields)") == 2,
+          idx.count("issueFields(storyPointField, appFields)"))
     # The other half of the same rule: asking for everything would pull free
     # text this app has no business holding.
     check("and it still names its fields rather than asking for all of them",
@@ -4578,6 +4677,7 @@ if __name__ == "__main__":
     cross_team_checks()
     counting_checks()
     business_value_checks()
+    value_basis_checks()
     print("the container image")
     test_dockerfile_copies_everything_the_service_imports()
     test_the_image_takes_debians_security_updates()

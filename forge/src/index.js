@@ -28,6 +28,7 @@ import {
   CONFIG_PROPERTY_KEY, contextEntry, contextsBody, contextBody, contextId,
   findStoryPointField, mergeOrgConfig, parseContextId, issueFrom, notFound,
   recentSprints, statusesFromJira, validateOrgConfig, findBusinessValueField,
+  findValueBasisField,
   WINDOW_DAYS, windowEntry, windowMembershipJql, contextsLabel,
   MAX_TREND_SPRINTS,
 } from './jira.js';
@@ -343,19 +344,28 @@ const pagedValues = async (routeAt, what, as) => {
 // returned, so it reads as absent on every issue forever — no error, no empty
 // response, just a figure that is quietly never there. `businessValue` was
 // exactly that for the length of one deploy. ADR 0025.
-const issueFields = (storyPointField, businessValueField) => [
+//
+// The app's own two fields travel as a named pair rather than as two more
+// positional arguments. They are both custom field ids — two strings, adjacent
+// in every signature — and transposing them would read the basis sentence as a
+// number and the number as the basis. `valueOf` would return null and `basisOf`
+// would return '', so the page would say "nobody has recorded a value" and
+// "no basis recorded" on a board where somebody had recorded both. Nothing
+// would throw and nothing would look wrong.
+const issueFields = (storyPointField, appFields) => [
   'summary', 'issuetype', 'status', 'assignee', 'priority', 'parent',
   'created', 'resolutiondate', 'duedate', 'labels', 'flagged',
   ...(storyPointField ? [storyPointField] : []),
-  ...(businessValueField ? [businessValueField] : []),
+  ...(appFields?.value ? [appFields.value] : []),
+  ...(appFields?.basis ? [appFields.basis] : []),
 ].join(',');
 
-const fetchSprintIssues = async (boardId, sprintId, storyPointField, as, bvField) => {
+const fetchSprintIssues = async (boardId, sprintId, storyPointField, as, appFields) => {
   // Named explicitly, and the story-point field is named by the id this site
   // actually uses rather than one guessed at. `*navigable` would also work and
   // would be worse: it pulls every custom field on every issue, including free
   // text this app has no business holding.
-  const fields = issueFields(storyPointField, bvField);
+  const fields = issueFields(storyPointField, appFields);
 
   const out = [];
   let startAt = 0;
@@ -397,8 +407,8 @@ const fetchSprintIssues = async (boardId, sprintId, storyPointField, as, bvField
  * go on the wire, which is the field a flow board most needs. Kept so the two
  * fetches differ in their query and not in their shape.
  */
-const fetchWindowIssues = async (boardId, entry, storyPointField, as, bvField) => {
-  const fields = issueFields(storyPointField, bvField);
+const fetchWindowIssues = async (boardId, entry, storyPointField, as, appFields) => {
+  const fields = issueFields(storyPointField, appFields);
   const jql = `${windowMembershipJql(entry.startDate, entry.endDate)} ORDER BY created ASC`;
 
   const out = [];
@@ -457,16 +467,21 @@ let storyPointField;
  * installed. That is reported rather than treated as "nobody has entered a
  * value", because the two have entirely different fixes.
  */
-let _bvField;
-const businessValueFieldFor = async (as) => {
-  if (_bvField !== undefined) return _bvField;
+let _appFields;
+const appFieldsFor = async (as) => {
+  if (_appFields !== undefined) return _appFields;
   try {
     const res = await jira(as).requestJira(route`/rest/api/3/field`);
-    _bvField = res.ok ? findBusinessValueField(await res.json()) : null;
+    if (!res.ok) { _appFields = { value: null, basis: null }; return _appFields; }
+    const fields = await res.json();
+    // One read of the field list for both, because they are both this app's own
+    // fields found the same way, and two round trips to answer one question is
+    // two chances for them to disagree about what is installed.
+    _appFields = { value: findBusinessValueField(fields), basis: findValueBasisField(fields) };
   } catch {
-    _bvField = null;
+    _appFields = { value: null, basis: null };
   }
-  return _bvField;
+  return _appFields;
 };
 
 const storyPointFieldFor = async (as) => {
@@ -747,7 +762,7 @@ resolver.define('contexts', answering(async ({ context }) => {
  */
 const MAX_EPICS = 200;
 let _epics = {};
-const boardEpicsFor = async (boardId, as, bvField, spField) => {
+const boardEpicsFor = async (boardId, as, appFields, spField) => {
   const cacheKey = String(boardId);
   if (_epics[cacheKey]) return _epics[cacheKey];
 
@@ -770,7 +785,7 @@ const boardEpicsFor = async (boardId, as, bvField, spField) => {
     // it is a board without epics, and it has no value to report.
   }
 
-  const fields = issueFields(spField, bvField);
+  const fields = issueFields(spField, appFields);
   const out = [];
   for (const e of listed.slice(0, MAX_EPICS)) {
     try {
@@ -786,10 +801,10 @@ const boardEpicsFor = async (boardId, as, bvField, spField) => {
 
 const issuesForEntry = async (entry, spField, siteUrl, as) => {
   const parsed = parseContextId(entry.id);
-  const bvField = await businessValueFieldFor(as);
+  const appFields = await appFieldsFor(as);
   const raw = entry.kind === 'window'
-    ? await fetchWindowIssues(parsed.boardId, entry, spField, as, bvField)
-    : await fetchSprintIssues(parsed.boardId, parsed.sprintId, spField, as, bvField);
+    ? await fetchWindowIssues(parsed.boardId, entry, spField, as, appFields)
+    : await fetchSprintIssues(parsed.boardId, parsed.sprintId, spField, as, appFields);
   const mapped = raw.map((r) => ({
     ...issueFrom(r, {
       // Undefined for a window, which is the honest value: `addedMidSprint` is
@@ -804,7 +819,12 @@ const issuesForEntry = async (entry, spField, siteUrl, as) => {
       // page. Null until the version declaring the module is installed, and
       // `issueFrom` reads that as "nobody has said" rather than as zero.
       // ADR 0025.
-      businessValueField: bvField,
+      businessValueField: appFields.value,
+      // And the sentence beside it — ADR 0027. Absent until an admin puts this
+      // field on a screen too, which is a separate act from putting the value
+      // field on one; the tile says "no basis recorded" for both, because from
+      // a reader's seat they are the same missing sentence.
+      valueBasisField: appFields.basis,
       // Only so an issue key is a link. Absent, the page leaves it as text
       // rather than guessing a host.
       siteUrl,
@@ -820,8 +840,8 @@ const issuesForEntry = async (entry, spField, siteUrl, as) => {
   //
   // A window has dates too, so this is not sprint-only. An entry with no dates
   // gets none, rather than every epic the board has ever finished.
-  if (entry.startDate && entry.endDate && bvField) {
-    const { epics } = await boardEpicsFor(parsed.boardId, as, bvField, spField);
+  if (entry.startDate && entry.endDate && appFields.value) {
+    const { epics } = await boardEpicsFor(parsed.boardId, as, appFields, spField);
     for (const raw of epics) {
       const done = (raw.fields?.resolutiondate || '').slice(0, 10);
       if (!done || done < entry.startDate || done > entry.endDate) continue;
@@ -829,7 +849,8 @@ const issuesForEntry = async (entry, spField, siteUrl, as) => {
         ...issueFrom(raw, {
           sprintStart: entry.kind === 'window' ? null : entry.startDate,
           storyPointField: spField,
-          businessValueField: bvField,
+          businessValueField: appFields.value,
+          valueBasisField: appFields.basis,
           siteUrl,
         }),
         contextId: entry.id,
@@ -1234,25 +1255,37 @@ resolver.define('history', answering(async ({ payload, context }) => {
  * Sequencing, which is not blocked on a calculator.
  *
  * `intake.sequence` compares orderings of a board's outstanding *asks*, and an
- * ask is a document somebody writes — a request with a size, a value basis and
- * a team. Over loopback they are files in `data/asks/`. A Jira site has no such
- * thing: there is no issue type that means "ask", no field that carries a value
- * basis, and nothing this app could read that would be one rather than resemble
- * one.
+ * ask is a document somebody writes — a problem it solves, a measure of whether
+ * it worked, a date it is wanted by, a size, and a value with a stated basis.
+ * Over loopback they are files in `data/asks/`.
  *
- * So this is not the calculator being unreachable, and saying so would be
- * wrong the moment the forecast above starts answering. Where a customer's asks
- * come from inside Jira is a product question that has not been asked, and
- * until it is, this refuses and says which of the two it is.
+ * **One of the two things this used to name now exists.** ADR 0027 declares a
+ * Value Basis field, so a value read from Jira arrives with the sentence that
+ * explains it instead of as a bare number. That was half the reason this
+ * refused, and it is answered.
+ *
+ * What is still absent is the *ask*. Nothing in a Jira site marks an issue as a
+ * request being weighed against others, and the rest of what `readiness` looks
+ * for — the problem, the success measure, the needed-by date — has no field
+ * either. An epic carrying a value and a basis is not an ask; it is an epic
+ * with two of an ask's six parts.
+ *
+ * So this is not the calculator being unreachable, and saying so would be wrong
+ * the moment the forecast above starts answering. It refuses and says which of
+ * the two it is — and it no longer says no field carries a basis, which was
+ * true when this was written and stopped being true when the module landed. A
+ * refusal that outlives its reason is the same failure as a figure that does.
  */
 resolver.define('sequence', () => ({
   status: 200,
   body: {
     available: false,
-    sentence: 'Sequencing compares orderings of the asks recorded for a board, and '
-            + 'this app has no way to read an ask from Jira — there is no issue type '
-            + 'that means one and no field that carries a value basis. Nothing was '
-            + 'sequenced, and nothing about the forecast on this page depends on it.',
+    sentence: 'Sequencing compares orderings of the asks recorded for a board, and this '
+            + 'app has no way to read an ask from Jira. The value basis it needs is a '
+            + 'field somebody can now fill in, but nothing marks an issue as a request '
+            + 'being weighed against others, and the problem it solves and the date it '
+            + 'is wanted by have no field at all. Nothing was sequenced, and nothing '
+            + 'about the forecast on this page depends on it.',
   },
 }));
 

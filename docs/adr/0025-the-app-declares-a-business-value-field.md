@@ -126,3 +126,16 @@ is not this one.
 
 **Counting value at more than one level**, by configuration or otherwise. The
 line moves; there is only ever one of it.
+
+## The gap this record named has been filled
+
+The last line of *What this does not do* said the value basis a sequencing
+comparison needs *"has no Jira field and this record does not invent one"*. It
+has one now: [ADR 0027](0027-a-value-basis-is-prose-carried-to-a-reader.md)
+declares a second custom field, free text, on the argument that nothing computes
+on a basis and nothing may.
+
+**It changes nothing above.** The level rule, the declaration argument and the
+three empty states are all about the *number*. The basis is a sentence beside it
+and is counted at no level at all — it is carried, printed, and read by a
+person.

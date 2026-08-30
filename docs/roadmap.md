@@ -26,7 +26,7 @@ references are wrong.
 | 4 | Durable sprint history | 3 — make it defensible | 3–4 wk | **Done** — 2026-08-29 |
 | 5 | Permission mirroring | 3 — make it defensible | 5–8 wk | **First pass done** — three exposures answered by accepting and naming them; no permission model built |
 | 6 | SSO, audit log, data residency | 3 — make it defensible | 6–10 wk | **Done** — residency, activity log and SSO, all 2026-08-29; two of the three needed no engineering |
-| 7 | Cross-team roll-up and intake sequencing | 4 — sell it upward | 4–6 wk | **Roll-up done** 2026-08-30. Sequencing has what it counts but not what it ranks by |
+| 7 | Cross-team roll-up and intake sequencing | 4 — sell it upward | 4–6 wk | **Roll-up done** 2026-08-30. Sequencing has a size, a value and a basis; it has no way to read an *ask* |
 
 Sizes are engineering weeks at planning time, never reconciled against actuals —
 the same caveat the dashboard puts on its own value figures. They are a floor.
@@ -162,11 +162,18 @@ these:
   and produced the reader's own type filter, a declared **Business Value** field
   ([ADR 0025](adr/0025-the-app-declares-a-business-value-field.md)) and the
   two-pool split ([ADR 0026](adr/0026-items-and-value-are-counted-from-two-different-sets.md)).
-  So an ask now has a **size** and a **value**. What it still has no source for
-  is a **value basis** — the sentence saying *why* a number is what it is, which
-  `intake.sequence` compares orderings against and which no Jira field carries.
-  That is the remaining half of the question, and it is a product decision
-  rather than a coding task.
+  So an ask now has a **size** and a **value** — and, since 2026-08-30, a
+  **value basis**: a second declared field, free text, on the argument that
+  nothing computes on a basis and nothing may
+  ([ADR 0027](adr/0027-a-value-basis-is-prose-carried-to-a-reader.md)). An
+  enumerated basis would have been one join away from the weight
+  [ADR 0004](adr/0004-no-priority-score.md) refuses.
+  **What is still missing is the ask itself.** An ask is a document with a
+  problem, a success measure, a needed-by date, a size and a value with a basis;
+  an epic carrying a value and a basis has two of those six, and nothing in a
+  Jira site marks an issue as a request being weighed against others. The
+  `sequence` resolver still refuses and now names only that. Product decision,
+  not a coding task.
 - **7** was recorded as blocked on both 4 and 5, and was wrong about each.
   [ADR 0023](adr/0023-a-cross-team-rollup-spans-what-the-reader-can-see.md) has
   it. **Intake sequencing is built** — `intake.sequence()`, a CLI, a service
@@ -279,10 +286,15 @@ Until then the tile says how many are waiting, which is the honest state.
 Asked on 2026-08-30 and answered from the repository rather than from memory,
 because two of these are not on the numbered list at all.
 
-**Engineering.** One thing: **sequencing needs a value basis**. Everything else
-either works or is a decision rather than a build. Item 5 is a first pass — all
-three exposures answered by *accepting a disclosure and naming it*, which is a
-coherent position and is not the permission model its 5–8 weeks was for.
+**Engineering.** One thing: **sequencing needs a way to read an ask out of
+Jira**. The value basis it also needed was answered on 2026-08-30
+([ADR 0027](adr/0027-a-value-basis-is-prose-carried-to-a-reader.md)); what is
+left is that no issue is marked as a request being weighed against others, and
+the problem, success measure and needed-by date have no field either. That is a
+product decision before it is a build. Everything else either works or is a
+decision rather than a build. Item 5 is a first pass — all three exposures
+answered by *accepting a disclosure and naming it*, which is a coherent position
+and is not the permission model its 5–8 weeks was for.
 
 **Two decisions that are cheap now and expensive after the first external
 install.** Both are irreversible in the same way: changing them later is a major

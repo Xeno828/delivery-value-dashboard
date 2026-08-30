@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.57.0
+
+**The app declares a Value Basis field, and it is free text on purpose.** `intake.sequence` compares orderings of competing asks: it returns the delivery consequence of each, which is computable, and prints each ask's **value basis** beside it, which is not. Nothing carried one. `valueBasis` has been in the schema, the CSV importer, the value tile and the security suite since long before any of it reached Jira, and on Forge `issueFrom` hardcoded it to `''` because no Jira field held a basis — the gap ADR 0025 closed by naming. [ADR 0027](docs/adr/0027-a-value-basis-is-prose-carried-to-a-reader.md).
+
+**Free text is the design, not the cheap option.** Nothing computes on this string and nothing may: `sequence()` reads it into a row and prints it, with no parse, comparison or arithmetic anywhere on the path. An enumeration would be the tidier shape and is the one that has to be refused — a set of enumerated bases is one join away from a table of weights, and a weight times a size is the priority score ADR 0004 exists to refuse, arriving under a nicer name. A sentence can be checked and argued with by somebody who was there; *"Revenue — High"* cannot be wrong, which is what makes it useless under a figure.
+
+**Not read from the issue description**, which was the alternative and is cheaper for anyone already writing in outcomes. It would make *"no basis recorded"* unsayable: `readiness()` reports an amount with no basis as a named gap, and that check needs absence to be detectable. Read from a description, "nobody stated a basis" and "there is prose here about something else" are the same string, so the app would have to assert that a description *is* a basis — inventing a convention on a customer's data and quoting it back as their reasoning — or drop the check. Same rule as ADR 0010: unmeasured has to stay nameable.
+
+**Two field ids now travel together, and they travel by name.** `issueFields` and both fetchers took the business-value id as a positional argument; a second adjacent string id is a transposition waiting to happen, and the failure would be silent in both directions — `valueOf` returns null for a sentence and `basisOf` returns `''` for a number, so a board carrying both would report *"nobody has recorded a value"* and *"no basis recorded"* with nothing throwing. They are one named `{ value, basis }` pair now, resolved by a single read of `/rest/api/3/field` rather than two.
+
+**Both finders match on the module key, and the keys are checked against each other.** A Forge field key carries the key of the module that declared it, so `key.includes(...)` identifies *this app's* field rather than a site's own field of the same name. It is also a substring test, and if either module key were a substring of the other one finder would return the other's field. `tests/test_service.py` asserts neither is, and runs both finders over a realistic pair of site keys.
+
+**A non-string basis reads as absent rather than as `[object Object]`.** The field is declared `type: string`; anything else means the field being read is not the one declared, and coercing it would put that under a currency figure on an executive dashboard.
+
+**And the field is asked for, not merely read.** The rule that caught `businessValue` for the length of one deploy: a field in the projection that nothing requests is absent on every issue forever, with no error and no empty response. Both the sprint path and the window path request it, and the epic path — epics are not on a scrum board — requests it too.
+
+**The `sequence` refusal named two causes and now names one.** It said there was no issue type meaning an ask *and* no field carrying a value basis. The second is answered, so the sentence no longer says it: a refusal that outlives its reason is the same failure as a figure that does, and this repository has already printed *"no sprint calendar"* for three different causes including a calendar that was present. What is still missing is the ask — a document with a problem, a success measure, a needed-by date, a size and a value with a basis. An epic carrying a value and a basis has two of those six.
+
+**Costs, stated rather than discovered.** Declaring a module is a **major version upgrade and a forced reinstall for every tenant** — free today with no external installs, expensive after the first, the same argument ADR 0025 and the `llm` module landed under. And a Jira admin must add this field to a screen before anyone can type in it, which is a *separate* act from adding the value field, so a tenant will routinely have one and not the other. Nothing new crosses the boundary: `valueBasis` was already in `NEVER_SEND` and `FREE_TEXT_FIELDS`, so the calculator still receives a number with no sentence and no issue key beside it.
+
+**One stale comment fixed in passing.** `issueFrom`'s header listed the fields the Forge projection does not produce, said *"three"*, and listed four — `businessValue` had been on that list since before ADR 0025 made it a real figure.
+
 ## 1.56.3
 
 **The second stale line in the same risks section, found by reading the rest of it after fixing the first.** *"Now live rather than hypothetical, since item 3 is what is being built"* — present tense for something delivered four days earlier. The risks are written against the drafting date and every one of them decays that way, which is why the section carries a preamble saying how many have moved.

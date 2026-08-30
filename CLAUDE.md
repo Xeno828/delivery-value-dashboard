@@ -36,7 +36,7 @@ These are product decisions, not style. Violating one is a bug even when the tes
 
 **Never rank or compare individuals.** Throughput is a property of the system, not the person. The data cannot support the claim, and the first report that makes it is the last report anyone reads. Ownership counts are fine; league tables are not.
 
-**Never compute a priority score.** No WSJF, no weighted shortest job first, no value-over-effort ratio, nothing of that family. They multiply an unvalidated value estimate by an unvalidated size estimate and present the product as arithmetic. The delivery consequence of an ordering is computable and must be returned; the relative worth of competing asks is a judgement that stays with the people accountable for it.
+**Never compute a priority score.** No WSJF, no weighted shortest job first, no value-over-effort ratio, nothing of that family. They multiply an unvalidated value estimate by an unvalidated size estimate and present the product as arithmetic. The delivery consequence of an ordering is computable and must be returned; the relative worth of competing asks is a judgement that stays with the people accountable for it. **The value basis follows from this and is free text for that reason** — a sentence a reader can argue with, carried through `sequence()` untouched and printed beside the ordering's cost. Nothing parses, ranks or compares it. An enumerated basis is one join away from a table of weights, which is the same score arriving under a nicer name. `docs/adr/0027-a-value-basis-is-prose-carried-to-a-reader.md`.
 
 **Nothing between the tools and a reader may do arithmetic either.** The rule below applies to the agent, and equally to `service/app.py` and the Forge resolver: they validate, delegate and pass figures through. `tests/test_service.py` asserts the service's answer equals the tool called directly, byte for byte. A wrapper that computes one percentage is a second implementation, and the day it disagrees, every number in the product becomes something to check rather than read.
 
@@ -121,6 +121,7 @@ These are product decisions, not style. Violating one is a bug even when the tes
 | Which issues count as items, and why a parent and its subtasks are one | `docs/adr/0024-a-parent-and-its-subtasks-are-one-piece-of-work.md` |
 | Where business value is entered, and why it is counted at one level only | `docs/adr/0025-the-app-declares-a-business-value-field.md` |
 | Why epics are fetched separately, and why items and value are two different sets | `docs/adr/0026-items-and-value-are-counted-from-two-different-sets.md` |
+| Why a value basis is prose and never an input to anything | `docs/adr/0027-a-value-basis-is-prose-carried-to-a-reader.md` |
 | Which commercial roadmap item something is, and what is done | `docs/roadmap.md` |
 | What the dashboard does for a board with no sprints | `docs/kanban-boards.md` |
 | Finishing the Forge route — the three unfinished pieces | `docs/forge-deployment.md` |
