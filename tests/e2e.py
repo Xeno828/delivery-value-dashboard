@@ -1676,6 +1676,90 @@ def main():
         check("and countedIssues acts on the value that arrived",
               subtask_kept == 1, subtask_kept)
 
+        # ---------- the page says which statuses it had to infer ----------
+        #
+        # An unrecognised status is the quiet way these numbers go wrong: an
+        # "Awaiting sign-off" column reads as To Do, the burndown stops moving,
+        # and a flat burndown looks exactly like a team that delivered nothing.
+        # Before this the page said nothing at all — the fetcher printed the
+        # names once, to a terminal, to whoever ran the pull.
+        wf = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        wf["orgConfig"] = OC.merge(OC.DEFAULTS, {
+            "statuses": {"done": ["Done"], "inProgress": ["In Progress"]}})
+        wf["issues"] = [dict(wf["issues"][0], key="WF-1", status="Awaiting sign-off",
+                             statusCategory=None)]
+        page.evaluate("d => window.DVD.applyDataset(d)", wf)
+        page.wait_for_timeout(700)
+
+        rows = page.evaluate("() => window.DVD.inferredStatuses()")
+        names = [r["status"] for r in rows]
+        check("a status the config does not name is recorded as inferred",
+              "Awaiting sign-off" in names, names)
+        check("with what it was read as",
+              [r for r in rows if r["status"] == "Awaiting sign-off"][0]["readAs"] == "To Do",
+              rows)
+        check("and the chip appears, counting them",
+              page.is_visible("#btn-workflow")
+              and "inferred" in page.inner_text("#btn-workflow"),
+              page.inner_text("#btn-workflow"))
+        page.click("#btn-workflow")
+        page.wait_for_timeout(200)
+        pop = page.inner_text("#wf-pop")
+        check("the panel names the status and what happened to it",
+              "Awaiting sign-off" in pop and "To Do" in pop, pop[:160])
+
+        # A status name is written by anyone who can configure a workflow, and
+        # it reaches innerHTML here. `esc()` at output, once — the rule a stored
+        # XSS was shipped for breaking twice.
+        hostile = '<img src=x onerror="window.__wf=1">'
+        wf2 = json.loads(json.dumps(wf))
+        wf2["issues"] = [dict(wf["issues"][0], key="WF-2", status=hostile,
+                              statusCategory=None)]
+        page.evaluate("d => window.DVD.applyDataset(d)", wf2)
+        page.wait_for_timeout(500)
+        page.click("#btn-workflow")
+        page.wait_for_timeout(300)
+        check("a hostile status name is escaped rather than executed",
+              page.evaluate("() => window.__wf === undefined")
+              and page.evaluate("() => !document.querySelector('#wf-pop img')"),
+              page.inner_text("#wf-pop")[:120])
+
+        # The record is per dataset. Without a reset, a second upload reports
+        # the first file's statuses — which is a claim about the wrong board.
+        clean = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        clean["orgConfig"] = OC.merge(OC.DEFAULTS, {"statuses": {
+            "done": sorted({i.get("status") for i in clean["issues"]
+                            if i.get("statusCategory") == "Done"}),
+            "inProgress": sorted({i.get("status") for i in clean["issues"]
+                                  if i.get("statusCategory") == "In Progress"})}})
+        for i in clean["issues"]:
+            i["statusCategory"] = i.get("statusCategory")
+        page.evaluate("d => window.DVD.applyDataset(d)", clean)
+        page.wait_for_timeout(700)
+        check("nothing carries over from the previously loaded dataset",
+              hostile not in json.dumps(page.evaluate("() => window.DVD.inferredStatuses()")),
+              page.evaluate("() => window.DVD.inferredStatuses()"))
+
+        # And a producer's own record travels in the data, because inference
+        # happens upstream for a fetched file and the page cannot re-derive
+        # what it never saw.
+        stated = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        stated["orgConfig"] = OC.merge(OC.DEFAULTS, {"inferredStatuses": [
+            {"status": "Awaiting legal", "readAs": "To Do",
+             "from": "the tracker's own category"}]})
+        page.evaluate("d => window.DVD.applyDataset(d)", stated)
+        page.wait_for_timeout(700)
+        got = page.evaluate("() => window.DVD.inferredStatuses()")
+        check("the page reports what the producer inferred, not only its own",
+              any(r["status"] == "Awaiting legal"
+                  and r["from"] == "the tracker's own category" for r in got), got)
+
+        # The checks below were written against `ds` and read the page's live
+        # config, and every block since has loaded a dataset of its own. Put it
+        # back rather than leaving them measuring whatever ran last.
+        page.evaluate("d => window.DVD.applyDataset(d)", ds)
+        page.wait_for_timeout(700)
+
         js_days = page.evaluate(
             "a => window.DVD.workingDays(a[0], a[1], window.DVD.orgConfig())",
             ["2026-08-01", "2026-08-16"])

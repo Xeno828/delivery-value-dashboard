@@ -740,7 +740,7 @@ def main():
             # consumer that resolved its own would be a second opinion arriving
             # by a different route, and the first sign of trouble would be the
             # page and the facts pack disagreeing about the same sprint.
-            "orgConfig": CFG,
+            "orgConfig": dict(CFG, inferredStatuses=STATUSES.inferred),
             "contexts": contexts,
             "defaultContextId": active["id"],
             "issues": issues,
@@ -795,7 +795,11 @@ def main():
     out = {
         "schemaVersion": "1.0",
         "meta": meta,
-        "orgConfig": CFG,
+        # What the config did not cover, and what each of those was read as.
+        # Inference happens here, where the data is produced, and a reader of
+        # the file had no way to know it had happened: the note below prints
+        # once, to a terminal, to whoever ran the pull. It travels now.
+        "orgConfig": dict(CFG, inferredStatuses=STATUSES.inferred),
         "issues": issues,
         "burndown": build_burndown(issues, meta),
         "history": build_history(issues, meta, previous, CFG),

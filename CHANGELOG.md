@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.60.0
+
+**The dashboard now says which statuses its config did not name.** An unrecognised status is the quiet way these numbers go wrong: an *"Awaiting sign-off"* column nobody configured reads as To Do, the burndown stops moving, and a flat burndown looks exactly like a team that delivered nothing. The fetcher has always printed the names — **once, to a terminal, to whoever ran the pull**, which is not the person reading the dashboard three weeks later. `unmatched` and `inferred` appeared zero times in `src/app.js`.
+
+**What it says, and where.** A **Workflow** chip appears in the top bar when — and only when — something was inferred, opening a panel that names each status, what it was read as, and on what evidence. A permanent "nothing was inferred" notice would be furniture; the footer already states the rules in force.
+
+**And it says it again in the footer, because the chip does not print.** `.topbar-actions` and `.viewpick` are both hidden under `@media print`, so a PDF — the artefact this page is built to become, and the reason it makes no network calls — would have lost the disclosure entirely. A disclosure that disappears the moment the file is shared is not one. The footer carries the sentence beside the calendar rules it qualifies.
+
+**It travels in the data, because inference happens where the data is produced.** A fetched file had its statuses resolved upstream and the page cannot re-derive what it never saw, so the fetcher writes `orgConfig.inferredStatuses` and the page reads it. On Forge nothing is resolved upstream, so the page records its own. A board can produce both, and the producer's entry wins on a clash: it may carry the tracker's own category, which is a statement by the site, where the page only ever has the words in a name.
+
+**The evidence is ranked, not last-write-wins.** `orgconfig.Statuses` records a status reached down both paths with the *stronger* reading. The first cut did not, and against the live board it reported *"Architecture Review — the words in its name"* for a status Jira had classified itself: understating the confidence in one direction, and in the other it would have claimed a site's judgement for a guess.
+
+**`unmatched` and `inferred` are different questions and both are kept.** `unmatched` records *that* the config missed a status. `inferred` records *what happened to it*, which is the half a reader needs — and it includes statuses the tracker resolved, which `unmatched` deliberately excludes.
+
+**Status names are escaped.** A workflow status is written by whoever configures the board and it reaches `innerHTML` here. `esc()` at output, once, with an e2e check that a hostile name renders as text rather than an element.
+
+**Pinned in three suites**: the record and its ranking in `test_agent.py`; the chip, the panel, the escaping, the per-dataset reset and the producer's own record in `e2e.py`. Verified against the live board, which reports two.
+
 ## 1.59.0
 
 **The page dropped four of the organisation's own settings and used its defaults instead.** `orgConfigOf()` in `src/app.js` named four keys — `statuses`, `workingWeek`, `holidays`, `sprintLengthDays` — and built a fresh object from them, discarding everything else a dataset stated. Its own comment said *"Merge a dataset's block over the defaults, one level down, as the Python does."* It did not. `orgconfig.merge()` and the Forge `mergeOrgConfig()` both copy every key; this copied a list written before four more keys existed.

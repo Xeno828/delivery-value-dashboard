@@ -558,6 +558,15 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
                 aria-controls="view-pop" title="Choose which tiles this view shows">Tiles</button>
         <div class="vp-pop hidden" id="view-pop" role="dialog" aria-modal="false" aria-labelledby="vp-h"></div>
       </div>
+      <!-- Appears only when the config did not name every status this board
+           uses. A permanent "nothing was inferred" notice is furniture; the
+           footer already states the rules in force. -->
+      <div class="viewpick">
+        <button class="btn hidden" id="btn-workflow" aria-expanded="false"
+                aria-haspopup="dialog" aria-controls="wf-pop">Workflow</button>
+        <div class="vp-pop hidden" id="wf-pop" role="dialog" aria-modal="false"
+             aria-labelledby="wf-h"></div>
+      </div>
       <button class="btn" id="btn-print">Print</button>
       <button class="btn" id="btn-export">Export CSV</button>
       <button class="btn primary" id="btn-import">Load data</button>
@@ -1003,10 +1012,116 @@ function statusCategoryOf(name, cfg) {
   const c = cfg || ORG_DEFAULTS, n = normStatus(name);
   if (n && (c.statuses.done || []).some(x => normStatus(x) === n)) return "Done";
   if (n && (c.statuses.inProgress || []).some(x => normStatus(x) === n)) return "In Progress";
-  if (/done|closed|resolved|complete|shipped/.test(n)) return "Done";
-  if (/progress|review|test|doing|qa/.test(n)) return "In Progress";
-  return "To Do";
+  // Uncovered by the config. Mirrors the no-hint branch of
+  // orgconfig.Statuses.category, and records what it had to read from the name
+  // so the page can say so rather than presenting a guess as a fact.
+  const cat = /done|closed|resolved|complete|shipped/.test(n) ? "Done"
+            : /progress|review|test|doing|qa/.test(n) ? "In Progress"
+            : "To Do";
+  noteInferred(name, cat);
+  return cat;
 }
+
+/* ---------------------------------------------------------------- inference
+ *
+ * Which statuses the organisation config did not cover, what each was read as,
+ * and on what evidence. Mirrors `orgconfig.Statuses._inferred`.
+ *
+ * Two sources, because inference happens in two places. A file produced by the
+ * fetcher had its statuses resolved upstream, and the page cannot re-derive
+ * what it never saw — so the producer writes `orgConfig.inferredStatuses` and
+ * this reads it. On Forge nothing is resolved upstream, so the page infers and
+ * records its own. A board can produce both.
+ *
+ * Until this existed the page said nothing at all. The fetcher printed the
+ * names once, to a terminal, to whoever ran the pull — and an unrecognised
+ * status is the quiet way these numbers go wrong: an "Awaiting sign-off"
+ * column reads as To Do, the burndown stops moving, and a flat burndown looks
+ * exactly like a team that delivered nothing.
+ */
+const FROM_NAME = "the words in its name";
+const INFERRED = new Map();
+
+/** Reset per dataset, the way Python builds a fresh `Statuses` per run.
+ *  Without this a second upload reports the first file's statuses. */
+function resetInferred() { INFERRED.clear(); }
+
+function noteInferred(name, cat) {
+  const n = normStatus(name);
+  if (!n || INFERRED.has(n)) return;
+  INFERRED.set(n, { status: name, readAs: cat, from: FROM_NAME });
+}
+
+/** Everything uncovered, the dataset's record first.
+ *
+ *  The producer's entry wins on a clash: it may carry the tracker's own
+ *  category, which is a statement by the site, where the page only ever has
+ *  the words in a name. Claiming the weaker evidence for a status the producer
+ *  resolved properly would understate it. */
+function inferredStatuses() {
+  const out = new Map();
+  const stated = (ORG() && ORG().inferredStatuses) || [];
+  stated.forEach(r => {
+    const n = normStatus(r && r.status);
+    if (n) out.set(n, { status: r.status, readAs: r.readAs, from: r.from });
+  });
+  INFERRED.forEach((v, n) => { if (!out.has(n)) out.set(n, v); });
+  return [...out.values()].sort((a, b) => normStatus(a.status) < normStatus(b.status) ? -1 : 1);
+}
+
+/** The chip, and the panel behind it.
+ *
+ *  Hidden when the config covered everything — a permanent notice saying
+ *  "nothing was inferred" is furniture, and the footer already names the rules
+ *  in force. It appears exactly when there is something a reader would want to
+ *  challenge, which is the same test every refusal on this page applies. */
+function paintWorkflow() {
+  const rows = inferredStatuses(), btn = $("#btn-workflow"), pop = $("#wf-pop");
+  if (!btn || !pop) return;
+  btn.classList.toggle("hidden", rows.length === 0);
+  if (!rows.length) { pop.classList.add("hidden"); return; }
+  btn.textContent = "Workflow · " + rows.length + " inferred";
+  btn.title = rows.length + " status" + (rows.length === 1 ? "" : "es") +
+              " this board uses are not named in the organisation config";
+  pop.innerHTML =
+    '<h4 id="wf-h">Statuses your config does not name</h4>' +
+    "<p class='note'>Every figure on this page depends on which statuses mean " +
+    "done and in progress. These were not in the config, so each was read from " +
+    "the evidence below. If any is wrong, the numbers above it are wrong.</p>" +
+    "<table><thead><tr><th>Status</th><th>Read as</th><th>From</th></tr></thead><tbody>" +
+    rows.map(r => "<tr><td>" + esc(r.status) + "</td><td>" + esc(r.readAs) +
+                  "</td><td>" + esc(r.from) + "</td></tr>").join("") +
+    "</tbody></table>" +
+    "<p class='note'>Name each one under <code>statuses.done</code> or " +
+    "<code>statuses.inProgress</code> in the organisation config to state it " +
+    "rather than infer it.</p>";
+}
+
+/** The same disclosure as the chip, in a form that survives printing.
+ *
+ *  `.topbar-actions` and `.viewpick` are both hidden under `@media print`, so
+ *  the chip and its panel vanish from a PDF — and a PDF in a board pack is
+ *  exactly what this page is built to become. A disclosure that disappears the
+ *  moment the file is shared is not a disclosure, so it also goes in the
+ *  footer, beside the rules it qualifies. */
+function inferredSentence() {
+  const rows = inferredStatuses();
+  if (!rows.length) return "";
+  const one = rows.length === 1;
+  return "<br>" + rows.length + " status" + (one ? "" : "es") + " this board uses "
+    + (one ? "is" : "are") + " not named in the organisation config, so "
+    + (one ? "it was" : "each was") + " read from other evidence: "
+    + rows.map(r => esc(r.status) + " → " + esc(r.readAs)).join(", ") + ".";
+}
+
+function openWorkflow(on) {
+  const pop = $("#wf-pop");
+  if (on) openPicker(false);
+  pop.classList.toggle("hidden", !on);
+  $("#btn-workflow").setAttribute("aria-expanded", String(on));
+  if (!on) $("#btn-workflow").focus();
+}
+
 
 /** Working days between two ISO dates, inclusive, per the config's week and
  *  holiday list. Holidays shorten *working* time only — reported ages stay in
@@ -1230,6 +1345,9 @@ function normaliseIssue(i, meta, cfg) {
 
 function normalise(d) {
   d.orgConfig = orgConfigOf(d);
+  // A fresh record per dataset, the way the Python builds a fresh Statuses per
+  // run. Without it a second upload reports the first file's statuses.
+  resetInferred();
   d.issues = (d.issues || []).map(i => normaliseIssue(i, d.meta, d.orgConfig));
   d.meta = d.meta || {};
 
@@ -5236,6 +5354,13 @@ function openPicker(on) {
   else $("#btn-view").focus();
 }
 $("#btn-view").onclick = () => openPicker($("#view-pop").classList.contains("hidden"));
+$("#btn-workflow").onclick = () => openWorkflow($("#wf-pop").classList.contains("hidden"));
+addEventListener("keydown", e => {
+  if (e.key === "Escape" && !$("#wf-pop").classList.contains("hidden")) openWorkflow(false);
+});
+addEventListener("mousedown", e => {
+  if (!$("#wf-pop").classList.contains("hidden") && !e.target.closest(".viewpick")) openWorkflow(false);
+});
 addEventListener("keydown", e => {
   if (e.key === "Escape" && !$("#view-pop").classList.contains("hidden")) openPicker(false);
 });
@@ -5326,7 +5451,9 @@ function render() {
     // not only in the config file someone else edited.
     "<br>" + esc(orgSummary(ORG())) +
     (S.orgFromServer ? " — from the live server, replacing the calendar baked into this file." : "") +
+    inferredSentence() +
     "<br>Every figure on this page traces back to an issue. Click anything that looks wrong.";
+  paintWorkflow();
 }
 addEventListener("resize", () => { clearTimeout(rafT); rafT = setTimeout(render, 180); });
 
@@ -5603,6 +5730,8 @@ window.DVD = {
      `orgconfig.counted_issues()` and a test has to be able to run both over one
      config and compare. ADR 0024. */
   countedIssues: countedIssues,
+  /* The disclosure the page makes about statuses its config did not name. */
+  inferredStatuses: inferredStatuses,
   /** Hooks for tests/perf.py. Not used by the page itself. */
   debug: {
     /** Which transport live mode picked, or null for none. The page must

@@ -101,6 +101,21 @@ The assumptions that differ per customer, resolved once by whatever produced the
 
 Absent means the defaults above, which reproduce what was hard-coded before the block existed, so every file that predates it reads exactly as it did.
 
+**`inferredStatuses`** is the one entry here that is not an assumption. It is a record of where the assumptions ran out:
+
+```json
+"inferredStatuses": [
+  { "status": "Architecture Review", "readAs": "In Progress", "from": "the tracker's own category" },
+  { "status": "Awaiting sign-off",   "readAs": "To Do",       "from": "the words in its name" }
+]
+```
+
+Every status the config did not name, what it was read as, and on what evidence. Written by whatever produced the file, because that is where the inference happened — and the page cannot re-derive what it never saw. The page merges it with anything it had to infer itself (on Forge nothing is resolved upstream) and states the result in the footer and in the **Workflow** chip.
+
+It exists because an unrecognised status is the quiet way these numbers go wrong. An "Awaiting sign-off" column nobody configured reads as To Do, the burndown stops moving, and a flat burndown looks exactly like a team that delivered nothing. The fetcher has always printed the names — once, to a terminal, to whoever ran the pull, which is not the person reading the dashboard three weeks later.
+
+`from` is one of two strings: *"the tracker's own category"*, which is a statement by the site, or *"the words in its name"*, which is a guess. A status reached down both paths keeps the stronger of the two.
+
 Holidays shorten **working** time only. Reported elapsed time stays in calendar days — see Units above.
 
 ### `burndown[]`

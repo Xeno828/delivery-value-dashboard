@@ -26,6 +26,15 @@
                 aria-controls="view-pop" title="Choose which tiles this view shows">Tiles</button>
         <div class="vp-pop hidden" id="view-pop" role="dialog" aria-modal="false" aria-labelledby="vp-h"></div>
       </div>
+      <!-- Appears only when the config did not name every status this board
+           uses. A permanent "nothing was inferred" notice is furniture; the
+           footer already states the rules in force. -->
+      <div class="viewpick">
+        <button class="btn hidden" id="btn-workflow" aria-expanded="false"
+                aria-haspopup="dialog" aria-controls="wf-pop">Workflow</button>
+        <div class="vp-pop hidden" id="wf-pop" role="dialog" aria-modal="false"
+             aria-labelledby="wf-h"></div>
+      </div>
       <button class="btn" id="btn-print">Print</button>
       <button class="btn" id="btn-export">Export CSV</button>
       <button class="btn primary" id="btn-import">Load data</button>

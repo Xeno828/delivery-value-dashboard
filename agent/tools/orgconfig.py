@@ -297,6 +297,11 @@ class Statuses:
         self.done = {_norm(x) for x in st.get("done", [])}
         self.wip = {_norm(x) for x in st.get("inProgress", [])}
         self._unmatched = {}
+        # Name -> what it was read as. `_unmatched` records *that* a status was
+        # uncovered; this records *what happened to it*, which is the half a
+        # reader needs. "Awaiting sign-off was read as To Do" is actionable;
+        # "Awaiting sign-off matched no rule" invites the question this answers.
+        self._inferred = {}
 
     def category(self, name, hint=None):
         n = _norm(name)
@@ -310,25 +315,59 @@ class Statuses:
         if hint:
             h = _norm(hint)
             if "done" in h or "complete" in h:
-                return "Done"
-            if "progress" in h:
-                return "In Progress"
-            if name:
-                self._unmatched[n] = name
-            return "To Do"
+                cat = "Done"
+            elif "progress" in h:
+                cat = "In Progress"
+            else:
+                cat = "To Do"
+                if name:
+                    self._unmatched[n] = name
+            self._note(n, name, cat, self.FROM_TRACKER)
+            return cat
 
         if name:
             self._unmatched[n] = name
         if _DONE_RE.search(n):
-            return "Done"
-        if _WIP_RE.search(n):
-            return "In Progress"
-        return "To Do"
+            cat = "Done"
+        elif _WIP_RE.search(n):
+            cat = "In Progress"
+        else:
+            cat = "To Do"
+        self._note(n, name, cat, self.FROM_NAME)
+        return cat
+
+    FROM_TRACKER = "the tracker's own category"
+    FROM_NAME = "the words in its name"
+    #: Evidence, strongest first. A status reached down both paths keeps the
+    #: stronger reading rather than whichever call happened last: reporting a
+    #: name guess for something the tracker actually classified understates the
+    #: confidence, and the reverse overstates it, which is worse.
+    _RANK = {FROM_TRACKER: 2, FROM_NAME: 1}
+
+    def _note(self, n, name, cat, src):
+        if not name:
+            return
+        prev = self._inferred.get(n)
+        if prev and self._RANK[prev[2]] >= self._RANK[src]:
+            return
+        self._inferred[n] = (name, cat, src)
 
     @property
     def unmatched(self):
         """Status names no rule covered, in the spelling the tracker used."""
         return sorted(self._unmatched.values())
+
+    @property
+    def inferred(self):
+        """Every uncovered status, what it was read as, and on what evidence.
+
+        Written into the dataset so the page can say it. Inference happens where
+        the data is produced, and until this travelled, a reader of the file had
+        no way to know it had happened at all — the fetcher printed it once, to
+        a terminal, to whoever ran the pull.
+        """
+        return [{"status": nm, "readAs": cat, "from": src}
+                for _, (nm, cat, src) in sorted(self._inferred.items())]
 
 
 def is_done(issue, cfg=None):

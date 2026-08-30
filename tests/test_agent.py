@@ -483,6 +483,62 @@ def test_forecast_log():
 # =====================================================================
 # 3c. the search endpoint, which Atlassian removed
 # =====================================================================
+def test_what_the_config_did_not_cover_is_recorded_with_its_evidence():
+    """Which statuses were inferred, what each was read as, and on what.
+
+    `unmatched` has always recorded *that* a status was uncovered. It never
+    recorded what happened to it, which is the half a reader needs: "Awaiting
+    sign-off was read as To Do" is actionable, "Awaiting sign-off matched no
+    rule" invites the question this answers.
+
+    It travels in the dataset because inference happens where the data is
+    produced. Until it did, a reader of a file had no way to know it had
+    happened — the fetcher printed the names once, to a terminal, to whoever
+    ran the pull.
+    """
+    cfg = {"statuses": {"done": ["Done"], "inProgress": ["In Progress"]}}
+
+    S = OC.Statuses(cfg)
+    check("a configured status is not reported at all",
+          (S.category("Done"), S.inferred) == ("Done", []), S.inferred)
+
+    S = OC.Statuses(cfg)
+    S.category("Awaiting sign-off")
+    check("an uncovered one is, with what it was read as and from what",
+          S.inferred == [{"status": "Awaiting sign-off", "readAs": "To Do",
+                          "from": OC.Statuses.FROM_NAME}], S.inferred)
+
+    # The tracker's own category is a statement by the site; the words in a name
+    # are a guess here. A status reached down both paths must keep the stronger
+    # reading whichever call happened last — reporting a guess for something the
+    # tracker classified understates it, and the reverse overstates it.
+    for order in (("hint-last", [None, "In Progress"]),
+                  ("hint-first", ["In Progress", None])):
+        label, hints = order
+        S = OC.Statuses(cfg)
+        for h in hints:
+            S.category("Architecture Review", h)
+        check("the tracker's reading wins over the name guess (%s)" % label,
+              S.inferred == [{"status": "Architecture Review", "readAs": "In Progress",
+                              "from": OC.Statuses.FROM_TRACKER}], S.inferred)
+
+    # A status the tracker classified is still one the config does not name, so
+    # it is still reported — `unmatched` deliberately does not, and that
+    # difference is why both exist.
+    S = OC.Statuses(cfg)
+    S.category("Architecture Review", "In Progress")
+    check("a status the tracker resolved is reported as inferred",
+          [r["status"] for r in S.inferred] == ["Architecture Review"], S.inferred)
+    check("and is still absent from unmatched, which means something else",
+          S.unmatched == [], S.unmatched)
+
+    # The fetcher writes it into the dataset, where the page reads it.
+    src = (ROOT / "scripts" / "fetch_delivery_data.py").read_text()
+    check("the fetcher puts it in the dataset's orgConfig, on both write paths",
+          src.count('dict(CFG, inferredStatuses=STATUSES.inferred)') == 2,
+          src.count('dict(CFG, inferredStatuses=STATUSES.inferred)'))
+
+
 def test_a_bad_credential_fails_before_it_can_flatten_a_burndown():
     """An unauthenticated pull must stop, not degrade — found against live Jira.
 
@@ -1214,6 +1270,8 @@ if __name__ == "__main__":
     test_calibration()
     print("the forecast log")
     test_forecast_log()
+    print("statuses the config did not cover")
+    test_what_the_config_did_not_cover_is_recorded_with_its_evidence()
     print("the fetcher's credential")
     test_a_bad_credential_fails_before_it_can_flatten_a_burndown()
     print("the search endpoint")
