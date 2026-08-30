@@ -159,9 +159,16 @@ def history_row(issues, sprint_name, as_of, cfg=None):
         st = i.get("started")
         return bool(st and st <= as_of)
 
-    done = [i for i in issues if resolved_by(i)]
-    planned = [i for i in issues if not i.get("addedMidSprint")]
-    wip = [i for i in issues if started_by(i) and not resolved_by(i)]
+    # Items and value are counted from two different sets — ADR 0026. Every
+    # count below is a count of *items*, so an epic is excluded from them for
+    # the same reason a subtask is; the epic is the only place value is
+    # recorded, so `valueDelivered` reads the other pool. `facts` applied this
+    # at its own top and this did not, so a row counted an epic as an item
+    # while the facts pack beside it did not — two answers to one question.
+    counted, _ = OC.counted_issues(issues, cfg)
+    done = [i for i in counted if resolved_by(i)]
+    planned = [i for i in counted if not i.get("addedMidSprint")]
+    wip = [i for i in counted if started_by(i) and not resolved_by(i)]
 
     lead = [(date.fromisoformat(i["resolved"]) - date.fromisoformat(i["created"])).days
             for i in done if i.get("resolved") and i.get("created")]
@@ -192,7 +199,12 @@ def history_row(issues, sprint_name, as_of, cfg=None):
         # present and sums to zero keeps its zero.
         # Through `value_of`, which applies the hierarchy rule — a parent epic
         # and its stories are one piece of value and several rows. ADR 0025.
-        "valueDelivered": (round(sum(OC.value_of(i, cfg) for i in done), 0)
+        # From the value pool and by the same `as_of`, so an epic that finished
+        # inside this window is credited to it and one that finished later is
+        # not — the same rule every other figure in this row follows.
+        "valueDelivered": (round(sum(OC.value_of(i, cfg)
+                                     for i in OC.value_issues(issues, cfg)
+                                     if resolved_by(i)), 0)
                            if any("businessValue" in i for i in issues) else None),
     }
 
@@ -757,7 +769,13 @@ def facts(ds, previous=None, scope="sprint"):
     committed = hist[-1].get("committedSP") if hist else sp([i for i in issues if not i.get("addedMidSprint")])
     committed_items = len([i for i in issues if not i.get("addedMidSprint")])
 
-    valued = [i for i in done if OC.value_of(i, cfg) > 0]
+    # From the *value* pool, not the item pool. An epic is excluded from items
+    # because it is a container of them, and it is the only place value is
+    # recorded — so computing value over the filtered items would compute it
+    # over a set the item rule had already emptied of everything that carries
+    # any. ADR 0026.
+    value_done = [i for i in OC.value_issues(ds["issues"], cfg) if is_done(i)]
+    valued = [i for i in value_done if OC.value_of(i, cfg) > 0]
 
     f = {
         "meta": {

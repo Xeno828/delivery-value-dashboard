@@ -726,13 +726,71 @@ resolver.define('contexts', answering(async ({ context }) => {
  * field — an issue reaching it untagged is an issue silently dropped from the
  * sample, which is the narrowing this whole route is arranged to prevent.
  */
+/**
+ * The board's epics, as issues, with their fields — ADR 0026.
+ *
+ * **Epics are not on a scrum board and never come back from a sprint fetch.**
+ * *"Epic issues do not belong to the scrum boards"* is Jira's own description
+ * of the design, and it is why declaring a Business Value field (ADR 0025) was
+ * not enough on its own: the field existed, an administrator put it on a
+ * screen, somebody typed a number into an epic, and the dashboard fetched every
+ * issue in the sprint — none of which was that epic.
+ *
+ * So they are fetched separately: the board's epic list, then each one as an
+ * issue for its fields. `1 + E` calls, once per invocation rather than once per
+ * context, because a board has tens of epics and a history route reads a dozen
+ * contexts.
+ *
+ * Capped, and the cap is reported rather than applied quietly — a board whose
+ * epics were truncated would report less value than it delivered, with nothing
+ * saying so.
+ */
+const MAX_EPICS = 200;
+let _epics = {};
+const boardEpicsFor = async (boardId, as, bvField, spField) => {
+  const cacheKey = String(boardId);
+  if (_epics[cacheKey]) return _epics[cacheKey];
+
+  const listed = [];
+  let startAt = 0;
+  try {
+    for (let page = 0; page < 20; page += 1) {
+      const res = await jira(as).requestJira(
+        route`/rest/agile/1.0/board/${boardId}/epic?startAt=${startAt}&maxResults=50`,
+      );
+      if (!res.ok) break;
+      const body = await res.json();
+      const values = body.values ?? [];
+      listed.push(...values);
+      startAt += values.length;
+      if (!values.length || body.isLast || listed.length >= MAX_EPICS) break;
+    }
+  } catch {
+    // A board with no epic support answers 4xx here, which is not an error —
+    // it is a board without epics, and it has no value to report.
+  }
+
+  const fields = issueFields(spField, bvField);
+  const out = [];
+  for (const e of listed.slice(0, MAX_EPICS)) {
+    try {
+      const res = await jira(as).requestJira(
+        route`/rest/api/3/issue/${e.key}?fields=${fields}`,
+      );
+      if (res.ok) out.push(await res.json());
+    } catch { /* one unreadable epic is not a reason to report no value */ }
+  }
+  _epics[cacheKey] = { epics: out, dropped: Math.max(listed.length - MAX_EPICS, 0) };
+  return _epics[cacheKey];
+};
+
 const issuesForEntry = async (entry, spField, siteUrl, as) => {
   const parsed = parseContextId(entry.id);
   const bvField = await businessValueFieldFor(as);
   const raw = entry.kind === 'window'
     ? await fetchWindowIssues(parsed.boardId, entry, spField, as, bvField)
     : await fetchSprintIssues(parsed.boardId, parsed.sprintId, spField, as, bvField);
-  return raw.map((r) => ({
+  const mapped = raw.map((r) => ({
     ...issueFrom(r, {
       // Undefined for a window, which is the honest value: `addedMidSprint` is
       // "the sprint field changed after the sprint began", and a board with no
@@ -753,6 +811,32 @@ const issuesForEntry = async (entry, spField, siteUrl, as) => {
     }),
     contextId: entry.id,
   }));
+
+  // The epics that *finished* inside this period — ADR 0026. Value is credited
+  // to the period an epic completed in, because that is the only moment about
+  // it this product can date: an epic spans sprints, and spreading its value
+  // across them by counting its children would be the double count the level
+  // rule exists to prevent.
+  //
+  // A window has dates too, so this is not sprint-only. An entry with no dates
+  // gets none, rather than every epic the board has ever finished.
+  if (entry.startDate && entry.endDate && bvField) {
+    const { epics } = await boardEpicsFor(parsed.boardId, as, bvField, spField);
+    for (const raw of epics) {
+      const done = (raw.fields?.resolutiondate || '').slice(0, 10);
+      if (!done || done < entry.startDate || done > entry.endDate) continue;
+      mapped.push({
+        ...issueFrom(raw, {
+          sprintStart: entry.kind === 'window' ? null : entry.startDate,
+          storyPointField: spField,
+          businessValueField: bvField,
+          siteUrl,
+        }),
+        contextId: entry.id,
+      });
+    }
+  }
+  return mapped;
 };
 
 /**

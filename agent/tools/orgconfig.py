@@ -414,9 +414,22 @@ def counted_issues(issues, cfg=None):
     def drop(reason):
         excluded[reason] = excluded.get(reason, 0) + 1
 
+    # The level at which value is counted is also the level *above* an item: an
+    # epic is a container of items, not one of them. Excluded for the same
+    # reason a subtask is — a parent and its children are one piece of work and
+    # several rows — and the exclusion is symmetric, subtasks below and epics
+    # above. ADR 0026.
+    floor = cfg.get("valueFromHierarchy")
+    if not isinstance(floor, int) or isinstance(floor, bool):
+        floor = DEFAULTS["valueFromHierarchy"]
+
     for i in issues or []:
         if not keep_sub and i.get("isSubtask") is True:
             drop("subtask")
+            continue
+        lvl = i.get("hierarchyLevel")
+        if isinstance(lvl, int) and not isinstance(lvl, bool) and lvl >= floor:
+            drop("epic or above")
             continue
         if named and str(i.get("type") or "").strip().lower() not in named:
             drop("type not counted")
@@ -436,9 +449,10 @@ def counted_note(excluded, total):
     if not gone:
         return ""
     parts = ", ".join("%d %s" % (n, r) for r, n in sorted((excluded or {}).items()))
-    return ("%d of %d issues are not counted as items (%s). A parent and its "
-            "subtasks are one piece of work; counting both would report a team "
-            "that breaks work down finely as delivering several times more."
+    return ("%d of %d issues are not counted as items (%s). An item is one piece "
+            "of work: a subtask is part of one and an epic is a container of "
+            "several, and counting either alongside the work itself would report "
+            "the same delivery twice."
             % (gone, total, parts))
 
 
@@ -478,3 +492,16 @@ def value_of(issue, cfg=None):
         return float((issue or {}).get("businessValue") or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def value_issues(issues, cfg=None):
+    """The issues whose business value is counted — the *other* pool.
+
+    Items and value are counted at different levels and therefore from
+    different sets: an epic is excluded from items because it is a container of
+    them, and it is the only thing included here because that is where value is
+    recorded. A single filtered list cannot serve both, and using one is how a
+    value tile came to be computed over a set its own rule had already emptied.
+    ADR 0026.
+    """
+    return [i for i in issues or [] if value_counts(i, cfg)]

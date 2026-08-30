@@ -525,6 +525,13 @@ def test_forge_manifest_matches_the_code():
         "read:project:jira",
         "read:sprint:jira-software",
         "read:jql:jira",
+        # Epics are not on a scrum board and never come back from a sprint
+        # fetch — "Epic issues do not belong to the scrum boards" is Jira's own
+        # description of the design. Business value lives on epics (ADR 0025),
+        # so without this the field exists, an administrator puts it on a
+        # screen, somebody types a number in, and no figure ever moves. Found
+        # by `forge lint` rather than by a tenant reporting no value. ADR 0026.
+        "read:epic:jira-software",
     } | NON_READ_ALLOWED
     check("no scope outside the reviewed allow-list",
           set(scope_strs) <= ALLOWED, sorted(set(scope_strs) - ALLOWED) or "none")
@@ -4307,7 +4314,7 @@ def counting_checks():
           counting)
     check("and says which ones were not counted, and why",
           counting["not_counted"] == {"subtask": 1}
-          and "subtasks are one piece of work" in counting["sentence"],
+          and "an epic is a container of several" in counting["sentence"],
           counting["sentence"])
     check("the report is present even when nothing was excluded",
           "counting" in MT.facts({"issues": [{"key": "A", "type": "Story"}],
@@ -4399,6 +4406,50 @@ def business_value_checks():
     check("and the trend row does too",
           MT.history_row(rows, "S1", "2026-01-16")["valueDelivered"] == 40000,
           MT.history_row(rows, "S1", "2026-01-16")["valueDelivered"])
+
+    # ---- items and value are two pools, not one filtered list ----
+    #
+    # The bug this pins reached a tenant. An epic is excluded from *items*
+    # because it is a container of them — so reading value off the filtered
+    # items reads it off a list the item rule has already emptied of everything
+    # that carries any, and the value tile reports nothing while an epic sits
+    # there marked Done with a number on it.
+    mixed = [dict(epic, resolved="2026-01-10", created="2026-01-02",
+                  statusCategory="Done", storyPoints=0),
+             dict(story, resolved="2026-01-09", created="2026-01-02",
+                  statusCategory="Done", storyPoints=3)]
+    items, _ = OC.counted_issues(mixed)
+    check("an epic is not counted as an item",
+          [i["key"] for i in items] == ["S"], [i["key"] for i in items])
+    check("and it is the only thing whose value is counted",
+          [i["key"] for i in OC.value_issues(mixed)] == ["E"],
+          [i["key"] for i in OC.value_issues(mixed)])
+    got = MT.facts({"issues": mixed, "meta": {}, "orgConfig": {}})
+    check("so the facts pack reports the epic's value and the story's item",
+          got["value"]["closed_estimate"] == 40000
+          and got["meta"]["counting"]["items_counted"] == 1,
+          {"value": got["value"]["closed_estimate"],
+           "items": got["meta"]["counting"]["items_counted"]})
+    check("and the trend row does both from the same set",
+          MT.history_row(mixed, "S1", "2026-01-16")["valueDelivered"] == 40000
+          and MT.history_row(mixed, "S1", "2026-01-16")["completedItems"] == 1,
+          MT.history_row(mixed, "S1", "2026-01-16"))
+
+    # Epics are not on a scrum board and never come back from a sprint fetch —
+    # "Epic issues do not belong to the scrum boards" is Jira's own description
+    # of the design. Declaring the field was not enough on its own.
+    idx = (ROOT / "forge" / "src" / "index.js").read_text()
+    check("the resolver fetches the board's epics separately",
+          "boardEpicsFor" in idx and "/epic?startAt=" in idx,
+          [l.strip() for l in idx.splitlines() if "board/${boardId}/epic" in l][:1])
+    check("and credits each to the period it finished in, not to every period",
+          "resolutiondate" in idx.split("boardEpicsFor(parsed.boardId", 1)[1][:900],
+          "credited by resolution date")
+    check("an entry with no dates gets no epics rather than all of them",
+          "entry.startDate && entry.endDate && bvField" in idx,
+          "guarded by dates")
+    check("and the epic cap is reported rather than applied quietly",
+          "dropped: Math.max(listed.length - MAX_EPICS" in idx, "cap reported")
 
     # ---- the page mirrors it, because the browser cannot call Python ----
     app_js = (ROOT / "src" / "app.js").read_text()

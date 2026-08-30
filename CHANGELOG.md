@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.55.0
+
+**Business value on an epic reached nothing, because epics are not on a scrum board.** *"Epic issues do not belong to the scrum boards"* is Jira's own description of the design, so `/rest/agile/1.0/board/{id}/sprint/{id}/issue` never returns one. Declaring the field (ADR 0025) was necessary and not sufficient: the field existed, an administrator put it on a screen, a number was typed into an epic, that epic was marked Done — and the dashboard fetched every issue in the sprint, none of which was it. [ADR 0026](docs/adr/0026-items-and-value-are-counted-from-two-different-sets.md).
+
+**The board's epics are fetched separately and credited to the period they finished in.** An epic spans sprints, so the only moment about it this product can date is its resolution — and spreading its value across sprints by counting its children would be the double count the level rule exists to prevent. `1 + E` calls once per invocation rather than once per context, capped, and the cap reported rather than applied quietly.
+
+**Items and value are two pools, not one filtered list — and this is the part that would have failed silently.** An epic is a container of items, so it must be excluded from item counts for exactly the reason a subtask is: the same delivery counted twice, one tier up. But the epic is also the *only* place value is recorded. Reading value off the filtered items therefore reads it off a list the item rule has just emptied of everything carrying any — the value tile reporting nothing while an epic sits there Done with a number on it. `counted_issues` and `value_issues` are the two sets, and `facts`, `history_row` and the page all read the right one.
+
+**`history_row` was counting an epic as an item**, because it never applied the item rule at all — `facts` applied it at its own top and this did not. Two answers to one question, and the trend row would have disagreed with the facts pack beside it about the same sprint.
+
+**A read scope, and `forge lint` found it rather than a tenant.** `read:epic:jira-software`. Read-only like every other scope here, declared with its reason in the manifest and added deliberately to the reviewed allow-list in `tests/test_service.py` — which failed until it was, which is what that list is for.
+
+**Separately, and not fixed here: the fetcher calls an endpoint Atlassian has removed.** `scripts/fetch_delivery_data.py` POSTs to `/rest/api/3/search`, which now answers *"The requested API has been removed. Please migrate to the /rest/api/3/search/jql API."* The Forge route is unaffected — it uses the agile endpoints — but the local pull path is dead against Jira Cloud today. It is a real migration rather than a URL swap, since the replacement pages by token rather than by index, and it is recorded here rather than folded into a change about epics.
+
 ## 1.54.1
 
 **The Business Value field was declared, read, and never requested.** `issueFields` names the fields Jira should return, and `businessValue` was added to the projection without being added to that list — so Jira sent it on no issue, `issueFrom` read a missing key, and every value came back absent. No error, no empty response: a figure that would simply never have appeared. It was deployed that way, and lasted one deploy.

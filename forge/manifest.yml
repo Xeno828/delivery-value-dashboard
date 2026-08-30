@@ -218,6 +218,13 @@ permissions:
     # in src/index.js — not before, because losing board access fails at runtime
     # in a tenant rather than at build time here.
     - read:board-scope:jira-software
+    # Epics are not on a scrum board and never come back from a sprint fetch —
+    # "Epic issues do not belong to the scrum boards" is Jira's own description
+    # of the design. Business value lives on epics (ADR 0025), so reading them
+    # is what makes the field's value reach a figure at all. Read-only, like
+    # every other scope here, and `forge lint` is what found it missing rather
+    # than a tenant reporting no value. ADR 0026.
+    - read:epic:jira-software
     - read:issue-details:jira
     - read:jira-work
     - read:jira-user

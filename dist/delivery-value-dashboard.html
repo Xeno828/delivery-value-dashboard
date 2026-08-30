@@ -1466,8 +1466,14 @@ function countedIssues(issues, cfg) {
     .map(t => String(t).trim().toLowerCase()).filter(Boolean);
   const kept = [], excluded = {};
   const drop = r => { excluded[r] = (excluded[r] || 0) + 1; };
+  let floor = cfg && cfg.valueFromHierarchy;
+  if (typeof floor !== "number" || !isFinite(floor)) floor = 1;
   issues.forEach(i => {
     if (!keepSub && i.isSubtask === true) { drop("subtask"); return; }
+    // An epic is a container of items, not one of them — the mirror of the
+    // subtask rule, one tier up. ADR 0026.
+    if (typeof i.hierarchyLevel === "number" && isFinite(i.hierarchyLevel)
+        && i.hierarchyLevel >= floor) { drop("epic or above"); return; }
     if (named.length && named.indexOf(String(i.type || "").trim().toLowerCase()) < 0) {
       drop("type not counted"); return;
     }
@@ -1491,6 +1497,12 @@ function buildView() {
   // work and several rows. ADR 0024.
   const counted = countedIssues(inScope, ORG());
   const issues = counted.kept;
+  /* The other pool. Items and value are counted at different levels and so
+     from different sets: an epic is excluded from items because it is a
+     container of them, and it is the only place value is recorded. Reading
+     value off the filtered items would read it off a list the item rule had
+     already emptied of everything carrying any. ADR 0026. */
+  const valuePool = inScope.filter(i => i.valueCounts !== false);
   const last = S.data.byContext[ids[ids.length - 1]] || {};
 
   return {
@@ -1501,6 +1513,7 @@ function buildView() {
     // denominator the reader cannot see.
     counting: { seen: inScope.length, counted: issues.length,
                 notCounted: counted.excluded },
+    valuePool: valuePool,
     // A rollup spans several sprints, so a burndown is undefined for it. Better
     // an explicit blank with a reason than a chart that means nothing.
     burndown: ctx.isRollup ? [] : (last.burndown || []),
@@ -1609,7 +1622,10 @@ function derive(items) {
     avgLead: lead.length ? sum(lead) / lead.length : null,
     flowEff: null,
     done, open, closedTimed,
-    valueItems: done.filter(i => i.businessValue > 0 && i.valueCounts !== false),
+    // From the value pool and not from `done`, which holds items — see
+    // buildView. An epic is never in `done` because it is never an item.
+    valueItems: (S.view.valuePool || []).filter(
+      i => i.businessValue > 0 && i.statusCategory === "Done"),
     prev, cur, recentAvg, recentAvgN
   };
   /* An empty selection is a refusal, not a zero. Everything downstream that
