@@ -1059,6 +1059,13 @@ function noteInferred(name, cat) {
  *  the words in a name. Claiming the weaker evidence for a status the producer
  *  resolved properly would understate it. */
 function inferredStatuses() {
+  // Nothing is inferred once a person has stated the whole mapping. The config
+  // has no `toDo` list — To Do is the residual, here and in orgconfig.py — so a
+  // status the reader deliberately marked To Do is in neither list and would
+  // otherwise be re-reported as a guess. Saying "inferred from the words in its
+  // name" about an answer somebody typed is simply false, and the chip and the
+  // footer already carry the stronger disclosure in its place.
+  if (workflowIsReaders()) return [];
   const out = new Map();
   const stated = (ORG() && ORG().inferredStatuses) || [];
   stated.forEach(r => {
@@ -1069,32 +1076,146 @@ function inferredStatuses() {
   return [...out.values()].sort((a, b) => normStatus(a.status) < normStatus(b.status) ? -1 : 1);
 }
 
-/** The chip, and the panel behind it.
+/* ------------------------------------------------------- the workflow control
  *
- *  Hidden when the config covered everything — a permanent notice saying
- *  "nothing was inferred" is furniture, and the footer already names the rules
- *  in force. It appears exactly when there is something a reader would want to
- *  challenge, which is the same test every refusal on this page applies. */
+ * Phase two of the same chip. Phase one said which statuses the config did not
+ * name; this lets somebody who knows the board say what they mean.
+ *
+ * **It edits the data, not the view.** The reader's answer goes into
+ * `S.data.orgConfig.statuses`, every issue is re-derived from its raw status
+ * under it, and the changed dataset is what "Save a copy" writes. A view-level
+ * toggle was the obvious shape and is the wrong one: two people opening the
+ * same file would read different completion figures with nothing saying why,
+ * which is the disagreement `CLAUDE.md` puts the config inside the data to
+ * prevent. It also has nowhere to live — this page may use no browser storage.
+ *
+ * **The producer's own answer is discarded, deliberately.** `normaliseIssue`
+ * keeps a `statusCategory` the producer resolved, because re-deriving it under
+ * a different config is how one issue acquires two answers. Applying a mapping
+ * here is a reader saying that answer is wrong for this board, so the raw
+ * status is recategorised and the resolved value goes. That is the whole point
+ * of the control, and it is why it re-derives from the dataset as it arrived
+ * rather than from what is on screen.
+ */
+let EDITING = false;
+
+/** Every status this board's data mentions.
+ *
+ *  Read off the data rather than the config, the same way the type filter is.
+ *  The config's lists carry generic defaults — Closed, Doing, QA, Shipped — that
+ *  most boards never use, and offering sixteen rows where a board has five
+ *  buries the ones a reader came to check.
+ *
+ *  **Transition targets count.** `started` is the first transition into a status
+ *  the config calls In Progress, so a status that appears only in an issue's
+ *  history still moves `wipItems`, `flowEfficiency` and every cycle-time figure
+ *  derived from it. Leaving those out of the mapping would drop them from the
+ *  config on apply and move numbers nobody was looking at. */
+function boardStatuses() {
+  const seen = new Map();
+  const add = n => { const k = normStatus(n); if (k && !seen.has(k)) seen.set(k, n); };
+  const scan = issues => (issues || []).forEach(i => {
+    add(i.status);
+    (i.statusTransitions || []).forEach(t => add(t && t.to));
+  });
+  scan(S.pristine && S.pristine.issues);
+  scan(S.data.issues);
+  return [...seen.values()].sort((a, b) => normStatus(a) < normStatus(b) ? -1 : 1);
+}
+
+/** Whether the reader has stated this mapping rather than inheriting it. */
+function workflowIsReaders() { return Boolean(ORG().workflowSetBy); }
+
+/** Apply a reader's mapping, re-deriving every figure from the source. */
+function applyWorkflow(mapping) {
+  const src = JSON.parse(JSON.stringify(S.pristine));
+  const done = [], wip = [];
+  Object.keys(mapping).forEach(name => {
+    if (mapping[name] === "Done") done.push(name);
+    else if (mapping[name] === "In Progress") wip.push(name);
+  });
+  // No `toDo` list: To Do is the residual, here and in orgconfig.py. A status
+  // the reader marked To Do is named by being in neither list, which is the
+  // same statement the config file makes.
+  src.orgConfig = Object.assign({}, src.orgConfig || {}, {
+    statuses: { done: done, inProgress: wip },
+    // Nothing is inferred once a person has said what each status means, and
+    // saying "inferred" over a stated mapping would be false. What replaces it
+    // is a stronger disclosure, not a quieter one.
+    inferredStatuses: [],
+    workflowSetBy: "reader"
+  });
+  (src.issues || []).forEach(i => { delete i.statusCategory; });
+  EDITING = true;
+  try { S.data = normalise(src); } finally { EDITING = false; }
+  render();
+}
+
+/** Back to the file as received, mapping and all. */
+function resetWorkflow() {
+  const src = JSON.parse(JSON.stringify(S.pristine));
+  EDITING = true;
+  try { S.data = normalise(src); } finally { EDITING = false; }
+  render();
+}
+
 function paintWorkflow() {
-  const rows = inferredStatuses(), btn = $("#btn-workflow"), pop = $("#wf-pop");
+  const btn = $("#btn-workflow"), pop = $("#wf-pop");
   if (!btn || !pop) return;
-  btn.classList.toggle("hidden", rows.length === 0);
-  if (!rows.length) { pop.classList.add("hidden"); return; }
-  btn.textContent = "Workflow · " + rows.length + " inferred";
-  btn.title = rows.length + " status" + (rows.length === 1 ? "" : "es") +
-              " this board uses are not named in the organisation config";
+  const rows = inferredStatuses(), edited = workflowIsReaders();
+  btn.classList.remove("hidden");
+  btn.textContent = edited ? "Workflow · set here"
+                  : rows.length ? "Workflow · " + rows.length + " inferred"
+                  : "Workflow";
+  btn.title = edited
+    ? "The workflow was set in this view and no longer matches the file as received"
+    : rows.length
+      ? rows.length + " status" + (rows.length === 1 ? "" : "es") +
+        " this board uses are not named in the organisation config"
+      : "What each status on this board means";
+
+  const cat = {};
+  boardStatuses().forEach(n => { cat[n] = statusCategoryOf(n, ORG()); });
+  const inferredOf = {};
+  rows.forEach(r => { inferredOf[normStatus(r.status)] = r; });
+
   pop.innerHTML =
-    '<h4 id="wf-h">Statuses your config does not name</h4>' +
-    "<p class='note'>Every figure on this page depends on which statuses mean " +
-    "done and in progress. These were not in the config, so each was read from " +
-    "the evidence below. If any is wrong, the numbers above it are wrong.</p>" +
-    "<table><thead><tr><th>Status</th><th>Read as</th><th>From</th></tr></thead><tbody>" +
-    rows.map(r => "<tr><td>" + esc(r.status) + "</td><td>" + esc(r.readAs) +
-                  "</td><td>" + esc(r.from) + "</td></tr>").join("") +
+    '<h4 id="wf-h">What each status means on this board</h4>' +
+    "<p class='note'>Every figure on this page depends on it. Change anything " +
+    "that is wrong and the numbers re-derive from the issues underneath.</p>" +
+    "<table><thead><tr><th>Status</th><th>Means</th></tr></thead><tbody>" +
+    boardStatuses().map(n => {
+      const inf = inferredOf[normStatus(n)];
+      return "<tr><td>" + esc(n) +
+        (inf ? "<br><span class='note'>inferred from " + esc(inf.from) + "</span>" : "") +
+        "</td><td><select data-wf='" + esc(n) + "' aria-label='What " + esc(n) + " means'>" +
+        ["To Do", "In Progress", "Done"].map(o =>
+          "<option" + (cat[n] === o ? " selected" : "") + ">" + o + "</option>").join("") +
+        "</select></td></tr>";
+    }).join("") +
     "</tbody></table>" +
-    "<p class='note'>Name each one under <code>statuses.done</code> or " +
-    "<code>statuses.inProgress</code> in the organisation config to state it " +
-    "rather than infer it.</p>";
+    (edited
+      ? "<p class='note'><b>Set in this view.</b> These figures no longer match " +
+        "the file as it arrived. <b>Save a copy</b> to share the change — nothing " +
+        "here is written back to the tracker.</p>"
+      : "<p class='note'>Applying changes this view only until you " +
+        "<b>Save a copy</b>. Nothing is written back to the tracker.</p>") +
+    "<div class='vp-actions'>" +
+    "<button class='btn primary' id='wf-apply'>Apply</button>" +
+    (edited ? "<button class='btn' id='wf-reset'>Reset to the file</button>" : "") +
+    "</div>";
+
+  const apply = $("#wf-apply");
+  if (apply) apply.onclick = () => {
+    const m = {};
+    pop.querySelectorAll("select[data-wf]").forEach(sel => {
+      m[sel.getAttribute("data-wf")] = sel.value;
+    });
+    openWorkflow(false);
+    applyWorkflow(m);
+  };
+  const reset = $("#wf-reset");
+  if (reset) reset.onclick = () => { openWorkflow(false); resetWorkflow(); };
 }
 
 /** The same disclosure as the chip, in a form that survives printing.
@@ -1105,6 +1226,13 @@ function paintWorkflow() {
  *  moment the file is shared is not a disclosure, so it also goes in the
  *  footer, beside the rules it qualifies. */
 function inferredSentence() {
+  // A stated mapping is a stronger disclosure than an inferred one, not a
+  // quieter one: the figures no longer match what the file said, and the
+  // footer is the part that survives printing.
+  if (workflowIsReaders()) {
+    return "<br>The workflow was set in this view, so these figures no longer "
+      + "match the file as it arrived. Save a copy to share the change.";
+  }
   const rows = inferredStatuses();
   if (!rows.length) return "";
   const one = rows.length === 1;
@@ -1344,6 +1472,10 @@ function normaliseIssue(i, meta, cfg) {
 }
 
 function normalise(d) {
+  // The dataset exactly as it arrived, captured before anything below mutates
+  // it. A workflow change re-derives from this rather than from figures already
+  // computed under the answer it replaces, and "Reset to the file" needs it.
+  if (!EDITING) S.pristine = JSON.parse(JSON.stringify(d));
   d.orgConfig = orgConfigOf(d);
   // A fresh record per dataset, the way the Python builds a fresh Statuses per
   // run. Without it a second upload reports the first file's statuses.

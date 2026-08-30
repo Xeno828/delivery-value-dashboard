@@ -116,6 +116,8 @@ It exists because an unrecognised status is the quiet way these numbers go wrong
 
 `from` is one of two strings: *"the tracker's own category"*, which is a statement by the site, or *"the words in its name"*, which is a guess. A status reached down both paths keeps the stronger of the two.
 
+**`workflowSetBy`** is set to `"reader"` when somebody has stated the mapping through the page's **Workflow** control rather than inheriting it. It suppresses `inferredStatuses` — nothing is inferred once a person has said what each status means, and the config has no `toDo` list, so a status deliberately marked To Do would otherwise be re-reported as a guess. The page says so in its place, in the chip and in the footer: these figures no longer match the file as it arrived.
+
 Holidays shorten **working** time only. Reported elapsed time stays in calendar days — see Units above.
 
 ### `burndown[]`

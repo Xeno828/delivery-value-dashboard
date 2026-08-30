@@ -1754,6 +1754,82 @@ def main():
               any(r["status"] == "Awaiting legal"
                   and r["from"] == "the tracker's own category" for r in got), got)
 
+        # ---------- and a reader can say what a status means ----------
+        #
+        # It edits the *data*, not the view. A view-level toggle would have two
+        # people reading different completion figures from one file with nothing
+        # saying why — the disagreement the config lives inside the data to
+        # prevent — and it has nowhere to live, since this page may use no
+        # browser storage.
+        ed = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        ed["orgConfig"] = OC.merge(OC.DEFAULTS, {
+            "statuses": {"done": ["Done"], "inProgress": ["In Progress"]}})
+        ed["issues"] = [
+            dict(ed["issues"][0], key="ED-1", status="Accepted", statusCategory="In Progress",
+                 statusTransitions=[{"to": "Peer read", "at": "2026-08-04"}]),
+            dict(ed["issues"][0], key="ED-2", status="In Progress", statusCategory="In Progress",
+                 statusTransitions=[]),
+        ]
+        page.evaluate("d => window.DVD.applyDataset(d)", ed)
+        page.wait_for_timeout(700)
+        page.click("#btn-workflow")
+        page.wait_for_timeout(250)
+
+        offered = page.evaluate(
+            "() => [...document.querySelectorAll('#wf-pop select[data-wf]')]"
+            ".map(s => s.getAttribute('data-wf'))")
+        # A status that appears only in an issue's history still moves `started`,
+        # and through it every cycle-time and flow figure. Leaving it out of the
+        # mapping would drop it from the config on apply.
+        check("a status seen only in a transition is offered too",
+              "Peer read" in offered, offered)
+        # The config's own defaults are not offered: Closed, Doing, QA and the
+        # rest are names most boards never use, and sixteen rows bury the five
+        # a reader came to check.
+        check("and generic config defaults this board never uses are not",
+              "Doing" not in offered and "Shipped" not in offered, offered)
+
+        page.select_option("#wf-pop select[data-wf='Accepted']", "Done")
+        page.click("#wf-apply")
+        page.wait_for_timeout(800)
+
+        cfg_after = page.evaluate("() => window.DVD.orgConfig()")
+        check("the reader's answer goes into the dataset's own config",
+              "Accepted" in cfg_after["statuses"]["done"], cfg_after["statuses"])
+        # normaliseIssue keeps a statusCategory the producer resolved, because
+        # re-deriving it under a different config is how one issue gets two
+        # answers. Applying a mapping is a reader saying that answer is wrong.
+        cat = page.evaluate(
+            "() => window.DVD.data.issues.filter(i => i.key === 'ED-1')[0].statusCategory")
+        check("and the producer's own category is overridden, not kept",
+              cat == "Done", cat)
+        check("nothing is reported as inferred over a mapping somebody stated",
+              page.evaluate("() => window.DVD.inferredStatuses()") == [], "not empty")
+        check("the chip says the workflow was set here",
+              "set here" in page.inner_text("#btn-workflow"),
+              page.inner_text("#btn-workflow"))
+        # The footer is the half that survives printing, and a PDF in a board
+        # pack must not claim to be the file it came from.
+        check("and the footer says these figures no longer match the file",
+              "no longer match the file" in page.inner_text("#foot"),
+              page.inner_text("#foot")[-200:])
+
+        page.click("#btn-workflow")
+        page.wait_for_timeout(250)
+        page.click("#wf-reset")
+        page.wait_for_timeout(800)
+        back = page.evaluate("() => window.DVD.orgConfig()")
+        check("reset restores the file's own mapping",
+              back["statuses"]["done"] == ["Done"]
+              and page.evaluate(
+                  "() => window.DVD.data.issues.filter(i => i.key === 'ED-1')[0].statusCategory")
+              == "In Progress",
+              back["statuses"])
+        check("and the inferred disclosure comes back with it",
+              [r["status"] for r in page.evaluate("() => window.DVD.inferredStatuses()")]
+              == ["Accepted", "Peer read"],
+              page.evaluate("() => window.DVD.inferredStatuses()"))
+
         # The checks below were written against `ds` and read the page's live
         # config, and every block since has loaded a dataset of its own. Put it
         # back rather than leaving them measuring whatever ran last.

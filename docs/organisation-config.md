@@ -81,9 +81,38 @@ recorded and printed at the end of the run**:
 
 This is the quiet failure the whole feature exists to prevent. A site adds an
 *Awaiting sign-off* column, no rule mentions it, those issues read as To Do, the
-burndown flattens, and the dashboard is confidently wrong with nothing on
-screen to say why. That is a churn-in-week-two bug, and the customer never
-tells you which number they stopped believing.
+burndown flattens, and the dashboard is confidently wrong. That is a
+churn-in-week-two bug, and the customer never tells you which number they
+stopped believing.
+
+**It is now on screen as well as in the terminal.** The note above is printed to
+whoever ran the pull, which is not the person reading the dashboard three weeks
+later — so what was inferred travels in the dataset as
+`orgConfig.inferredStatuses` and the page states it in two places: a **Workflow**
+chip in the top bar, and a sentence in the footer, because the chip is hidden
+under `@media print` and a PDF in a board pack must carry the same caveat as the
+screen.
+
+**And a reader who knows the board can say what each status means.** The same
+chip lists every status the data mentions — including ones that appear only in
+an issue's history, since those move `started` and every flow figure derived
+from it — with what it currently means and a control to change it. Applying
+writes the answer into the dataset's own `orgConfig.statuses` and re-derives
+every figure from the raw issues underneath, including overriding a
+`statusCategory` the producer had already resolved: applying a mapping *is* a
+reader saying that answer is wrong for this board.
+
+It edits the data rather than the view, and that is the whole design. A view
+toggle would have two people reading different completion figures from one file
+with nothing saying why — the disagreement this config lives inside the data to
+prevent — and it would have nowhere to live, because the built file may use no
+browser storage. So the change travels only when the reader **saves a copy**,
+and until they do the chip and the footer both say the figures no longer match
+the file as it arrived. Nothing is ever written back to the tracker.
+
+On Forge the dataset is fetched per session, so a mapping set this way lasts
+until the panel is reopened. The durable answer there is the `orgConfig` project
+property below, which an administrator sets once for the board.
 
 ## A worked example
 

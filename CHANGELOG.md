@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.61.0
+
+**A reader who knows the board can now say what each status means.** Phase one said which statuses the config did not name; this is the same chip made answerable. It lists every status the data mentions, what each currently means, and a control to change it — and applying re-derives every figure from the raw issues underneath.
+
+**It edits the data, not the view, and that is the whole design.** The answer goes into the dataset's own `orgConfig.statuses`, and "Save a copy" is what carries it. A view-level toggle was the obvious shape and is the wrong one: two people opening the same file would read different completion figures with nothing saying why, which is the disagreement `CLAUDE.md` puts the config inside the data to prevent. It also has nowhere to live — the built file may use no browser storage, and the security suite asserts it.
+
+**The producer's own answer is overridden, deliberately.** `normaliseIssue` keeps a `statusCategory` the producer resolved, because re-deriving it under a different config is how one issue acquires two answers. Applying a mapping here is a reader saying that answer is wrong for this board, so the raw status is recategorised and the resolved value goes. Which is why the control re-derives from the dataset **as it arrived** rather than from what is on screen — figures already computed under the answer being replaced are not a starting point.
+
+**It offers the board's statuses, not the config's.** The first cut listed sixteen rows on a board with six, because the config's `done` and `inProgress` defaults carry generic names — Closed, Doing, QA, Shipped — that most boards never use, and they buried the ones a reader came to check. It reads the statuses off the data instead, the same way the type filter does. **Transition targets are included**: `started` is the first transition into an In Progress status, so a status appearing only in an issue's history still moves `wipItems`, `flowEfficiency` and every cycle time derived from them — leaving it out of the mapping would have dropped it from the config on apply and moved numbers nobody was looking at.
+
+**Nothing is reported as inferred over a mapping somebody stated.** The config has no `toDo` list — To Do is the residual, here and in `orgconfig.py` — so a status the reader deliberately marked To Do sits in neither list and was being re-reported as *"inferred from the words in its name"*. Saying that about an answer somebody typed is false. `workflowSetBy` records the statement and the disclosure changes rather than disappearing: the chip reads **Workflow · set here** and the footer says these figures no longer match the file as it arrived. Stronger, not quieter.
+
+**Reset returns to the file**, mapping, categories and disclosure together, which is why the dataset as received is kept rather than mutated in place.
+
+**Nothing is written back to the tracker**, on either transport. On Forge the dataset is fetched per session, so a mapping set this way lasts as long as the session; the durable answer there stays the `orgConfig` project property an administrator sets once. Persisting a reader's answer to the board would need a non-read scope, and that is a decision with a stated cost rather than a detail of this change.
+
+**Pinned in `e2e.py`**: what is offered and what is not, the override of the producer's category, the suppressed inference, both disclosures, and reset restoring all of it.
+
 ## 1.60.0
 
 **The dashboard now says which statuses its config did not name.** An unrecognised status is the quiet way these numbers go wrong: an *"Awaiting sign-off"* column nobody configured reads as To Do, the burndown stops moving, and a flat burndown looks exactly like a team that delivered nothing. The fetcher has always printed the names — **once, to a terminal, to whoever ran the pull**, which is not the person reading the dashboard three weeks later. `unmatched` and `inferred` appeared zero times in `src/app.js`.
