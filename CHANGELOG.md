@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.55.1
+
+**The value tile printed "−1 of the 0 completed items carry no value estimate."** Seen in a tenant, on the first sprint where an epic delivered value while the sprint's own items were all still open.
+
+Items and value are counted from two different sets (ADR 0026), and this line subtracted one from the other: `m.done.length - items.length`, where `done` holds *items* — which never include an epic — and `items` holds the *value* pool, which is only epics. Two sets, one subtraction, no meaning, and a negative count on a customer's screen. The split was made in 1.55.0 and this call site was missed.
+
+Both sides come from the value pool now, so the sentence compares like with like: *"10 of the 12 completed items that can carry a value estimate do not"*, or, when everything is priced, *"everything completed that can carry a value estimate has one"* rather than a count of nothing.
+
+**And it says where value is recorded**, which the tile never did: *"Value is recorded on epics and above, so work below that level is not counted here and is not missing from it."* Without that, a reader who prices stories sees a figure that ignores them and no reason for it.
+
+**The same split had broken the click-through.** `openDrill` looked the clicked item up in `S.view.issues` — the item pool — and the thing just clicked is by definition not in it, so clicking a value row threw. It reads the value pool first.
+
+Pinned in `tests/e2e.py`, which is where it can be: the check asserts the note carries no negative count and no denominator of zero, and it needs a rendered page to see either.
+
 ## 1.55.0
 
 **Business value on an epic reached nothing, because epics are not on a scrum board.** *"Epic issues do not belong to the scrum boards"* is Jira's own description of the design, so `/rest/agile/1.0/board/{id}/sprint/{id}/issue` never returns one. Declaring the field (ADR 0025) was necessary and not sufficient: the field existed, an administrator put it on a screen, a number was typed into an epic, that epic was marked Done — and the dashboard fetched every issue in the sprint, none of which was it. [ADR 0026](docs/adr/0026-items-and-value-are-counted-from-two-different-sets.md).

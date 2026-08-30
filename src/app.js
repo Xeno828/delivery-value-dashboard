@@ -743,6 +743,13 @@ function derive(items) {
     // buildView. An epic is never in `done` because it is never an item.
     valueItems: (S.view.valuePool || []).filter(
       i => i.businessValue > 0 && i.statusCategory === "Done"),
+    /* Everything finished that *could* carry a value, priced or not. The tile's
+       "how many carry no estimate" line needs a denominator from this pool and
+       not from `done`: subtracting one pool from the other printed "-1 of the 0
+       completed items carry no value estimate" the first time an epic delivered
+       value into a sprint whose own items were all still open. Two sets, one
+       subtraction, no meaning. */
+    valueDone: (S.view.valuePool || []).filter(i => i.statusCategory === "Done"),
     prev, cur, recentAvg, recentAvgN
   };
   /* An empty selection is a refusal, not a zero. Everything downstream that
@@ -2578,7 +2585,9 @@ function renderValue(m) {
 
   const h = S.view.history || [];
   const items = m.valueItems.slice().sort((a, b) => b.businessValue - a.businessValue);
-  const unpriced = m.done.length - items.length;
+  // Within the value pool, both sides. See `valueDone`.
+  const canCarry = (m.valueDone || []).length;
+  const unpriced = Math.max(canCarry - items.length, 0);
   host.innerHTML =
     '<div class="sparkwrap" style="align-items:flex-end;justify-content:space-between">' +
       '<div><div class="hero">' + money(m.value, cur) + "</div>" +
@@ -2594,12 +2603,22 @@ function renderValue(m) {
       '<div class="note" style="text-align:left;padding-bottom:5px">' + esc(i.key) + " · basis: " + esc(i.valueBasis || "none recorded") + "</div>" +
       "</button>").join("") + "</div>" +
     '<div class="note" style="border-top:1px solid var(--grid);padding-top:9px">' +
-      "<b>Read this as a floor, not a total.</b> " + unpriced + " of the " + m.done.length +
-      " completed items carry no value estimate, so their contribution is counted as zero. Figures are forecasts made at " +
+      "<b>Read this as a floor, not a total.</b> " +
+      (unpriced
+        ? unpriced + " of the " + canCarry + " completed item" + (canCarry === 1 ? "" : "s") +
+          " that can carry a value estimate " + (unpriced === 1 ? "does not" : "do not") +
+          ", so their contribution is counted as zero. "
+        : "Everything completed that can carry a value estimate has one. ") +
+      "Value is recorded on epics and above, so work below that level is not counted here " +
+      "and is not missing from it. Figures are forecasts made at " +
       "planning time and are not reconciled against booked revenue — the basis line under each item is what to challenge.</div></div>";
   host.onclick = e => {
     const b = e.target.closest("[data-vkey]"); if (!b) return;
-    const it = S.view.issues.find(i => i.key === b.dataset.vkey);
+    // In the value pool. `S.view.issues` holds items, and the thing that was
+    // just clicked is by definition not one — the click threw on an epic.
+    const it = (S.view.valuePool || []).find(i => i.key === b.dataset.vkey)
+      || S.view.issues.find(i => i.key === b.dataset.vkey);
+    if (!it) return;
     openDrill(it.key, "Value estimate basis: " + (it.valueBasis || "none recorded"), [it]);
   };
 }

@@ -780,6 +780,33 @@ def transports(b):
               not missing, missing)
         page.close()
 
+        # ---------- the value tile counts against its own pool ----------
+        #
+        # Items and value are counted from two different sets (ADR 0026), and
+        # the tile's "how many carry no estimate" line subtracted one from the
+        # other. In a tenant that printed **"-1 of the 0 completed items carry
+        # no value estimate"** — the first sprint where an epic delivered value
+        # while the sprint's own items were all still open. Two sets, one
+        # subtraction, no meaning, and a negative count on a customer's screen.
+        page = b.new_page(viewport={"width": 1500, "height": 1000})
+        page.goto(url)
+        page.wait_for_timeout(1500)
+        note = page.evaluate("""() => {
+            const t = (document.querySelector('#value-body') || {}).innerText || '';
+            const i = t.indexOf('Read this as a floor');
+            return i < 0 ? '' : t.slice(i, i + 260).replace(/\s+/g, ' ');
+        }""")
+        check("the value tile has a floor note to check", note, note[:80])
+        check("it states no negative count",
+              "-1 " not in note and "- 1 " not in note, note[:140])
+        check("and no count against a denominator of zero",
+              " of the 0 " not in note, note[:140])
+        check("it says value is recorded on epics and above",
+              "epics and above" in note, note[:160])
+        check("and that work below that level is not missing from the figure",
+              "not missing from it" in note, note[:200])
+        page.close()
+
         # ---------- the issue-type filter changes what is counted ----------
         #
         # Unlike its neighbours in that row it is not a display filter: it
