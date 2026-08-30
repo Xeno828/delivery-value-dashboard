@@ -91,6 +91,34 @@ and a bundle could never be re-read under a different answer.
 
 ## What this does not do
 
+### The reader's own selection, added the same day
+
+The organisation decides what is *countable*; a reader chooses among what is
+left. The filter in the page's own row lists the types **this board actually
+uses**, read off the loaded issues rather than from what Jira could return — a
+board that has never raised a Bug should not offer Bug, and a site that invents
+a type next week should offer it without anybody editing code.
+
+Three things about it are decisions rather than styling.
+
+**It changes what is counted, not only what is listed**, which makes it unlike
+its neighbours in that row. And because the forecast is computed where the page
+is not, **the selection travels with the forecast request** and is part of the
+cache key on both sides. Without that the tiles would count one set of issues
+and the forecast another — both correct, disagreeing, with nothing on screen
+saying which was which.
+
+**A reader's selection narrows the organisation's rule and never widens it.**
+Expressed as an effective config rather than as a filter, so `counted_issues`
+stays the one implementation and `inputs.counting` reports what was actually
+counted rather than the site's default. Ticking a type the site excludes does
+not make it countable, so types the site excludes are not offered — and the
+reason is printed under the list rather than left as an absence.
+
+**Selecting nothing is a refusal.** `null` means no restriction; an empty list
+means the reader unticked everything, and the page says the evidence is absent
+rather than quietly showing all of them or reporting zero. ADR 0010.
+
 **It does not answer what an ask is for sequencing.** That is the rest of the
 decision above — an ask is an issue type, at story level or epic level — and it
 needs a place to name those types and a Forge route that reads them. This record

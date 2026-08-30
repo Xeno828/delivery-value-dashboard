@@ -908,6 +908,11 @@ resolver.define('forecast', answering(async ({ payload, context }) => {
     ...(board ? { log: Array.isArray(heldLog) ? heldLog : [], today: todayISO() } : {}),
     ...(payload?.items == null ? {} : { items: payload.items }),
     ...(payload?.date == null ? {} : { target: payload.date }),
+    // The reader's issue-type selection, passed through untouched. This
+    // resolver decides nothing about it — which types count is the tools'
+    // answer, narrowed by the reader and applied by `counted_issues`.
+    ...(Array.isArray(payload?.types) && payload.types.length
+      ? { types: payload.types } : {}),
   });
   if (answer.available === false) return { status: 200, body: noCalculator(answer.sentence) };
 

@@ -176,7 +176,8 @@ def slice_for(contexts, cid):
     return team_slice(contexts, ctx)
 
 
-def forecast_for(contexts, issues, byContext, cid, items=None, target=None, org_cfg=None):
+def forecast_for(contexts, issues, byContext, cid, items=None, target=None,
+                 org_cfg=None, types=None):
     """Run the real forecaster for one context. Returns None for an unknown id.
 
     The slice is the thing to get right, and getting it wrong produces a
@@ -282,8 +283,25 @@ def forecast_for(contexts, issues, byContext, cid, items=None, target=None, org_
     # The bundle's own config, carried onto the slice. Building this dict
     # without it would forecast the customer's board against a calendar they do
     # not keep — a different answer, arrived at silently, from the same data.
+    # A reader's issue-type selection narrows the organisation's rule; it never
+    # widens it. Expressed as a config rather than as a filter here, so
+    # `counted_issues` stays the one implementation and `inputs.counting`
+    # reports what was actually counted rather than the site's default. A type
+    # the site does not count is not made countable by somebody ticking it.
+    eff_cfg = dict(org_cfg or {})
+    if types:
+        asked = [str(t).strip() for t in types if str(t).strip()]
+        site = [str(t).strip() for t in (eff_cfg.get("countedTypes") or [])
+                if str(t).strip()]
+        if site:
+            low = {t.lower() for t in site}
+            asked = [t for t in asked if t.lower() in low]
+        # An empty intersection is a selection of nothing, which is a refusal
+        # rather than a silent fall back to everything — ADR 0010.
+        eff_cfg["countedTypes"] = asked or ["\u0000none"]
+
     ds = {"issues": team_issues, "meta": meta,
-          "orgConfig": org_cfg or {},
+          "orgConfig": eff_cfg,
           "releases": (byContext.get(cid) or {}).get("releases", [])}
     # A window has no end to fall back to, so a caller who names no date gets
     # no date — not today dressed up as a deadline. The `meta` above says the

@@ -780,6 +780,99 @@ def transports(b):
               not missing, missing)
         page.close()
 
+        # ---------- the issue-type filter changes what is counted ----------
+        #
+        # Unlike its neighbours in that row it is not a display filter: it
+        # changes what the page counts, and because the forecast is computed
+        # where the page is not, the selection has to travel with the forecast
+        # request. Without that the tiles count one set of issues and the
+        # forecast another — both correct, disagreeing, and nothing on screen
+        # saying which is which.
+        page = b.new_page(viewport={"width": 1500, "height": 1000})
+        seen = []
+        page.on("request", lambda r: seen.append(r.url))
+        page.goto(url)
+        page.wait_for_timeout(1200)
+        board = page.evaluate("""() => {
+            const s = document.querySelector('#c-board');
+            const opt = [...s.options].map(o => o.value).find(v => v && !v.startsWith('—'));
+            s.value = opt; s.dispatchEvent(new Event('change', {bubbles: true}));
+            return opt; }""")
+        page.wait_for_timeout(3500)
+
+        types = page.evaluate("""() => [...document.querySelectorAll(
+            '#f-types input[type=checkbox]')].map(b => b.getAttribute('data-type'))""")
+        check("the type filter offers the types this board actually uses",
+              len(types) > 1, {"board": board, "types": types})
+        check("and every one starts selected, because nothing is filtered yet",
+              page.evaluate("""() => [...document.querySelectorAll(
+                  '#f-types input[type=checkbox]')].every(b => b.checked)"""), types)
+
+        before = page.evaluate("() => window.DVD.debug.view().issues.length")
+        drop = types[0]
+        page.evaluate("""t => {
+            const b = [...document.querySelectorAll('#f-types input[type=checkbox]')]
+                .find(x => x.getAttribute('data-type') === t);
+            b.checked = false; b.dispatchEvent(new Event('change', {bubbles: true}));
+        }""", drop)
+        page.wait_for_timeout(3500)
+
+        kpis = page.text_content("#kpis") or ""
+        check("unticking a type changes what the page counts",
+              page.evaluate("() => document.querySelector('#kpis').innerText") != ""
+              and before > 0, {"before": before})
+        check("the summary says how many of how many are selected",
+              "of %d types" % len(types) in
+              (page.text_content("#f-types summary") or ""),
+              page.text_content("#f-types summary"))
+        check("and the active-filter chip names them",
+              drop not in (page.text_content("#f-chips") or ""),
+              page.text_content("#f-chips"))
+
+        # The half only a browser can check: the forecast is fetched again, with
+        # the selection on it.
+        asked = [u for u in seen if "api/forecast" in u and "types=" in u]
+        check("the forecast is refetched with the selection",
+              asked, [u.split("?")[-1] for u in seen if "api/forecast" in u][-2:])
+
+        # Deselecting everything is a refusal, not everything and not zero.
+        # ADR 0010: an empty selection has no denominator.
+        page.evaluate("() => document.querySelector('#f-types-none').click()")
+        page.wait_for_timeout(2500)
+        check("selecting no types refuses rather than showing them all",
+              "No types selected" in (page.text_content("#f-types summary") or ""),
+              page.text_content("#f-types summary"))
+        check("and the page says the evidence is absent rather than reporting zero",
+              "evidence is absent" in (page.text_content("#exec-verdict") or ""),
+              (page.text_content("#exec-verdict") or "")[:120])
+
+        page.evaluate("() => document.querySelector('#f-types-all').click()")
+        page.wait_for_timeout(2000)
+
+        # ---------- the dropdowns follow the board ----------
+        #
+        # `dataset.built = "1"` built these once, on an element that outlives
+        # every context switch — so a reader on their second board was offered
+        # the first board's people and epics, and picking one filtered to
+        # nothing. Found while adding the control above.
+        others = page.evaluate("""() => [...document.querySelector('#c-board').options]
+            .map(o => o.value).filter(v => v && !v.startsWith('—'))""")
+        if len(others) > 1:
+            first = page.evaluate("""() => [...document.querySelectorAll('#f-assignee option')]
+                .map(o => o.value)""")
+            page.evaluate("""v => { const s = document.querySelector('#c-board');
+                s.value = v; s.dispatchEvent(new Event('change', {bubbles: true})); }""",
+                others[1])
+            page.wait_for_timeout(4000)
+            second = page.evaluate("""() => [...document.querySelectorAll('#f-assignee option')]
+                .map(o => o.value)""")
+            check("switching board rebuilds the people filter for that board",
+                  first != second, {"first": first[:3], "second": second[:3]})
+            check("and rebuilds the type filter too",
+                  page.evaluate("""() => document.querySelectorAll(
+                      '#f-types input[type=checkbox]').length""") > 0, "types rebuilt")
+        page.close()
+
         # ---------- a roll-up rolls up all of itself ----------
         #
         # Two bugs live here and only a real page finds either.

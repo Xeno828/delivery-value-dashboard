@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.53.0
+
+**An issue-type filter that changes what the dashboard counts, not only what it lists.** It pulls the types the selected board actually uses — read off the loaded issues rather than from what Jira could return, so a board that has never raised a Bug does not offer Bug and a site that invents a type next week gets it without anybody editing code — with the count of each beside it.
+
+**The selection travels with the forecast, and is part of the cache key on both sides.** The forecast is computed where the page is not, so leaving it out would have the tiles counting one set of issues and the forecast another: both correct, disagreeing, and nothing on screen saying which was which. `fcKey` and the loopback server's own cache both key on it, because two forecasts of one sprint under two selections are two different forecasts.
+
+**A reader narrows the organisation's rule and never widens it.** Passed as an effective config rather than applied as a filter, so `counted_issues` stays the one implementation and `inputs.counting` reports what was actually counted rather than the site's default. Types the site does not count are **not offered**, and the reason is printed under the list — ticking one would show nothing and look broken.
+
+**Selecting nothing is a refusal.** `null` means no restriction; an empty list means the reader unticked everything, and the page answers *"the evidence is absent, not noisy"* rather than quietly showing all of them or reporting zero. ADR 0010, and the same sentence every other empty selection here gets.
+
+**A disclosure with checkboxes rather than a custom listbox.** Native controls keep the keyboard and screen-reader behaviour this page is held to, and there is nothing here a bespoke widget would do better. The accessibility suite passes unchanged.
+
+**And it exposed a bug older than itself: the filter dropdowns were built once and never again.** `dataset.built = "1"` was set on elements that outlive every context switch, so a reader on their second board was offered the *first* board's people and epics — and, having picked one, filtered to nothing. They are keyed on their own options now and rebuild when those change, and a selected value the new board does not have is cleared rather than left pointing at an absent option. Pinned in `tests/e2e.py`, which is the only suite that could see it: the bug needs a second board and a live transport.
+
 ## 1.52.0
 
 **Subtasks were counted as items everywhere, and nothing recorded that they were.** Found by answering item 7's open product question — *an ask is an issue type, and a selectable type filter is needed, for example to remove subtasks because it is normally the parent that should be counted.* The second half of that turned out to be the larger finding, and it is not about sequencing.

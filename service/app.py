@@ -601,10 +601,18 @@ def route_forecast_context(body):
                 or items <= 0 or items > MAX_ITEMS):
             raise Refused("items must be a whole number between 1 and %d — "
                           "nothing was simulated" % MAX_ITEMS)
+    # The reader's issue-type selection, which narrows the organisation's rule
+    # and never widens it. A list of type names; absent means no narrowing.
+    types = body.get("types")
+    if types is not None and (not isinstance(types, list)
+                              or not all(isinstance(t, str) for t in types)):
+        raise Refused('"types" must be a list of issue type names, or absent — '
+                      "nothing was simulated")
     out = SEL.forecast_for(contexts, ds["issues"], ds.get("byContext") or {},
                            cid.strip(), items=items,
                            target=_iso_or_none(body, "target"),
-                           org_cfg=ds.get("orgConfig") or {})
+                           org_cfg=ds.get("orgConfig") or {},
+                           types=types)
     if out is None:
         # A context this dataset does not describe is a 404 and not a 400: the
         # request was well formed and named something that is not here.

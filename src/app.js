@@ -175,7 +175,12 @@ const S = {
   /** True when the live server's organisation config replaced the one baked
    *  into this file. Shown in the footer rather than swapped in silently. */
   orgFromServer: false,
-  filters: { assignee: "", epic: "", type: "", status: "", q: "" },
+  /** `types` is a *list*, and null means no restriction rather than none
+   *  selected — the two are different states and only one of them is a
+   *  refusal. It changes what the page counts, not only what it lists, and it
+   *  is sent with the forecast so the tiles and the forecast cannot end up
+   *  counting different issues. ADR 0024. */
+  filters: { assignee: "", epic: "", types: null, status: "", q: "" },
   tables: {},
   lastDrill: []
 };
@@ -617,7 +622,7 @@ function filtered() {
   return S.view.issues.filter(i =>
     (!f.assignee || i.assignee === f.assignee) &&
     (!f.epic || i.epic === f.epic) &&
-    (!f.type || i.type === f.type) &&
+    (!f.types || f.types.indexOf(i.type) >= 0) &&
     (!f.status || i.statusCategory === f.status) &&
     (!q || (i.key + " " + i.summary).toLowerCase().includes(q))
   );
@@ -1038,22 +1043,138 @@ function renderHeader(m) {
     " Shown so you can argue with the method rather than the colour.";
 }
 
+/**
+ * The issue-type filter: which types this board's figures are counted from.
+ *
+ * Unlike its neighbours in that row, this changes what the page **counts**
+ * rather than only what it lists — and because the forecast is computed where
+ * the page is not, the selection is sent with the forecast request too. Without
+ * that the tiles would count one set of issues and the forecast another, with
+ * nothing on screen saying so.
+ *
+ * **The types offered are the ones this board actually uses**, read off the
+ * loaded issues rather than from a list of what Jira could return. A board that
+ * has never raised a Bug should not offer Bug, and a site that invents a type
+ * next week should offer it without anybody editing this.
+ *
+ * **Types the organisation does not count are not offered**, and the reason is
+ * printed rather than left as an absence. `orgConfig` decides what is countable
+ * — subtasks are excluded by default because a parent and its subtasks are one
+ * piece of work (ADR 0024) — and a reader chooses among what is left. Ticking a
+ * type the site excludes would show nothing and look broken.
+ *
+ * **No selection at all is a refusal, not everything.** `null` means "no
+ * restriction"; an empty list means the reader unticked everything, and the
+ * page says so rather than quietly showing the lot. ADR 0010.
+ */
+function renderTypeFilter(issues) {
+  const host = $("#f-types-body"), det = $("#f-types");
+  if (!host || !det) return;
+
+  const cfg = ORG();
+  // What the organisation counts, of what this board uses. Two lists, because
+  // the difference between them is a sentence the reader needs.
+  const present = uniq(issues.map(i => i.type).filter(Boolean));
+  const countable = uniq(countedIssues(issues, cfg).kept.map(i => i.type).filter(Boolean));
+  const excluded = present.filter(t => countable.indexOf(t) < 0);
+
+  const sel = S.filters.types;
+  // A selection carried over from another board may name types this one does
+  // not use. Narrowed rather than left standing: a filter naming nothing is a
+  // filter to nothing, and the figures would read as a team that delivered
+  // none of anything.
+  if (sel) {
+    const still = sel.filter(t => countable.indexOf(t) >= 0);
+    if (still.length !== sel.length) S.filters.types = still;
+  }
+  const chosen = S.filters.types;
+  const on = t => !chosen || chosen.indexOf(t) >= 0;
+
+  const counts = {};
+  issues.forEach(i => { counts[i.type] = (counts[i.type] || 0) + 1; });
+
+  det.querySelector("summary").textContent =
+    !chosen ? "All types (" + countable.length + ")"
+    : chosen.length === 0 ? "No types selected"
+    : chosen.length === countable.length ? "All types (" + countable.length + ")"
+    : chosen.length + " of " + countable.length + " types";
+
+  const sig = countable.join(" ") + "|" + (chosen || []).join(" ") +
+    "|" + excluded.join(" ");
+  if (host.dataset.sig === sig) return;
+  host.dataset.sig = sig;
+
+  host.innerHTML =
+    countable.map(t =>
+      '<label><input type="checkbox" data-type="' + esc(t) + '"' +
+      (on(t) ? " checked" : "") + "><span>" + esc(t) + "</span>" +
+      '<span class="cap" style="margin-left:auto">' + (counts[t] || 0) + "</span></label>"
+    ).join("") +
+    (chosen && chosen.length === 0
+      ? '<div class="cap"><b>Nothing is selected</b>, so the figures above have ' +
+        "nothing to count. Tick a type, or choose all.</div>" : "") +
+    (excluded.length
+      ? '<div class="cap">Not offered: <b>' + excluded.map(esc).join(", ") +
+        "</b> — this site does not count " +
+        (excluded.length === 1 ? "it" : "them") + " as items. A parent and its " +
+        "subtasks are one piece of work; the organisation configuration decides " +
+        "which types count.</div>"
+      : "") +
+    '<div class="f-types-act">' +
+      '<button type="button" class="btn btn-quiet" id="f-types-all">All types</button>' +
+      '<button type="button" class="btn btn-quiet" id="f-types-none">None</button>' +
+    "</div>";
+
+  host.querySelectorAll("input[type=checkbox]").forEach(box => {
+    box.addEventListener("change", () => {
+      // From "no restriction" to an explicit list the moment one is touched:
+      // unticking one of five means the other four, not all of them.
+      const now = (S.filters.types || countable.slice()).filter(
+        t => countable.indexOf(t) >= 0);
+      const t = box.getAttribute("data-type");
+      const at = now.indexOf(t);
+      if (box.checked && at < 0) now.push(t);
+      if (!box.checked && at >= 0) now.splice(at, 1);
+      // Every type ticked is the same state as no restriction, and saying so
+      // keeps one meaning for one selection rather than two spellings of it.
+      S.filters.types = now.length === countable.length ? null : now;
+      render();
+    });
+  });
+  const all = $("#f-types-all"), none = $("#f-types-none");
+  if (all) all.addEventListener("click", () => { S.filters.types = null; render(); });
+  if (none) none.addEventListener("click", () => { S.filters.types = []; render(); });
+}
+
 function renderFilters() {
   const I = S.view.issues;
   const opts = [["f-assignee", "assignee", uniq(I.map(x => x.assignee)), "Everyone"],
                 ["f-epic", "epic", uniq(I.map(x => x.epic)), "All epics"],
-                ["f-type", "type", uniq(I.map(x => x.type)), "All types"],
                 ["f-status", "status", ["To Do", "In Progress", "Done"], "Any status"]];
   opts.forEach(([id, key, vals, all]) => {
     const el = $("#" + id);
-    if (el.dataset.built !== "1") {
+    /* Rebuilt when the options change, not once and never again. `built` was a
+       flag on an element that outlives every context switch, so these carried
+       the first board's people and epics for the life of the tab — a reader on
+       their second board was offered somebody else's names and, having picked
+       one, filtered to nothing. Keyed on the options themselves so a render
+       that changes nothing still rebuilds nothing. */
+    const sig = vals.join("\u0000");
+    if (el.dataset.sig !== sig) {
       el.innerHTML = '<option value="">' + all + "</option>" +
         vals.map(v => '<option value="' + esc(v) + '">' + esc(v) + "</option>").join("");
-      el.dataset.built = "1";
+      el.dataset.sig = sig;
+      // A value that is not on the new board is not a filter, it is a filter
+      // to nothing. Cleared rather than left selecting an absent option.
+      if (S.filters[key] && vals.indexOf(S.filters[key]) < 0) S.filters[key] = "";
+    }
+    if (el.dataset.bound !== "1") {
+      el.dataset.bound = "1";
       el.addEventListener("change", () => { S.filters[key] = el.value; render(); });
     }
     el.value = S.filters[key];
   });
+  renderTypeFilter(I);
   const q = $("#f-q");
   if (q.dataset.built !== "1") {
     q.dataset.built = "1";
@@ -1066,7 +1187,10 @@ function renderFilters() {
       b.addEventListener("click", () => { if (S.unit !== b.dataset.unit) { S.unit = b.dataset.unit; render(); } });
     }
   });
-  const chips = Object.entries(S.filters).filter(([, v]) => v)
+  const chips = Object.entries(S.filters)
+    .filter(([k, v]) => k === "types" ? Array.isArray(v) : v)
+    .map(([k, v]) => [k, k === "types"
+      ? (v.length ? v.join(", ") : "none selected") : v])
     .map(([k, v]) => '<span class="fchip">' + esc(k === "q" ? "search" : k) + ": <b>" + esc(v) +
       '</b><button data-clear="' + k + '" title="Clear">✕</button></span>').join("");
   $("#f-chips").innerHTML = chips + (chips ? '<button class="linkish" data-clear="all">Clear all</button>' : "");
@@ -1074,8 +1198,17 @@ function renderFilters() {
 document.addEventListener("click", e => {
   const b = e.target.closest("[data-clear]");
   if (!b) return;
-  if (b.dataset.clear === "all") S.filters = { assignee: "", epic: "", type: "", status: "", q: "" };
-  else S.filters[b.dataset.clear] = "";
+  // `types` clears to null — no restriction — not to "". An empty *string*
+  // there would make `f.types.indexOf` throw on the next filter pass, and an
+  // empty *list* means the reader deselected everything, which is a different
+  // state and a refusal rather than a reset.
+  if (b.dataset.clear === "all") {
+    S.filters = { assignee: "", epic: "", types: null, status: "", q: "" };
+  } else if (b.dataset.clear === "types") {
+    S.filters.types = null;
+  } else {
+    S.filters[b.dataset.clear] = "";
+  }
   $("#f-q").value = S.filters.q; render();
 });
 
@@ -2685,7 +2818,12 @@ function bindForecastInputs() {
 }
 
 function fcKey(id) {
-  return id + "|" + (S.fcItems == null ? "" : S.fcItems) + "|" + (S.fcDate || "");
+  // The type selection is part of the key. Two forecasts of one sprint under
+  // two selections are two different forecasts, and caching one as the other
+  // would answer a question nobody asked — the same reason the loopback
+  // server's own cache keys on it.
+  return id + "|" + (S.fcItems == null ? "" : S.fcItems) + "|" + (S.fcDate || "") +
+    "|" + (S.filters.types ? S.filters.types.join(",") : "*");
 }
 
 function fetchSequence(id) {
@@ -3433,7 +3571,12 @@ function renderSequence(el, ctrl) {
 function fetchForecast(id, key) {
   if (S.fcPending[key]) return;
   S.fcPending[key] = true;
-  LIVE.get("forecast", { id: id, items: S.fcItems, date: S.fcDate })
+  // The type selection rides with it. The forecast is computed where this page
+  // is not, so leaving it out would have the tiles counting one set of issues
+  // and the forecast another — both correct, disagreeing, with nothing saying
+  // which was which.
+  LIVE.get("forecast", { id: id, items: S.fcItems, date: S.fcDate,
+                         types: S.filters.types || [] })
     .then(res => {
       S.forecasts[key] = res.ok ? res.body
         : res.status === 404 ? { unknown: true }
@@ -4222,7 +4365,11 @@ const ROUTES = {
   sequence: p => "api/sequence?id=" + encodeURIComponent(p.id),
   forecast: p => "api/forecast?id=" + encodeURIComponent(p.id) +
     (p.items != null ? "&items=" + encodeURIComponent(p.items) : "") +
-    (p.date ? "&date=" + encodeURIComponent(p.date) : ""),
+    (p.date ? "&date=" + encodeURIComponent(p.date) : "") +
+    // The reader's issue-type selection. Sent because the forecast is computed
+    // where the page is not: without it the tiles would count one set of issues
+    // and the forecast another, and nothing on screen would say so.
+    ((p.types && p.types.length) ? "&types=" + encodeURIComponent(p.types.join(",")) : ""),
   // The board's trend series. Per context because the id names the board, and
   // the resolver checks it against the project this page is open on rather than
   // trusting a board number from the page. ADR 0015.

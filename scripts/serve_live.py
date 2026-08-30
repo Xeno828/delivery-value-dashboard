@@ -258,14 +258,18 @@ class BundleBackend:
             self._seq[cid] = sequence_for(self.data, cid)
         return self._seq[cid]
 
-    def forecast(self, cid, items=None, target=None):
-        key = (cid, items, target)
+    def forecast(self, cid, items=None, target=None, types=None):
+        # `types` is part of the key: two forecasts of one sprint under two
+        # type selections are two different forecasts, and caching one as the
+        # other would answer a question nobody asked.
+        key = (cid, items, target, tuple(types or ()))
         if key not in self._fc:
             self._fc[key] = forecast_for(self.data.get("contexts", []),
                                          self.data.get("issues", []),
                                          self.data.get("byContext") or {},
                                          cid, items, target,
-                                         org_cfg=OC.from_dataset(self.data))
+                                         org_cfg=OC.from_dataset(self.data),
+                                         types=types)
         return self._fc[key]
 
 
@@ -806,7 +810,10 @@ class Handler(SimpleHTTPRequestHandler):
                     datetime.date.fromisoformat(target)
                 except ValueError:
                     return self._json({"error": "date must be YYYY-MM-DD"}, 400)
-            got = self.backend.forecast(cid, items, target)
+            # The reader's issue-type selection. Comma-separated because it
+            # rides a query string; empty means no narrowing.
+            types = [t for t in (qs.get("types", [""])[0] or "").split(",") if t.strip()]
+            got = self.backend.forecast(cid, items, target, types or None)
             if got is None:
                 return self._json({"error": "unknown context %r" % cid}, 404)
 

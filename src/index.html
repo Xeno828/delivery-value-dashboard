@@ -37,7 +37,17 @@
   <div class="filters">
     <div class="fgroup"><label for="f-assignee">Person</label><select id="f-assignee"></select></div>
     <div class="fgroup"><label for="f-epic">Epic</label><select id="f-epic"></select></div>
-    <div class="fgroup"><label for="f-type">Type</label><select id="f-type"></select></div>
+    <!-- Several types at once, and it changes what the page *counts* rather
+         than only what it lists — so the figures and the forecast move with it
+         together. A disclosure with checkboxes rather than a custom listbox:
+         native controls keep the keyboard and screen-reader behaviour this
+         page is held to, and there is nothing here a <select multiple> would
+         do better. -->
+    <div class="fgroup"><span class="flab" id="f-types-lab">Types</span>
+      <details class="f-types" id="f-types">
+        <summary aria-describedby="f-types-lab">All types</summary>
+        <div class="f-types-body" id="f-types-body"></div>
+      </details></div>
     <div class="fgroup"><label for="f-status">Status</label><select id="f-status"></select></div>
     <div class="fgroup"><label for="f-q">Find</label><input type="search" id="f-q" placeholder="key or words"></div>
     <div class="fgroup"><label>Measure</label>
