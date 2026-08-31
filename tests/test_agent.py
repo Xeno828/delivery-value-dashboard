@@ -484,6 +484,82 @@ def test_forecast_log():
 # =====================================================================
 # 3c. the search endpoint, which Atlassian removed
 # =====================================================================
+def test_a_declared_candidate_becomes_an_ask():
+    """Assembling asks out of a board — roadmap item 7, slice two.
+
+    An ask has been a document somebody writes in `data/asks/`. Every field
+    `readiness` calls REQUIRED can now be got from a Jira board: the title and
+    the team, and a size from the board's own completed epics, which needs no
+    per-ask input at all. Value, basis and a needed-by date arrive with it.
+    """
+    board = [
+        {"key": "E1", "summary": "Saved cards", "hierarchyLevel": 1, "candidate": "Yes",
+         "businessValue": 210000, "valueBasis": "  1,900 abandonments  ",
+         "dueDate": "2026-10-30"},
+        {"key": "E2", "summary": "Search rebuild", "hierarchyLevel": 1, "candidate": "y"},
+        {"key": "E3", "summary": "Already shipped", "hierarchyLevel": 1, "candidate": "Yes",
+         "resolved": "2026-08-01"},
+        {"key": "E4", "summary": "Unclear", "hierarchyLevel": 1, "candidate": "Maybe"},
+        {"key": "S1", "summary": "A story", "hierarchyLevel": 0, "candidate": "Yes"},
+        {"key": "E5", "summary": "Not put forward", "hierarchyLevel": 1, "candidate": ""},
+    ]
+    asks, notes = I.asks_from_issues(board, team="MOBL Cowboys")
+    by = {a["id"]: a for a in asks}
+
+    check("only declared candidates become asks",
+          sorted(by) == ["E1", "E2", "E3"], sorted(by))
+    check("and the ask carries the issue's own title and the board's name",
+          (by["E1"]["title"], by["E1"]["team"]) == ("Saved cards", "MOBL Cowboys"),
+          (by["E1"]["title"], by["E1"]["team"]))
+    # Reference class needs no per-ask input: it is the distribution of this
+    # board's own completed epics, which is why nobody has to maintain a size.
+    check("sized by reference class, which asks the requester for nothing",
+          by["E1"]["sizing"] == {"method": "reference-class"}, by["E1"]["sizing"])
+
+    check("value and basis come off the declared fields, trimmed",
+          by["E1"]["valueEstimate"] == {"amount": 210000, "basis": "1,900 abandonments"},
+          by["E1"].get("valueEstimate"))
+    check("and a needed-by date comes off dueDate, which Jira always had",
+          by["E1"]["neededBy"] == "2026-10-30", by["E1"].get("neededBy"))
+
+    # `readiness` says "an amount AND a stated basis, or nothing at all", so an
+    # unpriced ask carries no valueEstimate rather than an empty one — which is
+    # what makes it read as a gap instead of as a figure of zero.
+    check("an unpriced candidate carries no valueEstimate at all",
+          "valueEstimate" not in by["E2"] and "neededBy" not in by["E2"], by["E2"])
+
+    # ADR 0028 refuses to infer candidacy from anything. Dropping a delivered
+    # epic here would be that inference wearing a helpful face.
+    check("a candidate already delivered is still an ask, and is named",
+          "E3" in by and notes["delivered"] == [{"id": "E3", "resolved": "2026-08-01"}],
+          notes["delivered"])
+    check("and an answer nobody can read is named rather than dropped",
+          notes["unreadable"] == [{"key": "E4", "said": "Maybe"}], notes["unreadable"])
+
+    # ---- and the assembled ask is one the rest of the tool accepts ----
+    for aid in ("E1", "E2"):
+        r = I.readiness(by[aid])
+        check("%s is forecastable, with its gaps named rather than blocking" % aid,
+              r["forecastable"] and not r["missing_required"], r["verdict"])
+    check("an unpriced ask is told which two things it is missing",
+          {"valueEstimate", "neededBy"} <= {g["field"] for g in I.readiness(by["E2"])["gaps"]},
+          [g["field"] for g in I.readiness(by["E2"])["gaps"]])
+
+    # ---- end to end, over a real board ----
+    ds = json.loads((ROOT / "data" / "demo-intake-bundle.json").read_text())
+    issues, meta = I.board_issues(ds)
+    cid = issues[0].get("contextId")
+    live = I.sequence(ds, [dict(a, id=a["id"]) for a in
+                           I.asks_from_issues(
+                               [dict(i, contextId=cid) for i in board], team="X")[0][:2]])
+    check("two assembled asks sequence over a real board",
+          live.get("available") is not False and len(live.get("orderings") or []) == 2,
+          live.get("sentence") or len(live.get("orderings") or []))
+    check("and every ordering names both asks",
+          all({r["id"] for r in o["order"]} == {"E1", "E2"} for o in live["orderings"]),
+          [[r["id"] for r in o["order"]] for o in live.get("orderings", [])])
+
+
 def test_which_issues_are_asks_and_who_decides():
     """Candidacy — roadmap item 7, ADR 0028.
 
@@ -1479,6 +1555,7 @@ if __name__ == "__main__":
     print("the forecast log")
     test_forecast_log()
     print("which issues are asks")
+    test_a_declared_candidate_becomes_an_ask()
     test_which_issues_are_asks_and_who_decides()
     print("the fields this app declares")
     test_the_fetcher_reads_the_fields_this_app_declares()

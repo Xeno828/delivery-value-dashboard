@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.65.0
+
+**A declared candidate becomes an ask.** Roadmap item 7, slice two. `intake.asks_from_issues()` assembles the shape `sequence` and `readiness` already consume out of a Jira board, which is what makes sequencing possible where nobody maintains files in `data/asks/`.
+
+**Every REQUIRED field comes off the board, and none of them is new.** `title` and `team` are the summary and the board. `sizing` is `reference-class`, which needs no per-ask input at all — it is the distribution of this board's own completed epics, which is why nobody has to keep a size up to date. `valueEstimate` is the two fields the app declares (ADR 0025, ADR 0027) and `neededBy` is `dueDate`, which Jira has always had and which nothing here had thought to read.
+
+**`valueEstimate` is present or absent, never half.** `readiness` asks for *an amount AND a stated basis, or nothing at all*, so an unpriced candidate carries no `valueEstimate` and reads as a gap rather than as a figure of zero. One with an amount and no basis gets it anyway and is told the basis is missing, which is the more useful complaint — a number nobody explained is exactly what the value tile tells a reader to challenge.
+
+**The raw `businessValue`, not `orgconfig.value_of`.** That rule exists to stop an epic and its stories being *summed* into one inflated total. Nothing is summed here: one issue's estimate becomes one ask's estimate, and two asks being ordered against each other are two asks whatever level they sit at.
+
+**A candidate already delivered is still a candidate.** [ADR 0028](docs/adr/0028-candidacy-is-a-state-somebody-declares.md) refuses to infer candidacy from status, and quietly dropping a finished epic here would be that inference wearing a helpful face. It is returned and named, along with every answer nobody could read.
+
+**Proved end to end rather than in pieces.** Two assembled asks sequence over a real board and produce both orderings, the queue cost, and the needed-by warning: *"this ordering misses a needed-by date for CAND-1"*. Assembling something `readiness` accepts and `sequence` refuses would have been the interesting failure, so the test does both.
+
+**One limitation worth stating rather than discovering.** Reference-class sizing gives **every** assembled ask the same distribution, because the reference class is a property of the board and not of the ask. So orderings differ by queue position and by date pressure, and never by "this one is bigger". That is honest — nothing about a candidate epic in discovery says how big it is — but it is weaker than a file-based ask carrying a t-shirt size, and a reader comparing two Jira asks should know the sizes were never distinguished.
+
 ## 1.64.0
 
 **The Forge build had lost the coloured half of itself, and it looked like a design decision.** Reported from the live site: the icons beside the narrative points were missing, and so were the progress bars under the KPI tiles. Both render correctly from `dist/`. [ADR 0008](docs/adr/0008-forge-calls-a-hosted-calculator.md) carries the finding.

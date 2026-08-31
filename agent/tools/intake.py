@@ -126,6 +126,82 @@ def board_issues(dataset, board=None):
 
 
 # =====================================================================
+# 1a. asks — the candidates somebody declared, in the shape this reads
+# =====================================================================
+def asks_from_issues(issues, cfg=None, team=None):
+    """`(asks, notes)` — every declared candidate on this board, as asks.
+
+    An ask has been a document somebody writes, in `data/asks/`. This assembles
+    the same shape out of a Jira board, which is what makes sequencing possible
+    where nobody maintains those files. Roadmap item 7.
+
+    What each field comes from, and every one of them existed before this:
+
+        id, title      the issue key and summary
+        team           the board — passed in, because a board's *name* is
+                       context and this function is given issues
+        sizing         `reference-class`, which needs no per-ask input: it is
+                       the distribution of this board's own completed epics
+        valueEstimate  the two fields the app declares — ADR 0025, ADR 0027
+        neededBy       `dueDate`, which Jira has always had and which nothing
+                       here had thought to read
+
+    **`valueEstimate` is present or absent, never half.** `readiness` says *an
+    amount AND a stated basis, or nothing at all*, so an issue with no figure
+    gets no `valueEstimate` and reads as a gap. An issue with a figure and no
+    basis gets one anyway, and `readiness` names the missing basis — which is
+    the more useful complaint, because a number nobody explained is the thing
+    the value tile tells a reader to challenge.
+
+    **The raw `businessValue`, not `orgconfig.value_of`.** That rule exists to
+    stop an epic and its stories being *summed* into one inflated total. Nothing
+    is summed here: one issue's own estimate becomes one ask's own estimate, and
+    two asks being ordered against each other are two asks whatever level they
+    sit at.
+
+    **A candidate that has already been delivered is still a candidate.**
+    Candidacy is declared and un-declaring it belongs to whoever declared it —
+    ADR 0028 refuses to infer it from status, from `resolved`, or from anything
+    else, and quietly dropping a finished epic here would be exactly that
+    inference wearing a helpful face. It is reported instead.
+    """
+    c = cfg or OC.DEFAULTS
+    candidates, unreadable = OC.candidate_issues(issues, c)
+    asks, delivered = [], []
+    for i in candidates:
+        ask = {
+            "id": i.get("key"),
+            "title": i.get("summary") or i.get("key"),
+            "team": team,
+            # No band and no explicit range: the board's completed epics *are*
+            # the estimate. A t-shirt size would need somebody to choose one,
+            # which is a second thing to maintain and the reason the file-based
+            # asks exist at all.
+            "sizing": {"method": "reference-class"},
+            "_source": "jira",
+        }
+        amount = i.get("businessValue")
+        if isinstance(amount, (int, float)) and amount:
+            ask["valueEstimate"] = {"amount": amount,
+                                    "basis": (i.get("valueBasis") or "").strip()}
+        if i.get("dueDate"):
+            ask["neededBy"] = i["dueDate"]
+        asks.append(ask)
+        if i.get("resolved"):
+            delivered.append({"id": i.get("key"), "resolved": i["resolved"]})
+
+    return asks, {
+        # Answers nobody can read. Neither yes nor no, and named rather than
+        # dropped — a sequencing table missing the ask the meeting was about is
+        # the failure this whole path is trying not to be.
+        "unreadable": unreadable,
+        # Declared candidates that have already been delivered. Not filtered:
+        # see above.
+        "delivered": delivered,
+    }
+
+
+# =====================================================================
 # 1. sizing — how many items will this decompose into?
 # =====================================================================
 def epic_sizes(issues, as_of=None, min_items=3, stale_days=30, done_ratio=0.9):
