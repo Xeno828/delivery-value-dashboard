@@ -111,6 +111,10 @@ Two assemblies of one set of sources, never two sources — `tests/test_service.
 
 The JSON seed is still inline, as `type="application/json"`. It is data the page reads rather than script the browser executes, so a CSP should permit it. If it turns out not to, the symptom is a **styled page with no numbers on it**, and the fix is to fetch it rather than inline it.
 
+**The same policy discards `style` attributes, and the split build does nothing about that.** `--split` moved the `<style>` and `<script>` *elements*; `style-src` without `unsafe-inline` also refuses every `style="..."` the renderers write. That one does not look like a blocked page — it looks like a finished one that lost its colour. The fill inside every KPI progress bar, the severity disc beside each narrative point, every chart legend swatch, the release progress bars: the track and the glyph are CSS classes and survive, so a bar looks empty rather than broken. It sat in the tenant unreported until somebody compared the two side by side.
+
+`src/app.js` handles it, at a cost of nothing off Forge: it sets a style attribute on a detached element at startup, and if the host discarded it, wraps the `innerHTML` setter to re-apply each attribute through the CSSOM, which the policy does not police. There is no manifest change and no `permissions.content.styles` entry — see [ADR 0008](adr/0008-forge-calls-a-hosted-calculator.md) for why asking for `unsafe-inline` was the wrong one line. **The console still logs a CSP violation per attribute**, because the browser refuses it before the page re-applies it; the page is the thing to check, not the log.
+
 ### The bridge, and why the page does not know it is on Forge
 
 The dashboard reaches live data through a transport it discovers rather than one it imports. Over `http(s)` that is a same-origin `GET api/…` answered by `serve_live.py`; inside this iframe there is no same-origin `api/` at all, so `forge/bridge/bridge.js` puts an `invoke()` on `window.__DVD_BRIDGE__` before the page loads and the page uses that. [ADR 0009](adr/0009-one-contract-two-transports.md) has the reasoning; the parts that will cost you an afternoon otherwise:

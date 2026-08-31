@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.64.0
+
+**The Forge build had lost the coloured half of itself, and it looked like a design decision.** Reported from the live site: the icons beside the narrative points were missing, and so were the progress bars under the KPI tiles. Both render correctly from `dist/`. [ADR 0008](docs/adr/0008-forge-calls-a-hosted-calculator.md) carries the finding.
+
+**One cause, and it is the second half of a bug this repository already fixed once.** A Forge Custom UI iframe serves under a `style-src` with no `unsafe-inline`. The split build was written for that — it emits the `<style>` and `<script>` blocks as linked assets — but it only moved the *elements*. The same policy discards every `style="..."` **attribute** the renderers write, and discards it silently: the attribute stays in the DOM and the declarations never reach the element. 155 of them on the sample sprint.
+
+**A blank page gets fixed; this one shipped.** The bar keeps its track and loses its fill. The disc keeps its glyph and loses its colour — and the one severity whose glyph is white stayed visible, so three of four narrative points went blank and the fourth did not, which reads as a rule about severity rather than as a refusal. Legend swatches, release progress bars and the value tile's rows went the same way. Nothing looked broken, so nothing was reported for the length of every deploy since the split build landed.
+
+**Fixed by handing the attribute to the property, not by asking the host to relax.** The CSSOM is not policed the same way — `el.style.cssText = …` applies where the identical string in an attribute does not. `src/app.js` sets a style attribute on a detached element at startup and asks whether it survived; where it did not, it wraps the `innerHTML` setter once and re-applies what the browser kept back. Where inline style is permitted — every build of `dist/`, and the emailed file the product is — the detection is false and not one line of it runs.
+
+**Wrapped at the setter rather than added to seventy call sites.** A missed call site is a tile that quietly loses its colour in somebody's tenant, which is exactly the failure being fixed. `permissions.content.styles: ['unsafe-inline']` would have been one line in the manifest and is rejected: `--split` exists because this repository changes what it emits rather than asking a host to weaken a policy, and this is the policy still doing work beside a renderer that concatenates issue summaries into HTML.
+
+**Pinned in `e2e.py`** against a real `style-src 'self'` header, and pinned by comparison rather than by numbers — the same page is served twice, under the policy and without it, and the bar, the disc and the swatch must come out identical. It also asserts no element anywhere on the page kept an attribute the policy discarded, which is the check that would catch the next renderer to be written. With the fix removed it fails on all four.
+
+**Still true, and worth knowing before reading a console:** the browser refuses the attribute first and is re-handed it after, so a strict host logs a CSP violation per attribute. They are noise, not a residual bug — but they are loud enough to bury a real error, and the page is the thing to read rather than the log.
+
 ## 1.63.0
 
 **Something in Jira can now say "this is being weighed against other things".** Roadmap item 7, slice one. Everything else an ask needs had already arrived — a title, a team, a size from the board's own reference class, a value (ADR 0025), a basis (ADR 0027) and a needed-by date in `dueDate`. What nothing said was **which epics are candidates**. [ADR 0028](docs/adr/0028-candidacy-is-a-state-somebody-declares.md).

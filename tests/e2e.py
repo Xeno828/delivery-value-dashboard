@@ -11,6 +11,7 @@ import datetime
 import json
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 
@@ -1213,6 +1214,103 @@ def transports(b):
             proc.kill()
 
 
+
+def strict_style_csp(b):
+    """A host may forbid inline style, and the page must lose no colour to it.
+
+    The split build exists because a Forge Custom UI iframe's CSP blocks inline
+    `<style>` and `<script>`. What that fix did not cover is the *attribute*
+    form: `style-src` without `unsafe-inline` also discards every
+    `style="..."` the renderers write, and it discards it silently — the
+    attribute stays in the DOM, the declarations never reach the element.
+
+    That is not a blank page, which is why it shipped and sat there. It is a
+    page that renders correctly and loses the coloured half of itself: the fill
+    inside every KPI progress bar, the severity disc beside each narrative
+    point, every chart legend swatch. A bar keeps its track and a disc keeps
+    its glyph, so it reads as a design decision rather than as a refusal.
+
+    Pinned against the permissive host rather than against fixed numbers: the
+    claim is not that the fill is 36px, it is that the two hosts paint the same
+    page. Served over http rather than file:// because a CSP arrives in a
+    header.
+    """
+    print("\n  a host that forbids inline style")
+
+    import functools, http.server, tempfile, threading
+
+    CSP = ("default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self'; "
+           "img-src 'self' data:; connect-src 'self'")
+
+    # The same sources the Forge resource is built from, seeded with the demo
+    # data so there is something to colour. Built here rather than read out of
+    # forge/static/, which is git-ignored and needs the Forge SDK to stage.
+    out = pathlib.Path(tempfile.mkdtemp(prefix="dvd-csp-"))
+    subprocess.run([sys.executable, str(ROOT / "build.py"), "--split", str(out),
+                    "--data", "data/sample-sprint.json"],
+                   cwd=str(ROOT), check=True, capture_output=True)
+
+    class Strict(http.server.SimpleHTTPRequestHandler):
+        def end_headers(self):
+            self.send_header("Content-Security-Policy", CSP)
+            http.server.SimpleHTTPRequestHandler.end_headers(self)
+
+        def log_message(self, *a):
+            pass
+
+    class Permissive(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+    # What the tiles are actually made of. Every one of these gets its colour
+    # or its length from a style attribute and from nothing else.
+    PAINT = """() => {
+      const g = s => { const e = document.querySelector(s); return e ? [
+        getComputedStyle(e).width, getComputedStyle(e).backgroundColor] : null; };
+      return {
+        bar: g('.kpi .k-bar > i'),
+        disc: g('.narr .ic'),
+        swatch: g('.legend .swatch'),
+        unpainted: Array.from(document.querySelectorAll('[style]'))
+                        .filter(e => e.style.length === 0).length
+      };
+    }"""
+
+    servers, seen = [], {}
+    try:
+        for name, handler, port in (("strict", Strict, 8736), ("permissive", Permissive, 8737)):
+            srv = http.server.ThreadingHTTPServer(
+                ("127.0.0.1", port),
+                functools.partial(handler, directory=str(out)))
+            servers.append(srv)
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+            page = b.new_page(viewport={"width": 1500, "height": 1000})
+            page.goto("http://127.0.0.1:%d/index.html" % port)
+            page.wait_for_timeout(900)
+            seen[name] = page.evaluate(PAINT)
+            page.close()
+    finally:
+        for srv in servers:
+            srv.shutdown()
+
+    strict, permissive = seen["strict"], seen["permissive"]
+
+    # The fixture has to be one where a missing style attribute would show. A
+    # transparent bar on a page with no bars would pass this whether or not the
+    # fix is in.
+    check("the sample page has a bar, a disc and a swatch to lose",
+          all(permissive[k] for k in ("bar", "disc", "swatch")), permissive)
+    check("every style attribute reached the element it was written for",
+          strict["unpainted"] == 0,
+          "%d element(s) kept an attribute the policy discarded" % strict["unpainted"])
+    for part in ("bar", "disc", "swatch"):
+        check("the %s is painted the same under a policy that forbids inline style" % part,
+              strict[part] == permissive[part],
+              {"strict": strict[part], "permissive": permissive[part]})
+
+    shutil.rmtree(out, ignore_errors=True)
+
+
 def main():
     if not DIST.exists():
         sys.exit("build first: python3 build.py")
@@ -1910,6 +2008,7 @@ def main():
         empty_selection(b)
         health_composition(b)
         transports(b)
+        strict_style_csp(b)
 
         b.close()
 

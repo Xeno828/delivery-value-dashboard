@@ -30,6 +30,66 @@ function safeUrl(u) {
 }
 const iso = dt => dt.toISOString().slice(0, 10);
 
+/* ------------------------------------------------- inline style, re-applied
+   A host may serve this page under a Content-Security-Policy whose `style-src`
+   omits `unsafe-inline`, and a Forge Custom UI iframe does exactly that. Under
+   one, every `style="..."` attribute this file writes is parsed and then
+   thrown away: the attribute sits in the DOM, the declarations never reach the
+   element, and the console says so in a line nobody is reading.
+
+   The symptom is not a blank page, which is why this outlived the split build
+   that fixed the inline `<style>` and `<script>` blocks. It is a page that
+   renders correctly and loses the coloured half of itself — the fill inside
+   every KPI progress bar, the severity disc beside each narrative point, every
+   chart legend swatch, the release progress bars. The bars kept their track
+   and the discs kept their glyph, so it read as a design that had always
+   looked like that rather than as a policy refusing something.
+
+   The CSSOM is not policed the same way: `el.style.cssText = ...` applies
+   where the identical string in an attribute does not. So the fix is to hand
+   the attribute the browser kept back to the property it will accept, once,
+   after each write — not to remove 70-odd `style=` attributes from the render
+   functions, and not to ask the host for `unsafe-inline`, which would relax a
+   policy this repository has twice chosen to build around instead.
+
+   All of it is dead code where inline style is permitted, which is every
+   single-file build of dist/: BLOCKED is false and nothing below runs. */
+const INLINE_STYLE_BLOCKED = (() => {
+  try {
+    const probe = document.createElement("i");
+    probe.setAttribute("style", "width:1px");
+    return probe.style.length === 0;
+  } catch (e) { return true; }
+})();
+
+/** Re-apply, through the CSSOM, the style attributes the policy discarded.
+ *  Elements already carrying declarations are left alone: those were set as
+ *  properties and were never blocked. */
+function paintInline(root) {
+  if (!INLINE_STYLE_BLOCKED || !root || !root.querySelectorAll) return;
+  const els = root.querySelectorAll("[style]");
+  for (let i = 0; i < els.length; i++) {
+    if (els[i].style.length === 0) els[i].style.cssText = els[i].getAttribute("style");
+  }
+}
+
+/* Every write goes through `innerHTML`, in this file and in import.js, at some
+   seventy call sites. Wrapping the setter once is what makes a missed one
+   impossible; adding a call after each write is what makes one inevitable, and
+   a missed one is a tile that silently loses its colour in a tenant. */
+if (INLINE_STYLE_BLOCKED) {
+  const desc = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML");
+  if (desc && desc.set) {
+    Object.defineProperty(Element.prototype, "innerHTML", {
+      configurable: true, enumerable: desc.enumerable, get: desc.get,
+      set(html) { desc.set.call(this, html); paintInline(this); }
+    });
+  }
+  // The page's own markup was parsed before this file ran, so its static
+  // attributes were discarded before there was anything to wrap.
+  paintInline(document);
+}
+
 /* ---------------------------------------------------------- organisation config
    Which statuses mean done, which days are worked, which of those are holidays
    and how long a sprint is. It arrives inside the dataset as `orgConfig`, put
