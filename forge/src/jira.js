@@ -1023,6 +1023,54 @@ const addedMidSprint = (raw, sprintStart) => {
 };
 
 /**
+ * Which finished epics a period may credit its value to, and how many it may not.
+ *
+ * The rule is unchanged and is ADR 0026's: an epic's value belongs to the
+ * period it completed in, and a sprint's period is the window it declared —
+ * `startDate` to `endDate`. What changes here is that the epics that rule
+ * excludes are counted instead of dropped in silence.
+ *
+ * A board whose finished epics all sit outside the selected sprint's window is
+ * an ordinary state, not an error. But from the value tile's seat it is
+ * indistinguishable from a board where nobody has priced anything, and those
+ * have entirely different fixes — so the tile was left to guess and printed a
+ * third explanation for both: that the only priced thing it could see was a
+ * story, which was true and was not the reason. `CLAUDE.md`: code that bounds
+ * its own output has to say what it dropped.
+ *
+ * Takes issues that have been through `issueFrom`, not raw Jira bodies, so that
+ * "carries a value" is read off the same `businessValue` the page reads and not
+ * off a second extraction of the same custom field.
+ *
+ * An epic with no resolution date is not counted on either side. It has not
+ * finished, so no period is being denied it.
+ */
+export const creditableEpics = (epics, entry) => {
+  const start = entry?.startDate;
+  const end = entry?.endDate;
+  const credited = [];
+  let excluded = 0;
+  let excludedWithValue = 0;
+  // No window, nothing withheld. An entry without both dates never reaches the
+  // epic pass at all, so this is unreachable in the resolver — but a count of
+  // "every epic on the board" would read to a caller as value this period kept
+  // out, and a number that means one thing to its producer and another to its
+  // reader is the shape of most of what this repository has had to fix.
+  if (!start || !end) return { credited, excluded, excludedWithValue };
+  for (const e of epics || []) {
+    const done = e?.resolved;
+    if (!done) continue;
+    if (done >= start && done <= end) {
+      credited.push(e);
+      continue;
+    }
+    excluded += 1;
+    if (typeof e?.businessValue === 'number' && e.businessValue > 0) excludedWithValue += 1;
+  }
+  return { credited, excluded, excludedWithValue };
+};
+
+/**
  * The envelope `GET api/context?id=…` returns.
  *
  * The four series are empty because this app computes nothing. A burndown is
@@ -1031,12 +1079,17 @@ const addedMidSprint = (raw, sprintStart) => {
  * empty series is not a silent gap: the page prints "no burndown series in
  * this dataset" where the chart would be.
  */
-export const contextBody = (entry, issues, orgConfig, setup) => ({
+export const contextBody = (entry, issues, orgConfig, setup, valueWindow) => ({
   // Which of this app's fields a person can actually type into, when that is
   // the difference between "nobody has priced anything" and "nobody *can*".
   // Absent on a transport with no Jira behind it — a file's value came from a
   // file, and there is no screen to be told about. ADR 0025.
   ...(setup ? { setup } : {}),
+  // What the window in `creditableEpics` left out, when a producer knows. Absent
+  // for the same reason `setup` is: a file's epics were selected when it was
+  // baked and there is no board left to ask, so the page keeps the sentences it
+  // already had rather than being handed a zero that means "not measured".
+  ...(valueWindow ? { valueWindow } : {}),
   context: {
     ...entry,
     // The entry's own as-of, with the planned end as a last resort. This

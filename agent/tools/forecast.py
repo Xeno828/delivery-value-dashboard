@@ -56,11 +56,22 @@ class Refusal:
     reason: str = ""
     have: int = 0
     need: int = 0
+    #: What `have` and `need` are counting. Two thresholds guard every forecast
+    #: — working days observed, and items completed across them — and a refusal
+    #: that reports one pair while the *other* check is the one that failed
+    #: contradicts itself in front of a reader. It said "(11 observations, 10
+    #: needed)" and refused, because 11 was the item count and the shortfall was
+    #: in days. Defaulted rather than required, so the sentence a refusal
+    #: without a second threshold prints is unchanged.
+    unit: str = "observations"
 
     def sentence(self) -> str:
-        return ("No forecast: %s (%d observations, %d needed). "
+        # "1 completed items" is the sort of seam a reader notices and then
+        # stops trusting the rest of the sentence for.
+        unit = self.unit[:-1] if self.have == 1 and self.unit.endswith("s") else self.unit
+        return ("No forecast: %s (%d %s, %d needed). "
                 "A wider confidence interval would not fix this — the data is absent, not noisy."
-                % (self.reason, self.have, self.need))
+                % (self.reason, self.have, unit, self.need))
 
 
 @dataclass
@@ -210,9 +221,14 @@ def forecast_completion(remaining_items: int,
                         seed: int = SEED,
                         cfg=None):
     """When will `remaining_items` be finished? Percentiles, not a date."""
-    if len(samples) < MIN_THROUGHPUT_SAMPLES or sum(samples) < MIN_COMPLETED_ITEMS:
+    if len(samples) < MIN_THROUGHPUT_SAMPLES:
         return Refusal(reason="too little completion history to sample from",
-                       have=sum(samples), need=MIN_COMPLETED_ITEMS)
+                       have=len(samples), need=MIN_THROUGHPUT_SAMPLES,
+                       unit="working-day observations")
+    if sum(samples) < MIN_COMPLETED_ITEMS:
+        return Refusal(reason="too little completion history to sample from",
+                       have=sum(samples), need=MIN_COMPLETED_ITEMS,
+                       unit="completed items")
     if remaining_items <= 0:
         return Refusal(reason="nothing is outstanding", have=0, need=1)
     if all(v == 0 for v in samples):
@@ -263,9 +279,14 @@ def forecast_completion(remaining_items: int,
 def forecast_count_by_date(samples, start_from: str, target_date: str,
                            trials: int = TRIALS, seed: int = SEED, cfg=None):
     """How much will be finished by a fixed date? The capacity question."""
-    if len(samples) < MIN_THROUGHPUT_SAMPLES or sum(samples) < MIN_COMPLETED_ITEMS:
+    if len(samples) < MIN_THROUGHPUT_SAMPLES:
         return Refusal(reason="too little completion history to sample from",
-                       have=sum(samples), need=MIN_COMPLETED_ITEMS)
+                       have=len(samples), need=MIN_THROUGHPUT_SAMPLES,
+                       unit="working-day observations")
+    if sum(samples) < MIN_COMPLETED_ITEMS:
+        return Refusal(reason="too little completion history to sample from",
+                       have=sum(samples), need=MIN_COMPLETED_ITEMS,
+                       unit="completed items")
     begin, end = _d(start_from), _d(target_date)
     horizon = max(len(working_days(begin, end, cfg)) - 1, 0)
     if horizon <= 0:
@@ -368,9 +389,14 @@ def recommend_commitment(samples, sprint_working_days: int,
     a team that misses half its commitments stops being believed regardless of
     how much it delivers.
     """
-    if len(samples) < MIN_THROUGHPUT_SAMPLES or sum(samples) < MIN_COMPLETED_ITEMS:
+    if len(samples) < MIN_THROUGHPUT_SAMPLES:
         return Refusal(reason="too little completion history to size a commitment",
-                       have=sum(samples), need=MIN_COMPLETED_ITEMS)
+                       have=len(samples), need=MIN_THROUGHPUT_SAMPLES,
+                       unit="working-day observations")
+    if sum(samples) < MIN_COMPLETED_ITEMS:
+        return Refusal(reason="too little completion history to size a commitment",
+                       have=sum(samples), need=MIN_COMPLETED_ITEMS,
+                       unit="completed items")
     if sprint_working_days <= 0:
         return Refusal(reason="sprint length is unknown", have=0, need=1)
 

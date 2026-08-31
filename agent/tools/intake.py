@@ -69,11 +69,20 @@ class Refusal:
     reason: str = ""
     have: int = 0
     need: int = 0
+    #: What `have` and `need` are counting. `forecast.Refusal.unit` carries the
+    #: whole reasoning; the short version is that this sentence read
+    #: "(11 observations, 10 needed)" on a board it was refusing, because the 11
+    #: was an item count and the shortfall was in days. A reader who can do the
+    #: comparison in the sentence is owed one that survives it.
+    unit: str = "observations"
 
     def sentence(self) -> str:
-        return ("No intake forecast: %s (%d observations, %d needed). "
+        # "1 completed items" is the sort of seam a reader notices and then
+        # stops trusting the rest of the sentence for.
+        unit = self.unit[:-1] if self.have == 1 and self.unit.endswith("s") else self.unit
+        return ("No intake forecast: %s (%d %s, %d needed). "
                 "A wider range would not fix this — the evidence is absent, not noisy."
-                % (self.reason, self.have, self.need))
+                % (self.reason, self.have, unit, self.need))
 
 
 @dataclass
@@ -415,9 +424,19 @@ def queue_ahead(issues, as_of):
 def capacity(dataset, issues, as_of, scenario):
     """Throughput samples available to a new ask under one scenario."""
     samples = F.throughput_samples(issues, as_of=as_of, cfg=OC.from_dataset(dataset))
-    if len(samples) < F.MIN_THROUGHPUT_SAMPLES or sum(samples) < F.MIN_COMPLETED_ITEMS:
+    # Two thresholds, two sentences. One `or` reported the item count against
+    # the item threshold whichever of them had actually failed, so a board with
+    # eleven items finished across three days refused and said "(11
+    # observations, 10 needed)" — a refusal a reader can disprove from its own
+    # figures. `CLAUDE.md`: say which cause it was.
+    if len(samples) < F.MIN_THROUGHPUT_SAMPLES:
         return Refusal(reason="too little delivery history on this team to forecast against",
-                       have=sum(samples), need=F.MIN_COMPLETED_ITEMS)
+                       have=len(samples), need=F.MIN_THROUGHPUT_SAMPLES,
+                       unit="working-day observations")
+    if sum(samples) < F.MIN_COMPLETED_ITEMS:
+        return Refusal(reason="too little delivery history on this team to forecast against",
+                       have=sum(samples), need=F.MIN_COMPLETED_ITEMS,
+                       unit="completed items")
     if scenario == "earliest":
         return {"samples": samples, "queue_items": 0, "discount": 0.0,
                 "basis": "dedicated capacity from the start date, nothing queued ahead"}

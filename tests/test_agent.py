@@ -305,6 +305,99 @@ def test_refusals():
           isinstance(F.item_risk(thin_cycles, "2026-08-10"), F.Refusal))
 
 
+def test_a_refusal_is_not_disproved_by_its_own_figures():
+    """A refusal reports the count that fell short, in the unit it fell short in.
+
+    Reported from the dev site, and no suite saw it. The sequencing tile said:
+
+        too little delivery history on this team to forecast against
+        (11 observations, 10 needed)
+
+    — and refused. Eleven against ten is not a shortfall, so the sentence
+    disproved itself in front of the reader, who reasonably concluded the tool
+    was broken. It was not: two thresholds guard a forecast, `8` working days
+    observed and `10` items completed across them, and the board had eleven
+    items over three days. The days check failed and the *items* pair was
+    printed, under a word — "observations" — that belongs to neither.
+
+    A wrong number would have been caught. A true number answering a different
+    question is the failure this repository keeps having to find by looking.
+
+    The invariant is the general form and is worth more than the case: whatever
+    a refusal counts, `have` must be short of `need`, or it is not a refusal a
+    reader can act on. `CLAUDE.md`'s rule is to say which cause it was.
+    """
+    # Eleven items across three working days: past the item threshold, short of
+    # the day threshold. This is the exact shape that produced the sentence.
+    samples = [4, 4, 3]
+    assert sum(samples) >= F.MIN_COMPLETED_ITEMS
+    assert len(samples) < F.MIN_THROUGHPUT_SAMPLES
+
+    for name, r in (
+        ("a completion date", F.forecast_completion(5, samples, "2026-08-10")),
+        ("a count by a date", F.forecast_count_by_date(samples, "2026-08-10", "2026-09-10")),
+        ("a commitment size", F.recommend_commitment(samples, 10)),
+    ):
+        check("%s over eleven items in three days is refused" % name,
+              isinstance(r, F.Refusal), type(r).__name__)
+        check("and its own figures do not disprove it (%s)" % name,
+              r.have < r.need, r.sentence())
+        check("and it counts the days, which is what fell short (%s)" % name,
+              r.have == len(samples) and r.need == F.MIN_THROUGHPUT_SAMPLES,
+              r.sentence())
+        check("and names the unit, so 3 and 8 are not read as items (%s)" % name,
+              "working-day observations" in r.sentence(), r.sentence())
+
+    # The other threshold still reports itself, in its own unit. Nine days with
+    # two completions between them clears the day check and fails the item one.
+    few = [1, 1] + [0] * 7
+    r = F.forecast_completion(5, few, "2026-08-10")
+    check("too few items is still refused", isinstance(r, F.Refusal), type(r).__name__)
+    check("and reports the items, not the days",
+          r.have == sum(few) and r.need == F.MIN_COMPLETED_ITEMS, r.sentence())
+    check("and says so", "2 completed items" in r.sentence(), r.sentence())
+    # The unit agrees in number, because "1 completed items" is a seam a reader
+    # notices and then stops trusting the rest of the sentence for.
+    one = F.forecast_completion(5, [1] + [0] * 8, "2026-08-10")
+    check("and a count of one reads as one", "1 completed item," in one.sentence(),
+          one.sentence())
+
+    # Intake's own refusal is a separate dataclass with the same defect and the
+    # same fix, and the sequencing tile is the one that reported it — so the
+    # shape is rebuilt as issues rather than borrowed as a sample list. Eleven
+    # items resolved across three working days: Mon 31 Aug, Tue 1 Sep, Wed 2
+    # Sep. An empty dataset would refuse on both counts at once and the test
+    # would pass against the bug, which is how the first draft of this passed.
+    spread = [("2026-08-31", 4), ("2026-09-01", 4), ("2026-09-02", 3)]
+    issues, n = [], 0
+    for day, count in spread:
+        for _ in range(count):
+            n += 1
+            issues.append({"key": "T-%d" % n, "statusCategory": "Done",
+                           "created": "2026-08-24", "resolved": day})
+    ds = {"issues": issues, "orgConfig": {}, "meta": {}}
+    got = F.throughput_samples(issues, as_of="2026-09-02", cfg=OC.from_dataset(ds))
+    check("the fixture really is eleven items over three working days",
+          len(got) == 3 and sum(got) == 11, got)
+
+    cap = I.capacity(ds, issues, "2026-09-02", "realistic")
+    check("the intake refusal refuses this shape", isinstance(cap, I.Refusal), type(cap).__name__)
+    check("and its own figures do not disprove it",
+          cap.have < cap.need, cap.sentence())
+    check("and it is the days it counts, not the eleven items",
+          cap.have == 3 and cap.need == F.MIN_THROUGHPUT_SAMPLES, cap.sentence())
+
+    # The default sentence is unchanged. `tests/brief_shapes.mjs` holds it
+    # byte for byte across the Python/JavaScript boundary, and a unit that was
+    # required rather than defaulted would have moved every refusal in the
+    # product to fix two of them.
+    check("a refusal with one threshold still says 'observations'",
+          "(2 observations, 6 needed)" in
+          F.Refusal(reason="too little completion history to sample from",
+                    have=2, need=6).sentence(),
+          F.Refusal(reason="x", have=2, need=6).sentence())
+
+
 def test_item_risk_units():
     ds = json.load(open(ROOT / "data" / "sample-multi-sprint.json"))
     ir = F.item_risk(ds["issues"], ds["meta"]["asOfDate"])
@@ -1636,6 +1729,8 @@ if __name__ == "__main__":
     test_size_stability()
     print("refusals")
     test_refusals()
+    print("a refusal that survives its own figures")
+    test_a_refusal_is_not_disproved_by_its_own_figures()
     print("ageing risk")
     test_item_risk_units()
     print("calibration scoring")

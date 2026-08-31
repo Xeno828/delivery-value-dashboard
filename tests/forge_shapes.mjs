@@ -14,6 +14,7 @@
 
 import {
   contextEntry, contextsBody, contextBody, contextId, findStoryPointField,
+  creditableEpics,
   mergeOrgConfig, parseContextId, issueFrom, notFound, recentSprints,
   statusesFromJira, validateOrgConfig, asksFromIssues, candidateAnswer, tshirtAnswer,
   DEFAULT_WINDOW_DAYS, WINDOW_DAYS, windowEntry, windowToken,
@@ -166,7 +167,45 @@ const good = {
 };
 const STATUSES_NOW = { statuses: { done: ['Done', 'Shipped'], inProgress: ['In Progress', 'In Review'] } };
 
+/* ---------------------------------------------------------------------------
+   The crediting window, reproduced from the board that found it.
+
+   MOBL Sprint 4 on the dev site is `closed`, was completed on 31 Aug, and
+   declares a window of 11–25 Sep — a sprint finished eleven days before it was
+   planned to start. Its own issues arrive because they are fetched by sprint
+   *membership*; its epics were being selected by *date*, so three finished,
+   priced epics fell outside a window that could not contain them and were
+   dropped with nothing said. The value tile then described the one priced story
+   it could see and called that the reason.
+
+   The rule is not changed here — ADR 0026 still credits an epic to the period
+   it completed in — only the silence is. `MOBL-4` is unfinished and must count
+   on neither side; `MOBL-52` finished inside the window unpriced, and must not
+   be counted as value withheld.
+   --------------------------------------------------------------------------- */
+const boardEpics = [
+  { key: 'MOBL-2', resolved: '2026-08-30', businessValue: 40000 },
+  { key: 'MOBL-5', resolved: '2026-08-31', businessValue: 5000 },
+  { key: 'MOBL-6', resolved: '2026-08-31', businessValue: 200000 },
+  { key: 'MOBL-4', resolved: null, businessValue: 100000 },
+  { key: 'MOBL-52', resolved: '2026-09-12', businessValue: null },
+];
+const windowOf = (start, end) => {
+  const r = creditableEpics(boardEpics, { startDate: start, endDate: end });
+  return { credited: r.credited.map((e) => e.key), excluded: r.excluded,
+           excludedWithValue: r.excludedWithValue };
+};
+
 console.log(JSON.stringify({
+  epicWindow: {
+    // The sprint that found this: completed before it was planned to start.
+    degenerate: windowOf('2026-09-11', '2026-09-25'),
+    // The sprint next to it, whose window really does contain those epics.
+    sane: windowOf('2026-08-28', '2026-09-11'),
+    // No window at all: nothing may be credited, and nothing is claimed to
+    // have been withheld either.
+    undated: windowOf(null, null),
+  },
   contexts: contextsBody('Jira, project SFT — 1 board', entries),
   /* The fourth argument is supplied deliberately. `contextBody` omits `setup`
      when it is absent, and a body-key guard can only check keys it can see — so
@@ -177,7 +216,12 @@ console.log(JSON.stringify({
     sprintStart: selected.startDate,
     siteUrl: SITE,
     storyPointField: findStoryPointField(fieldList),
-  })), undefined, { businessValue: 'off-screen', valueBasis: 'ready' }),
+  })), undefined, { businessValue: 'off-screen', valueBasis: 'ready' },
+  /* The fifth is supplied for the same reason the fourth is: `contextBody`
+     omits `valueWindow` when the producer did not measure one, so a shape built
+     without it leaves the body-key guard blind to exactly the key whose reader
+     could go missing. */
+  { start: selected.startDate, end: selected.endDate, excluded: 2, excludedWithValue: 1 }),
   storyPointField: {
     found: findStoryPointField(fieldList),
     // A site with no such field at all. Points must come back null rather than

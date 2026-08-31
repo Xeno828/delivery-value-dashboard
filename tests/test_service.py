@@ -799,7 +799,12 @@ def test_the_two_transports_answer_the_same_shape():
     # Jira fields behind the loopback server — a file's value came from a file —
     # so it has nothing to answer and sends nothing. The page treats its absence
     # as "nothing is known", never as a state.
-    FORGE_ONLY = {"setup"}
+    # `valueWindow` is the second, and it is one-sided for the same reason: it
+    # reports what the *board's* epic pass excluded, and the loopback server has
+    # no board to run one over — a bundle's epics were selected when it was
+    # baked. The page reads its absence as "nobody measured", which is the
+    # honest reading and is not the same as "nothing was excluded".
+    FORGE_ONLY = {"setup", "valueWindow"}
     check("api/context and the context resolver return the same envelope",
           sorted(live_context) == sorted(set(forge["context"]) - FORGE_ONLY),
           {"live": sorted(live_context),
@@ -3714,6 +3719,71 @@ def ask_assembly_checks():
           [l.strip() for l in svc.splitlines() if "ASK_TEXT_FIELDS" in l][:1])
 
 
+def test_an_epic_the_window_excludes_is_counted_not_dropped():
+    """A finished, priced epic outside the sprint's window is reported, not lost.
+
+    Found on the dev site and not by any suite. **MOBL Sprint 4** is `closed`,
+    was completed on 31 Aug, and declares a window of 11–25 Sep — a sprint
+    finished eleven days before it was planned to start. Its issues arrive
+    because they are fetched by sprint *membership*; its epics were selected by
+    *date*, so `MOBL-2`, `MOBL-5` and `MOBL-6` — finished, priced, £245k between
+    them — fell outside a window that could not contain them and were dropped
+    with nothing said.
+
+    The value tile then reached past the gap and described the one priced thing
+    it could still see, a Done story below the value line, as though that were
+    the reason. It was true and it was not the reason, which is the failure this
+    repository fears: a plausible answer with the cause replaced.
+
+    **The rule is not on trial here.** ADR 0026 still credits an epic to the
+    period it completed in, and Sprint 4 genuinely had none complete in its
+    declared window. What is asserted is that the exclusion is *counted*, so the
+    tile can say which of its four situations it is in — `CLAUDE.md`'s
+    no-silent-caps rule and ADR 0010's say-which-cause rule, together.
+
+    The unpriced epic inside the window and the unfinished one outside it are
+    both in the fixture on purpose: neither is value being withheld, and
+    counting either would overstate the sentence the tile prints.
+    """
+    print("an epic the window excludes is counted, not dropped")
+    node = subprocess.run(["node", str(ROOT / "tests" / "forge_shapes.mjs")],
+                          capture_output=True, text=True, cwd=str(ROOT))
+    if node.returncode != 0:
+        check("the Forge shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    w = json.loads(node.stdout)["epicWindow"]
+
+    # The sprint that found it. Nothing priced may be credited, and all three
+    # exclusions have to be on the record.
+    check("a window that cannot contain them credits none of the three",
+          w["degenerate"]["credited"] == ["MOBL-52"], w["degenerate"])
+    check("and counts all three as excluded",
+          w["degenerate"]["excluded"] == 3, w["degenerate"])
+    check("and counts all three as value it kept out",
+          w["degenerate"]["excludedWithValue"] == 3, w["degenerate"])
+
+    # The neighbouring sprint, whose window really does contain them: the same
+    # three are credited, so the disclosure cannot be a permanent complaint.
+    check("the window that does contain them credits all three",
+          w["sane"]["credited"] == ["MOBL-2", "MOBL-5", "MOBL-6"], w["sane"])
+    # One epic finished outside it carrying no value. Excluded, but not value.
+    check("an unpriced epic outside the window is not counted as value withheld",
+          w["sane"]["excluded"] == 1 and w["sane"]["excludedWithValue"] == 0, w["sane"])
+
+    # An unfinished epic has not been denied a period and is on neither side.
+    check("an unfinished epic is counted on neither side",
+          "MOBL-4" not in w["sane"]["credited"]
+          and w["degenerate"]["excluded"] + len(w["degenerate"]["credited"]) == 4,
+          w)
+
+    # No window applied, nothing withheld — a count of the whole board here
+    # would read to the tile as value this sprint kept out.
+    check("an entry with no dates claims nothing was excluded",
+          w["undated"] == {"credited": [], "excluded": 0, "excludedWithValue": 0},
+          w["undated"])
+
+
 def body_keys_reach_a_reader():
     """A key a producer emits and no consumer assigns is a key that does nothing.
 
@@ -4797,9 +4867,18 @@ def business_value_checks():
     check("the resolver fetches the board's epics separately",
           "boardEpicsFor" in idx and "/epic?startAt=" in idx,
           [l.strip() for l in idx.splitlines() if "board/${boardId}/epic" in l][:1])
+    # The rule moved into `jira.js` when the exclusions started being counted,
+    # so this follows it rather than being deleted — and now asserts the rule
+    # itself rather than the presence of a word near the fetch.
+    jira_js = (ROOT / "forge" / "src" / "jira.js").read_text()
+    credit = jira_js.split("export const creditableEpics", 1)
     check("and credits each to the period it finished in, not to every period",
-          "resolutiondate" in idx.split("boardEpicsFor(parsed.boardId", 1)[1][:900],
-          "credited by resolution date")
+          len(credit) == 2
+          and "e?.resolved" in credit[1][:900]
+          and "done >= start && done <= end" in credit[1][:900],
+          "credited by resolution date, inside the entry's own window")
+    check("and the epic pass is the only thing deciding it",
+          "creditableEpics(all, entry)" in idx, "one decision, one call site")
     check("an entry with no dates gets no epics rather than all of them",
           "entry.startDate && entry.endDate && appFields.value" in idx,
           "guarded by dates")
@@ -4956,6 +5035,7 @@ if __name__ == "__main__":
     cross_team_checks()
     counting_checks()
     business_value_checks()
+    test_an_epic_the_window_excludes_is_counted_not_dropped()
     value_basis_checks()
     ask_assembly_checks()
     body_keys_reach_a_reader()

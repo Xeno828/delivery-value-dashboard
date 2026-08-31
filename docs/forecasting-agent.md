@@ -197,6 +197,8 @@ Below these, the honest answer is "not enough data" — not a wider interval:
 | Cycle-time / ageing risk | ≥ 6 items with both a start and an end date |
 | Calibration score | ≥ 10 resolved forecasts |
 
+Two thresholds guard the completion forecast, so **the refusal names which of them fell short, and in which unit** — *"(3 working-day observations, 8 needed)"* or *"(2 completed items, 10 needed)"*. It reported the item pair for both until v1.71.0, which on a board with eleven items finished across three days produced *"(11 observations, 10 needed)"* over a refusal — a sentence a reader can disprove from its own figures.
+
 On one sprint of data the engine refuses outright — verified in `tests/test_agent.py`. The agent must print the refusal verbatim rather than softening it into a hedge. *"Not enough data"* and *"wide interval"* are different statements and only one of them is true.
 
 ---

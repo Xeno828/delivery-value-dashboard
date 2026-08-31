@@ -3788,8 +3788,23 @@ function renderValue(m) {
     // send anybody to.
     const here = (S.data.contexts || []).find(c => c.id === S.ctx);
     const st = ((here && here.setup) || {}).businessValue;
+    /* And what the crediting window kept out, where a producer measured it.
+       This is checked *first* because it is the only one of the four that is
+       about the selection rather than about the data: a board can have every
+       epic priced and finished and still show nothing here, because none of
+       them finished inside this sprint. The tile used to reach past that and
+       describe whichever priced story it could see, which was true and was not
+       the reason. ADR 0026 is the rule; saying which cause it was is ADR 0010. */
+    const vw = (here && here.valueWindow) || null;
+    const nx = vw ? vw.excludedWithValue : 0;
     host.innerHTML = '<div class="fc-refusal"><b>No value to report.</b> ' +
-      (belowLine.length
+      (nx
+        ? esc(nx + " epic" + (nx === 1 ? "" : "s") + " on this board finished " +
+          "carrying a value, and " + (nx === 1 ? "it did not finish" : "none of them finished") +
+          " inside this sprint's window (" + fmtD(vw.start) + " – " + fmtD(vw.end) + "). " +
+          "An epic's value is counted once, in the period it completed in, so it is " +
+          "reported against the sprint that was running then and is not missing from here.")
+        : belowLine.length
         ? esc(belowLine.length + " completed item" + (belowLine.length === 1 ? "" : "s") +
           " carr" + (belowLine.length === 1 ? "ies" : "y") + " a value, and " +
           (belowLine.length === 1 ? "it sits" : "they sit") + " below the level value is " +
@@ -5989,6 +6004,10 @@ async function loadContext(id, select = true) {
     if (ctx) {
       Object.assign(ctx, j.context || {});
       ctx.setup = j.setup || null;
+      // What the value window excluded, where a producer measured it. `null` is
+      // "nobody measured", not "nothing was excluded" — the tile says different
+      // things for those two and a zero would collapse them.
+      ctx.valueWindow = j.valueWindow || null;
       delete ctx.stub;
     }
     const fresh = (j.issues || []).map(i => {

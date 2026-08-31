@@ -26,6 +26,7 @@ import { kvs } from '@forge/kvs';
 
 import {
   CONFIG_PROPERTY_KEY, contextEntry, contextsBody, contextBody, contextId,
+  creditableEpics,
   findStoryPointField, mergeOrgConfig, parseContextId, issueFrom, notFound,
   recentSprints, statusesFromJira, validateOrgConfig, findBusinessValueField,
   findValueBasisField, findAskField, findSizeField, asksFromIssues,
@@ -961,26 +962,36 @@ const issuesForEntry = async (entry, spField, siteUrl, as) => {
   //
   // A window has dates too, so this is not sprint-only. An entry with no dates
   // gets none, rather than every epic the board has ever finished.
+  let valueWindow = null;
   if (entry.startDate && entry.endDate && appFields.value) {
     const { epics } = await boardEpicsFor(parsed.boardId, as, appFields, spField);
-    for (const raw of epics) {
-      const done = (raw.fields?.resolutiondate || '').slice(0, 10);
-      if (!done || done < entry.startDate || done > entry.endDate) continue;
-      mapped.push({
-        ...issueFrom(raw, {
-          sprintStart: entry.kind === 'window' ? null : entry.startDate,
-          storyPointField: spField,
-          businessValueField: appFields.value,
-          valueBasisField: appFields.basis,
-          askFieldId: appFields.candidate,
-          sizeFieldId: appFields.tshirt,
-          siteUrl,
-        }),
-        contextId: entry.id,
-      });
-    }
+    // Mapped before they are partitioned, so "finished" and "carries a value"
+    // are read off the same fields the page reads. Mapping an epic the window
+    // then excludes costs nothing — it is pure — and reading its value a second
+    // way to count it would be the second implementation this repository keeps
+    // finding at the bottom of a disagreement.
+    const all = epics.map((raw) => issueFrom(raw, {
+      sprintStart: entry.kind === 'window' ? null : entry.startDate,
+      storyPointField: spField,
+      businessValueField: appFields.value,
+      valueBasisField: appFields.basis,
+      askFieldId: appFields.candidate,
+      sizeFieldId: appFields.tshirt,
+      siteUrl,
+    }));
+    const { credited, excluded, excludedWithValue } = creditableEpics(all, entry);
+    for (const e of credited) mapped.push({ ...e, contextId: entry.id });
+    // The window this reader is looking through, and what it did not let past.
+    // Sent even when nothing was excluded: zero here is a measured zero, and
+    // the tile distinguishes it from the absence a file reports.
+    valueWindow = {
+      start: entry.startDate,
+      end: entry.endDate,
+      excluded,
+      excludedWithValue,
+    };
   }
-  return mapped;
+  return { issues: mapped, valueWindow };
 };
 
 /**
@@ -1075,7 +1086,7 @@ resolver.define('context', answering(async ({ payload, context }) => {
   }
 
   const spField = await storyPointFieldFor();
-  const issues = await issuesForEntry(entry, spField, context?.siteUrl);
+  const { issues, valueWindow } = await issuesForEntry(entry, spField, context?.siteUrl);
   const cfg = (await orgConfigFor(entry.projectKey)).config;
 
   // **Only when it would change what a reader is told.** This is a call per
@@ -1099,7 +1110,7 @@ resolver.define('context', answering(async ({ payload, context }) => {
 
   return {
     status: 200,
-    body: contextBody(entry, issues, cfg, setup),
+    body: contextBody(entry, issues, cfg, setup, valueWindow),
   };
 }));
 
@@ -1158,7 +1169,7 @@ resolver.define('forecast', answering(async ({ payload, context }) => {
   const byKey = new Map();
   const issues = [];
   for (const entry of contexts.filter((c) => wanted.has(c.id))) {
-    for (const issue of await issuesForEntry(entry, spField, context?.siteUrl)) {
+    for (const issue of (await issuesForEntry(entry, spField, context?.siteUrl)).issues) {
       byKey.set(issue.key, issue);
       issues.push(issue);
     }
@@ -1278,7 +1289,7 @@ resolver.define('history', answering(async ({ payload, context }) => {
   const spField = await storyPointFieldFor();
   const issues = [];
   for (const entry of mine) {
-    issues.push(...await issuesForEntry(entry, spField, context?.siteUrl));
+    issues.push(...(await issuesForEntry(entry, spField, context?.siteUrl)).issues);
   }
   const projected = issues.map(projectIssue);
   assertNoFreeText(projected);
@@ -1431,7 +1442,7 @@ resolver.define('sequence', answering(async ({ payload, context }) => {
   }
 
   const spField = await storyPointFieldFor();
-  const issues = await issuesForEntry(entry, spField, context?.siteUrl);
+  const { issues } = await issuesForEntry(entry, spField, context?.siteUrl);
   const cfg = (await orgConfigFor(projectKey)).config;
 
   // **Candidates come from the board's epics, not from this period's issues.**
@@ -2090,7 +2101,7 @@ const boardFigures = async (boardId) => {
 
   const spField = await storyPointFieldFor('app');
   const org = (await orgConfigFor(projectKey, 'app')).config;
-  const issues = await issuesForEntry(entry, spField, null, 'app');
+  const { issues } = await issuesForEntry(entry, spField, null, 'app');
 
   const projected = issues.map(projectIssue);
   assertNoFreeText(projected);

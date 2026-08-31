@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.71.0
+
+**A tile said the wrong thing about a board where it was working correctly, and a refusal disproved itself in its own sentence.** Both were reported from the dev site by looking at the page. Every suite was green through both, which is now the fourth time in two sessions that the thing that found a defect was a person clicking a tile.
+
+### An epic the crediting window excludes is counted, not dropped
+
+The Business Value tile on **MOBL Sprint 4** said *"No value to report. 1 completed item carries a value, and it sits below the level value is counted at."* That was true — a Done story carrying $10,000 — and it was not the reason. Three finished epics worth $245,000 between them were never in the page at all.
+
+**The sprint is the kind of thing a real board contains and no fixture did.** MOBL Sprint 4 is `closed`, was completed on 31 August, and declares a window of 11–25 September: a sprint finished eleven days before it was planned to start. Its issues arrive because they are fetched by sprint *membership*; its epics were selected by *date*, against `startDate` and `endDate`. `MOBL-2`, `MOBL-5` and `MOBL-6` resolved on 30 and 31 August, outside a window that could not contain them, and were dropped by a bare `continue` with nothing recorded.
+
+**The rule is not what was wrong and has not changed.** ADR 0026 credits an epic's value to the period it completed in, and Sprint 4 genuinely had none complete in the period it declared — selecting Sprint 3 next to it renders all three and $245,000, which is the correct answer for both sprints. What was wrong is that the exclusion was silent, so the tile had four situations to distinguish and evidence for none of them: nobody has priced anything, nobody *can* because the field is off-screen, the field is not installed, and — unrepresented — everything priced finished somewhere else. It reached past the gap for the only priced thing still in view and presented that as the cause.
+
+`creditableEpics()` in `forge/src/jira.js` now returns what it credited *and* what it kept out, and the `context` body carries a `valueWindow` beside it. The tile checks that first, because it is the only one of the four that is about the selection rather than about the data. An epic that finished unpriced is excluded but is not counted as value withheld; an unfinished epic is on neither side, because no period is being denied it; and an entry with no dates claims nothing was excluded rather than reporting the whole board as withheld.
+
+**`valueWindow` is Forge's alone and is named as such** in the envelope-parity check, for the same reason `setup` is: it reports what a *board's* epic pass excluded, and the loopback server has no board to run one over — a bundle's epics were chosen when it was baked. The page reads its absence as "nobody measured", which is not the same as "nothing was excluded", and keeps the sentences it already had.
+
+Pinned by `test_an_epic_the_window_excludes_is_counted_not_dropped()` over the real sprint's dates, and by the body-key guard from 1.70.0, which catches the reader going missing. Both were proved by reintroducing the defect and watching them fail.
+
+### A refusal that its own figures disprove
+
+The sequencing tile refused with *"too little delivery history on this team to forecast against (11 observations, 10 needed)"*. Eleven against ten is not a shortfall. A reader who checks the arithmetic in the sentence concludes the tool is broken, and the tool was right.
+
+Two thresholds guard a forecast — **8 working days observed** and **10 items completed across them** — and one `or` reported the item pair whichever of the two had failed, under a word belonging to neither. A board with eleven items finished across three days fails on days and gets told about items. The same `or` was at three more sites in `forecast.py`.
+
+Each is now two conditions with two sentences, and `Refusal` carries the **unit** it counted in: *"(3 working-day observations, 8 needed)"* or *"(2 completed items, 10 needed)"*, agreeing in number so nothing reads *"1 completed items"*. The unit is defaulted rather than required, so every refusal with a single threshold prints exactly the sentence it printed before — `tests/brief_shapes.mjs` holds that string byte for byte across the Python/JavaScript boundary, and requiring the field would have moved every refusal in the product to fix four of them.
+
+The invariant is worth more than the case and is what the test asserts: whatever a refusal counts, `have` must be short of `need`. Thirteen checks fail against the old code, and the failure output reproduces the reported sentence exactly. The threshold itself was never in question — that board does need more days — and the 1.66.1 entry below quotes the old sentence as it stood then, which is left as the record of what was seen rather than corrected into what it would say today.
+
 ## 1.70.0
 
 **A key a producer emits and no consumer takes is now a failing test.** Three of those shipped in one session and every suite stayed green through all of them: `orgConfigOf` named four keys and dropped the rest, so a dataset setting `countSubtasks` counted differently from the facts pack; the Forge `sequence` body lacked `asks_considered`, so the panel would have headed a table of two with *"Sequencing 0 asks"*; and `contextBody` carried `setup` while `loadContext` assigned nothing from it, so the value tile read `undefined` and fell through to its mildest sentence.
