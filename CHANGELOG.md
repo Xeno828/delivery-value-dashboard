@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.72.4
+
+**The roadmap's answer to "what stands between here and a Marketplace listing" named one piece of engineering, and it had been built the day before the reader would arrive at it.** `docs/roadmap.md` said *sequencing needs a way to read an ask out of Jira*. Item 7 closed on 2026-08-31 in four slices — candidacy declared and found, an ask assembled, the Forge refusal gone, and value, basis and a t-shirt band on the page — and `grep -c "0028\|0029"` over the file returned 0.
+
+**This is 1.72.3's defect in a different file, found the same afternoon.** A section that is the canonical answer to a question gets read and believed before anything that contradicts it, and the contradiction here was four commits and two decision records deep in the same repository. What makes a roadmap worth keeping is that it says what is true today; a section still listing work that shipped is the reason a reader stops checking. Three places said it — item 7's State cell, the item 7 correction bullets, and the Marketplace section's engineering paragraph — and all three now say the engineering list is empty and everything left is a decision, Console work or commercial work.
+
+**One thing in that paragraph was wrong when written, not merely stale.** It listed the needed-by date among the fields an ask had no source for. `dueDate` has always carried it and `asks_from_issues()` reads it. What an epic genuinely has no field for is a **problem statement** and a **success measure**, and neither blocks anything: `readiness` names both as gaps beside the forecast, which is what that shape exists to do. The corrections are carried forward rather than written over, the way the rest of that file records what it once got wrong.
+
+### The glossary was still defining an ask by the absence of tickets
+
+`CONTEXT.md` had **Ask** as *"a described product request with no tickets written yet"*, and told the reader to avoid calling an epic one because an epic is a tracker object. [ADR 0028](docs/adr/0028-candidacy-is-a-state-somebody-declares.md) made an ask routinely an epic on a live board: what makes something an ask is that somebody declared it under consideration, and whether tickets exist for it was never the distinction that mattered. **Candidate** was not in the glossary at all — a term with a declared field, an `orgConfig.askField` override and four distinct answers, and no entry saying what it means.
+
+**Band** is added beside the t-shirt scale it comes from, defined as the selector [ADR 0029](docs/adr/0029-a-t-shirt-band-selects-a-reference-class.md) argues it is: it picks which quartile of the board's completed epics an ask is forecast against and asserts no number of its own, which is the whole distinction from estimating in points and the thing a reader will otherwise collapse. **Reference class** now says when the whole class applies — no band, or one nobody can read — rather than implying no judgement was made.
+
+**Both new entries were checked against the code rather than against the records, and it corrected two of them.** A first draft said an epic already committed is not a candidate now; `asks_from_issues()` says the opposite and says why — a delivered candidate is still a candidate, because un-declaring belongs to whoever declared it, and dropping it here would be the status inference ADR 0028 refuses wearing a helpful face. A second said candidacy is never inferred; the amendment infers it from exactly one thing, and `candidate_issues()` confirms the shape of it — a no beats a band, and an unreadable answer still lets a band speak.
+
 ## 1.72.3
 
 **Two runbooks opened by telling the reader the calculator was not deployed, and it has been since the afternoon they were written.** `docs/hosting-the-calculator.md` said *"nothing is deployed and no cloud account exists yet"* in its seventh line, and `docs/forge-deployment.md` said sections 2 and 3 were still open. Both were true when committed and neither survived the day: the line was written in the commit that created the file on 2026-08-25, and the next commit that afternoon provisioned Google Cloud and deployed to both regions.
