@@ -3813,6 +3813,40 @@ def test_a_burndown_is_served_rather_than_left_blank():
           "No burndown series in the dataset" not in (body["burndownNote"] or ""),
           body["burndownNote"])
 
+    # ---- a sprint whose whole window is still in the future ----
+    #
+    # Every row is null, because a burndown plots days that have been lived
+    # through. The page read that as "this dataset predates the item/point
+    # toggle" and offered `rebuild_burndown.py` — a false cause and a fix that
+    # would change nothing. MOBL Sprint 4 is the first case: closed, completed
+    # 31 August, window 11-25 September. The same bad pair of dates put its
+    # epics outside its value window in 1.71.0.
+    js_notes = json.loads(node.stdout)["noDaysYet"]
+    cases = [
+        {"startDate": "2026-09-11", "endDate": "2026-09-25",
+         "asOfDate": "2026-08-31", "sprintState": "closed"},
+        {"startDate": "2026-09-25", "endDate": "2026-10-09",
+         "asOfDate": "2026-08-31", "sprintState": "future"},
+        {"startDate": "2026-08-28", "endDate": "2026-09-11",
+         "asOfDate": "2026-08-31", "sprintState": "closed"},
+        {"startDate": "2026-08-28", "endDate": "2026-09-11",
+         "asOfDate": None, "sprintState": "active"},
+    ]
+    py_notes = [LIVE.no_days_yet_note(c) for c in cases]
+    check("a sprint completed before its own start date says so",
+          py_notes[0] and "completed before its own start date" in py_notes[0], py_notes[0])
+    check("and does not blame the dataset's age",
+          py_notes[0] and "predates" not in py_notes[0], py_notes[0])
+    check("a sprint that has not started says that instead",
+          py_notes[1] and "has not started" in py_notes[1], py_notes[1])
+    check("a sprint whose window has begun gets no note",
+          py_notes[2] is None and py_notes[3] is None, py_notes[2:])
+    # The two implementations, over one set of cases. Two transports agreeing
+    # about which sprints are odd and disagreeing about what to say is the
+    # harder bug and the one a shape check cannot see.
+    check("both transports explain it in the same words",
+          js_notes == py_notes, {"js": js_notes[0], "py": py_notes[0]})
+
     # One reader, two transports, one explanation. A window has no committed
     # scope to burn down on either, and being told different things about the
     # same board depending on how the page was reached is the drift ADR 0009

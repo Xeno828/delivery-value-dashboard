@@ -1023,6 +1023,42 @@ const addedMidSprint = (raw, sprintStart) => {
 };
 
 /**
+ * Why a sprint's chart has no day on it that has happened yet, or `null`.
+ *
+ * A burndown plots days that have been lived through: every day after the
+ * moment the figures describe is emitted as `null`, because a flat line to the
+ * right edge would be a stall nobody observed. When the *whole* window is after
+ * that moment, every row is null and there is no series — which the page read
+ * as "this dataset predates the item/point toggle" and answered with
+ * `rebuild_burndown.py`, a false cause and a fix that would change nothing.
+ *
+ * Two ways to get there and they are not the same fact. A sprint in the future
+ * has not started. A sprint recorded as closed whose completion precedes its
+ * own start date is a data problem in Jira — MOBL Sprint 4 on the dev site is
+ * `closed`, was completed on 31 August, and declares a window of 11–25
+ * September, which is also why its epics fell outside its value window in
+ * 1.71.0. One board, one bad pair of dates, two tiles.
+ *
+ * Mirrored by `no_days_yet_note()` in `scripts/serve_live.py`; both are run over
+ * one shared set of cases in `tests/test_service.py`, because two transports
+ * explaining the same board differently is the drift ADR 0009 exists to stop.
+ */
+export const noDaysYetNote = (entry) => {
+  const start = entry?.startDate;
+  const end = entry?.endDate;
+  const asOf = entry?.asOfDate;
+  if (!start || !asOf || asOf >= start) return null;
+  return `Nothing on this sprint's chart has happened yet. Its window runs ${start} to ${end}, `
+    + `and the moment these figures describe is ${asOf} — a burndown plots days that have been `
+    + 'lived through, so there is nothing to draw yet. '
+    + (entry?.sprintState === 'future'
+      ? 'This sprint has not started.'
+      : 'This sprint is recorded as closed but was completed before its own start date, '
+        + 'which is worth correcting in Jira — the same dates decide which sprint its '
+        + "epics' value is credited to.");
+};
+
+/**
  * Which finished epics a period may credit its value to, and how many it may not.
  *
  * The rule is unchanged and is ADR 0026's: an epic's value belongs to the

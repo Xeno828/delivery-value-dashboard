@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.72.2
+
+**A sprint whose whole window is still ahead of it was told its dataset was too old.** With the burndown drawing on MOBL Sprint 3, Sprint 4 fell through to a different sentence: *"This dataset has no item series on its burndown — it predates the item/point toggle. Re-import it, or run `scripts/rebuild_burndown.py`."* Both halves are false. The dataset is minutes old and the script would change nothing.
+
+A burndown plots days that have been lived through: a day after the moment the figures describe is emitted as `null`, because a flat line to the right edge is a stall nobody observed. Sprint 4 declares a window of 11–25 September and was completed on 31 August, so **every** day on its chart is in the future and every row is null — an empty item series, which the page had exactly one explanation for and it was the wrong one.
+
+`noDaysYetNote()` now says which it is, before the calculator is called at all: the answer is a property of the entry's own dates, and a round trip to be told every row is null is a round trip to learn what was already on hand. Two cases, and they are different facts — a sprint in the future has not started, and a sprint recorded as closed whose completion precedes its own start date is a data problem in Jira worth naming. The closed sentence says so, and points at the same dates that decided which sprint its epics' value was credited to in 1.71.0. **One board, one bad pair of dates, two tiles** — which is the argument for saying what a figure was computed against rather than only what it came to.
+
+Mirrored in `serve_live.py` and run over one shared set of cases, the way `validate()` already is: two transports agreeing about which sprints are odd and disagreeing about what to say is the harder bug and the one a shape check cannot see. Proved by making the resolver's copy return `null` and watching the two disagree.
+
 ## 1.72.1
 
 **The burndown shipped broken and the tile said so: *"the calculation failed. Nothing partial was returned."*** Reported on the first real Forge load, minutes after deploying 1.72.0.

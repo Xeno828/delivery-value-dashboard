@@ -15,6 +15,7 @@
 import {
   contextEntry, contextsBody, contextBody, contextId, findStoryPointField,
   creditableEpics,
+  noDaysYetNote,
   mergeOrgConfig, parseContextId, issueFrom, notFound, recentSprints,
   statusesFromJira, validateOrgConfig, asksFromIssues, candidateAnswer, tshirtAnswer,
   DEFAULT_WINDOW_DAYS, WINDOW_DAYS, windowEntry, windowToken,
@@ -196,7 +197,18 @@ const windowOf = (start, end) => {
            excludedWithValue: r.excludedWithValue };
 };
 
+/* Both transports must explain the same board in the same words. These are the
+   cases `scripts/serve_live.py` is run over in `tests/test_service.py`, and the
+   first is MOBL Sprint 4 exactly: closed, completed 31 Aug, window 11-25 Sep. */
+const NO_DAYS_CASES = [
+  { startDate: '2026-09-11', endDate: '2026-09-25', asOfDate: '2026-08-31', sprintState: 'closed' },
+  { startDate: '2026-09-25', endDate: '2026-10-09', asOfDate: '2026-08-31', sprintState: 'future' },
+  { startDate: '2026-08-28', endDate: '2026-09-11', asOfDate: '2026-08-31', sprintState: 'closed' },
+  { startDate: '2026-08-28', endDate: '2026-09-11', asOfDate: null, sprintState: 'active' },
+];
+
 console.log(JSON.stringify({
+  noDaysYet: NO_DAYS_CASES.map((c) => noDaysYetNote(c)),
   epicWindow: {
     // The sprint that found this: completed before it was planned to start.
     degenerate: windowOf('2026-09-11', '2026-09-25'),

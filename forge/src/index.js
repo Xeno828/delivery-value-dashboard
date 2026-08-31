@@ -27,6 +27,7 @@ import { kvs } from '@forge/kvs';
 import {
   CONFIG_PROPERTY_KEY, contextEntry, contextsBody, contextBody, contextId,
   creditableEpics,
+  noDaysYetNote,
   findStoryPointField, mergeOrgConfig, parseContextId, issueFrom, notFound,
   recentSprints, statusesFromJira, validateOrgConfig, findBusinessValueField,
   findValueBasisField, findAskField, findSizeField, asksFromIssues,
@@ -1036,6 +1037,11 @@ const burndownFor = async (entry, issues, cfg) => {
       + 'so there are no days to plot a burndown against. Setting both on the sprint '
       + 'is the fix; nothing else on this page depends on it.' };
   }
+  // Asked before the calculator is, because the answer is a property of the
+  // entry's own dates and a round trip to be told every row is null is a round
+  // trip to learn what was already on hand.
+  const noDays = noDaysYetNote(entry);
+  if (noDays) return { rows: [], note: noDays };
   const projected = issues.map(projectIssue);
   assertNoFreeText(projected);
   const answer = await callCalculator('/v1/burndown', {

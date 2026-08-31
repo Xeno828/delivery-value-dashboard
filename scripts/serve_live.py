@@ -219,6 +219,35 @@ def window_entry(board_id, board_name, project_key, project_name, days, as_of):
 #: `forge/src/jira.js` carries the same sentence and `tests/test_service.py`
 #: asserts the two are identical — a reader on one transport must not be
 #: given a different explanation from a reader on the other.
+def no_days_yet_note(ctx):
+    """Why a sprint's chart has no day on it that has happened yet, or `None`.
+
+    Mirrors `noDaysYetNote()` in `forge/src/jira.js` — `tests/test_service.py`
+    runs both over one shared set of cases, because a reader must not be given a
+    different explanation depending on which transport reached the page.
+
+    A burndown plots days that have been lived through; a day after the moment
+    the figures describe is emitted as `None`. When the whole window is after it
+    every row is null, and the page read that as "this dataset predates the
+    item/point toggle" — a false cause with a fix that changes nothing.
+    """
+    start, end = (ctx or {}).get("startDate"), (ctx or {}).get("endDate")
+    as_of = (ctx or {}).get("asOfDate")
+    if not start or not as_of or as_of >= start:
+        return None
+    return (
+        "Nothing on this sprint's chart has happened yet. Its window runs %s to %s, "
+        "and the moment these figures describe is %s — a burndown plots days that have been "
+        "lived through, so there is nothing to draw yet. " % (start, end, as_of)
+    ) + (
+        "This sprint has not started."
+        if (ctx or {}).get("sprintState") == "future" else
+        "This sprint is recorded as closed but was completed before its own start date, "
+        "which is worth correcting in Jira — the same dates decide which sprint its "
+        "epics' value is credited to."
+    )
+
+
 WINDOW_HAS_NO_BURNDOWN = (
     "A burndown plots a committed scope down to the date it was committed for. "
     "This period is a rolling window rather than a sprint, so nobody committed to "
@@ -271,7 +300,8 @@ class BundleBackend:
             # thing this producer can explain is a window — which has no
             # committed scope whoever is serving it.
             "burndownNote": (WINDOW_HAS_NO_BURNDOWN
-                             if ctx.get("kind") == "window" else None),
+                             if ctx.get("kind") == "window"
+                             else no_days_yet_note(ctx)),
             "releases": by.get("releases", []), "dora": by.get("dora"),
         }
 
@@ -422,7 +452,8 @@ class JiraBackend:
             "burndown": ([] if ctx.get("kind") == "window"
                          else self.F.build_burndown(issues, meta)),
             "burndownNote": (WINDOW_HAS_NO_BURNDOWN
-                             if ctx.get("kind") == "window" else None),
+                             if ctx.get("kind") == "window"
+                             else no_days_yet_note(ctx)),
             "history": [], "releases": [], "dora": None,
         }
         ctx["issueCount"] = len(issues)
