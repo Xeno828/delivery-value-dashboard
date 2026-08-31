@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.70.0
+
+**A key a producer emits and no consumer takes is now a failing test.** Three of those shipped in one session and every suite stayed green through all of them: `orgConfigOf` named four keys and dropped the rest, so a dataset setting `countSubtasks` counted differently from the facts pack; the Forge `sequence` body lacked `asks_considered`, so the panel would have headed a table of two with *"Sequencing 0 asks"*; and `contextBody` carried `setup` while `loadContext` assigned nothing from it, so the value tile read `undefined` and fell through to its mildest sentence.
+
+None of them is an error. Each is a plausible answer with a piece missing, which is the failure this repository fears most — and there was a check for it on issue *fields* and none on the bodies those fields arrive in.
+
+**Two directions, because the failures went both ways.** Every top-level key of a body the resolver builds must be **taken off the response** by the function that consumes that route — reading the word somewhere in the file is not enough, and that was the trap: `setup` appeared in `setupNeeds` while nothing assigned it. And every key the sequencing tile reads must be added by **both** transports, or named as one-sided with its reason.
+
+**The second direction needed narrowing before it worked.** Searching the whole resolver passes on a key that survives in a refusal branch and is missing from the answer — which is exactly the shape of the original bug — so it reads the success body specifically. Both directions were then proved by reverting each fix and watching the guard fail, rather than by assuming a green run meant coverage.
+
+**And it needed the shapes file to stop hiding a key.** `contextBody` omits `setup` when it is absent, and `tests/forge_shapes.mjs` had never passed one — so the guard would have been blind to the exact key whose reader was missing. It passes one now: a shape the test never produces is a shape nothing protects.
+
+**One key is Forge's alone and is named rather than quietly compared out.** `setup` says which of this app's own fields are on a screen; there are no Jira fields behind the loopback server, so it has nothing to answer and sends nothing. The envelope-parity check lists it as the exception with that reason instead of excluding it silently.
+
+**What it does not catch is written down**, in the test: it reads source text rather than running code, so a key missing from a third branch that is neither the answer nor a refusal would pass, and so would a consumer that takes a key and then ignores it. The third of the three failures is guarded elsewhere — `tests/e2e.py` compares the page's merged `orgConfig` against `orgconfig.merge` key for key.
+
 ## 1.69.1
 
 **The value tile stops guessing.** It said *"No completed item carries a value estimate. If this site has just installed the app, its Business Value field exists but a Jira administrator has to add it to a screen"* — one sentence covering two situations with entirely different fixes, in a product whose whole claim is that it tells a reader which of several reasons applies. And it said it over a **file** too, which has no app, no administrator and no screen.

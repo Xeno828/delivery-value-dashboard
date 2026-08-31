@@ -168,11 +168,16 @@ const STATUSES_NOW = { statuses: { done: ['Done', 'Shipped'], inProgress: ['In P
 
 console.log(JSON.stringify({
   contexts: contextsBody('Jira, project SFT — 1 board', entries),
+  /* The fourth argument is supplied deliberately. `contextBody` omits `setup`
+     when it is absent, and a body-key guard can only check keys it can see — so
+     leaving it out here would have made that check blind to the exact key whose
+     reader was missing. A shape the test never produces is a shape nothing
+     protects. */
   context: contextBody(selected, rawIssues.map((r) => issueFrom(r, {
     sprintStart: selected.startDate,
     siteUrl: SITE,
     storyPointField: findStoryPointField(fieldList),
-  }))),
+  })), undefined, { businessValue: 'off-screen', valueBasis: 'ready' }),
   storyPointField: {
     found: findStoryPointField(fieldList),
     // A site with no such field at all. Points must come back null rather than

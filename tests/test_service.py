@@ -794,9 +794,17 @@ def test_the_two_transports_answer_the_same_shape():
           sorted(live_contexts) == sorted(forge["contexts"]),
           {"live": sorted(live_contexts), "forge": sorted(forge["contexts"])})
 
+    # One key is Forge's alone and is named rather than quietly compared out.
+    # `setup` says which of this app's own fields are on a screen; there are no
+    # Jira fields behind the loopback server — a file's value came from a file —
+    # so it has nothing to answer and sends nothing. The page treats its absence
+    # as "nothing is known", never as a state.
+    FORGE_ONLY = {"setup"}
     check("api/context and the context resolver return the same envelope",
-          sorted(live_context) == sorted(forge["context"]),
-          {"live": sorted(live_context), "forge": sorted(forge["context"])})
+          sorted(live_context) == sorted(set(forge["context"]) - FORGE_ONLY),
+          {"live": sorted(live_context),
+           "forge": sorted(set(forge["context"]) - FORGE_ONLY),
+           "forge-only": sorted(FORGE_ONLY)})
 
     # The context entry is the object the page merges into its own list and
     # keys everything else on. Two fields are compared out, and both are
@@ -3706,6 +3714,130 @@ def ask_assembly_checks():
           [l.strip() for l in svc.splitlines() if "ASK_TEXT_FIELDS" in l][:1])
 
 
+def body_keys_reach_a_reader():
+    """A key a producer emits and no consumer assigns is a key that does nothing.
+
+    **Three of these shipped in one session**, and every suite stayed green
+    through all of them:
+
+    - `orgConfigOf` named four keys and dropped the rest, so a dataset setting
+      `countSubtasks` had it discarded and the page counted differently from the
+      facts pack;
+    - the Forge `sequence` body lacked `asks_considered`, which `serve_live`
+      emits and the page reads, so the panel would have said *"Sequencing 0
+      asks"* over a table of two;
+    - `contextBody` carried `setup` and `loadContext` assigned nothing from it,
+      so the value tile read `undefined` and fell through to its mildest
+      sentence.
+
+    None is an error. Each is a plausible answer with a piece missing, which is
+    the failure this repository fears most and had no check for. There is one
+    for issue *fields* — the projection parity above — and there was none for
+    the bodies those fields arrive in.
+
+    Two directions, because the failures went both ways.
+
+    **What this does not catch**, said here rather than discovered later. It
+    reads source text, not running code: a key present in some return branches
+    and missing from a third that is neither a refusal nor the success body
+    would pass, and so would a consumer that takes a key off the response and
+    then does nothing with it. It also only sees the routes
+    `tests/forge_shapes.mjs` can build without a Jira — which is why the shapes
+    file now passes a `setup` argument it could have left out, since a shape the
+    test never produces is a shape nothing protects.
+
+    The third failure of the three is guarded elsewhere: `tests/e2e.py` asserts
+    the page's merged `orgConfig` matches `orgconfig.merge` key for key, under a
+    config that moves every value.
+    """
+    print("body keys reach a reader")
+    app_js = (ROOT / "src" / "app.js").read_text()
+    idx = (ROOT / "forge" / "src" / "index.js").read_text()
+    live = (ROOT / "scripts" / "serve_live.py").read_text()
+
+    def fn_body(src, opener):
+        i = src.index(opener)
+        depth, j = 0, src.index("{", i)
+        for m in range(j, len(src)):
+            if src[m] == "{":
+                depth += 1
+            elif src[m] == "}":
+                depth -= 1
+                if depth == 0:
+                    return src[i:m + 1]
+        raise AssertionError("unterminated %r" % opener)
+
+    node = subprocess.run(["node", str(ROOT / "tests" / "forge_shapes.mjs")],
+                          capture_output=True, text=True, cwd=str(ROOT))
+    if node.returncode != 0:
+        check("the Forge shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    shapes = json.loads(node.stdout)
+
+    # ---- producer -> reader ----
+    #
+    # Every top-level key of a body the resolver builds is assigned by the
+    # function that consumes that route. Reading the *word* somewhere in the
+    # file is not enough and was the trap: "setup" appeared in `setupNeeds`
+    # while nothing took it off the response.
+    CONSUMES = {"contexts": "async function probeLive", "context": "async function loadContext"}
+    #: Keys a consumer deliberately does not take off this route, and why.
+    IGNORED = {
+        ("context", "orgConfig"): "the config is adopted once, off the contexts "
+                                  "route; sent here so a single-context fetch is "
+                                  "self-describing on its own",
+    }
+    for route, opener in CONSUMES.items():
+        body = shapes.get(route) or {}
+        reader = fn_body(app_js, opener)
+        taken = set(re.findall(r"\bj\.([A-Za-z_][A-Za-z0-9_]*)", reader))
+        for key in sorted(body):
+            if (route, key) in IGNORED:
+                continue
+            check("the page takes %s off the %s body" % (key, route),
+                  key in taken, {"took": sorted(taken)})
+
+    # ---- reader -> producers ----
+    #
+    # ADR 0009 is one set of body shapes over two transports. Where the page
+    # reads a key off the sequencing body, both producers have to send it —
+    # `asks_considered` was in `serve_live` and not in the resolver, and the
+    # page reads it for its own heading.
+    seq_reader = (fn_body(app_js, "function renderSequence")
+                  + fn_body(app_js, "function sequenceNotes")
+                  + fn_body(app_js, "function setupNeeds"))
+    read = set(re.findall(r"\bsq\.([A-Za-z_][A-Za-z0-9_]*)", seq_reader))
+    #: Keys one transport has and the other cannot, with the reason.
+    ONE_SIDED = {
+        "setup": "which of this app's fields are on a screen. There are no Jira "
+                 "fields behind the loopback server — a file's value came from a "
+                 "file — so it has nothing to answer and sends nothing.",
+        "unknown": "set by the page itself when a route answers with no body, "
+                   "never by a producer.",
+    }
+    # Most of the body is the tool's own answer, which both transports pass
+    # through untouched — `orderings`, `comparison`, `queue_items` and the rest
+    # are produced by `intake.sequence` and appear in neither wrapper. Only the
+    # keys a *wrapper* adds around that answer can differ between transports,
+    # and those are the ones that did.
+    tool = (ROOT / "agent" / "tools" / "intake.py").read_text()
+    for key in sorted(read):
+        if key in ONE_SIDED:
+            continue
+        if re.search(r"\b%s\b" % re.escape(key), tool):
+            continue                     # the tool's, and both transports relay it
+        # The **success** body specifically, not the file. Searching the whole
+        # resolver passes on a key that survives in a refusal branch and is
+        # missing from the answer — which is the shape of the original bug:
+        # the panel headed a real table with "Sequencing 0 asks".
+        answer = idx.split("reattachAsks(answer.result", 1)[1][:600]
+        in_idx = re.search(r"\b%s\b" % re.escape(key), answer) is not None
+        in_live = re.search(r"\b%s\b" % re.escape(key), live) is not None
+        check("both transports add %s to the answer the tile reads" % key,
+              in_idx and in_live, {"resolver answer": in_idx, "serve_live": in_live})
+
+
 def test_the_image_takes_debians_security_updates():
     """The base lags Debian, and the build has to close the gap.
 
@@ -4826,6 +4958,7 @@ if __name__ == "__main__":
     business_value_checks()
     value_basis_checks()
     ask_assembly_checks()
+    body_keys_reach_a_reader()
     print("the container image")
     test_dockerfile_copies_everything_the_service_imports()
     test_the_image_takes_debians_security_updates()
