@@ -276,7 +276,17 @@ remotes:
     # decides which region a tenant's numbers are computed in — the half of
     # residency that would otherwise have to be built. docs/adr/0012.
     #
-    # Both hostnames are live and both were verified end to end on 2026-08-25.
+    # All three hostnames are live. US and EU were verified end to end on
+    # 2026-08-25; GB — London, europe-west2 — was added 2026-08-31, because the
+    # United Kingdom is its own Atlassian realm (EU is Frankfurt and Dublin) and
+    # the first customer is a UK company. Pointing GB at the EU service would
+    # have been one line and a quiet lie. docs/adr/0030.
+    #
+    # A realm declared here with no region behind it fails the deploy workflow:
+    # its regions and these realms are two halves of one fact, and the failure
+    # they prevent is a tenant reading answers from a calculator that stopped
+    # being updated.
+    #
     # These are the values `gcloud run services describe` reports as
     # `status.url`; Cloud Run also publishes a
     # `calculator-<project-number>.<region>.run.app` form for each, and either
@@ -286,6 +296,7 @@ remotes:
       default: https://calculator-jtfw7qf4ea-uc.a.run.app
       US: https://calculator-jtfw7qf4ea-uc.a.run.app
       EU: https://calculator-jtfw7qf4ea-ey.a.run.app
+      GB: https://calculator-jtfw7qf4ea-nw.a.run.app
     operations:
       - compute
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.74.1
+
+**`GB` is declared, and a UK tenant's numbers are now computed in London.** The realm points at `https://calculator-jtfw7qf4ea-nw.a.run.app`, the `europe-west2` service 1.74.0 deployed — declared only after it existed, because a realm naming a URL that does not answer is the same stale-calculator failure seen from the other end. [ADR 0030](docs/adr/0030-the-manifest-commits-to-its-hostnames-and-realms-once.md) has the decision; this is it landing.
+
+**Why the United Kingdom needed its own entry at all.** Atlassian's `EU` realm is Frankfurt and Dublin; the United Kingdom is a separate realm, London. The manifest declared `default`, `US` and `EU`, so a tenant pinned to the UK — which the September trial is — met a manifest with nothing to say to them. What Forge does in that case is documented nowhere, and the two candidates are a refused install or a silent fall-through to `default`, which is the US. One of those is a lost sale and the other computes a UK customer's numbers in Iowa under a routing decision nobody made.
+
+**Pointing `GB` at the existing Frankfurt service was the one-line alternative and was rejected.** A tenant pinned to the United Kingdom pinned there for a reason, and declaring a realm while computing somewhere else would falsify the strongest sentence this product has for a security review — that Forge picks the region at install time and the app never gets it wrong.
+
+**The cost was quoted by the tool rather than estimated.** `forge lint` reports the approval in its own words — *"Change due to data residency or egress modification"* — so this is a major version, free today because the only installation is `development` on the dev site, and a forced reinstall for every customer after the first external install in September. The deploy workflow's guard passed in the same run that created the service, warning that London was deployed and unreferenced; that warning is what this change clears.
+
 ## 1.74.0
 
 **A third Cloud Run region, London, and a check that makes the drift it invites impossible.** [ADR 0030](docs/adr/0030-the-manifest-commits-to-its-hostnames-and-realms-once.md) decided that `GB` gets its own service rather than being pointed at Frankfurt. This is the half that had to exist before the realm could be declared: `europe-west2` is deployed to, and the manifest points at it in the change after this one, because a realm cannot name a URL that does not yet exist.
