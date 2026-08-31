@@ -559,6 +559,60 @@ def test_a_declared_candidate_becomes_an_ask():
           all({r["id"] for r in o["order"]} == {"E1", "E2"} for o in live["orderings"]),
           [[r["id"] for r in o["order"]] for o in live.get("orderings", [])])
 
+    # ---- a band changes what an ask is compared against, and says so ----
+    #
+    # Before this every Jira-assembled ask drew the same reference class, so
+    # orderings differed by queue position and date pressure and never by "this
+    # one is bigger". A band picks one quartile of the board's completed epics.
+    banded = [
+        {"key": "B1", "summary": "Big", "hierarchyLevel": 1, "candidate": "Yes",
+         "tshirt": "XL"},
+        {"key": "B2", "summary": "Small", "hierarchyLevel": 1, "candidate": "Yes",
+         "tshirt": "s"},
+        {"key": "B3", "summary": "Unsaid", "hierarchyLevel": 1, "candidate": "Yes"},
+        {"key": "B4", "summary": "Vague", "hierarchyLevel": 1, "candidate": "Yes",
+         "tshirt": "Medium-ish"},
+    ]
+    ba, bn = I.asks_from_issues(banded, team="X")
+    sized = {a["id"]: a["sizing"] for a in ba}
+    check("a band becomes a t-shirt sizing, normalised",
+          sized["B1"] == {"method": "tshirt", "size": "XL"}
+          and sized["B2"] == {"method": "tshirt", "size": "S"}, sized)
+    check("no band falls back to the whole reference class",
+          sized["B3"] == {"method": "reference-class"}, sized["B3"])
+    # A size this cannot read is not an absence, and sizing it off everything is
+    # a wider answer than the one that was meant — so it is named.
+    check("a size nobody can read falls back and is named",
+          sized["B4"] == {"method": "reference-class"}
+          and bn["unsized"] == [{"id": "B4", "said": "Medium-ish"}],
+          {"sizing": sized["B4"], "unsized": bn["unsized"]})
+
+    # ---- and the ordering rows say which method each ask got ----
+    #
+    # Two distributions in one comparison that does not say so read as one.
+    ds2 = json.loads((ROOT / "data" / "demo-intake-bundle.json").read_text())
+    iss2, _m2 = I.board_issues(ds2)
+    cid2 = iss2[0].get("contextId")
+    mixed, _ = I.asks_from_issues(
+        [dict(i, contextId=cid2) for i in banded[:3]], team="X")
+    seq = I.sequence(ds2, mixed)
+    if seq.get("available"):
+        rows = {r["id"]: r for r in seq["orderings"][0]["order"]}
+        check("every ordering row carries how that ask was sized",
+              all("sizing_method" in r and "sizing_basis" in r for r in rows.values()),
+              sorted(rows))
+        check("and a banded ask is sized off its band, not off everything",
+              rows["B1"]["sizing_method"] == "tshirt"
+              and "size XL" in rows["B1"]["sizing_basis"]
+              and rows["B3"]["sizing_method"] == "reference-class",
+              {k: (v["sizing_method"], v["sizing_basis"][:40]) for k, v in rows.items()})
+        # The point of the whole exercise: orderings that differ by size.
+        by_first = {c["first"]: c["delays_others_by_days"] for c in seq["comparison"]}
+        check("a small ask first costs the others less than a large one first",
+              by_first["B2"] < by_first["B1"], by_first)
+    else:
+        check("the mixed-sizing sequence ran", False, seq.get("sentence"))
+
 
 def test_which_issues_are_asks_and_who_decides():
     """Candidacy — roadmap item 7, ADR 0028.

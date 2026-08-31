@@ -25,6 +25,7 @@ One row per issue drives every chart on the page. You do **not** need these exac
 | `businessValue` | number | no | Value card |
 | `valueBasis` | string | no | The justification shown under each value figure |
 | `candidate` | string | no | Whether this is being weighed for sequencing — `Yes`/`Y`/`True`; anything else is reported, not read as no |
+| `tshirt` | string | no | An ask's size band — `S`/`M`/`L`/`XL`, selecting which completed epics it is compared against; anything else is reported |
 | `labels` | array or `;`-separated | no | Shown in drill-downs |
 | `url` | string | no | Deep link; built from `meta.baseUrl` if absent |
 

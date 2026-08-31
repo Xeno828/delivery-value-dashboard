@@ -155,6 +155,33 @@ modules:
         reported as unrecognised rather than read as no. Filled in on epics and
         above.
       type: string
+    # **How big, in this board's own terms.** ADR 0029.
+    #
+    # A band is a *selector*, not a number: `tshirt_scale` builds S/M/L/XL from
+    # quartiles of the epics this board has actually completed, so "L" means
+    # "like this board's third-quartile epics" and never a figure somebody wrote
+    # in a table. An optimist who calls everything S still gets a distribution
+    # made of real item counts, which is what separates this from estimating in
+    # points — the judgement picks a reference class, it does not invent a size.
+    #
+    # Optional everywhere. An ask with no band is sized off the board's whole
+    # reference class, which is what every ask did before this existed, and the
+    # row says which of the two it was.
+    #
+    # Needs more history than a plain reference class does — eight completed
+    # epics against five, because it is split four ways — and the refusal says
+    # so in those words when a board has too few.
+    #
+    # Text, for the same reason the Candidate field is: Forge cannot declare a
+    # select. `orgConfig.sizeField` points at a field the site already has, and
+    # a real select or checkbox is the better control wherever somebody has one.
+    - key: tshirt-size
+      name: T-Shirt Size
+      description: >-
+        How big this is in this board's own terms: S, M, L or XL, calibrated
+        from the epics this board has already completed. Optional — without it
+        an ask is compared against every completed epic rather than one band.
+      type: string
 
   function:
     - key: resolver

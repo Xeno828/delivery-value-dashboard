@@ -258,6 +258,7 @@ class Jira:
     BUSINESS_VALUE_KEY = "business-value"
     VALUE_BASIS_KEY = "value-basis"
     CANDIDATE_KEY = "candidate"
+    SIZE_KEY = "tshirt-size"
 
     def find_ask_field(self, ask_field, fields=None):
         """The field that says an issue is an ask — ours, or the site's own.
@@ -275,6 +276,28 @@ class Jira:
         if not named or named.lower() == "app":
             for f in fields or []:
                 if self.CANDIDATE_KEY in str(f.get("key") or f.get("id") or ""):
+                    return f.get("id")
+            return None
+        for f in fields or []:
+            if str(f.get("id") or "") == named:
+                return f.get("id")
+        want = named.lower()
+        for f in fields or []:
+            if str(f.get("name") or "").strip().lower() == want:
+                return f.get("id")
+        return None
+
+    def find_size_field(self, size_field, fields=None):
+        """The field carrying an ask's t-shirt band — ours, or the site's own.
+
+        Same rule and same reasoning as `find_ask_field`. ADR 0029.
+        """
+        if fields is None:
+            fields = self.get("/rest/api/3/field")
+        named = str(size_field or "app").strip()
+        if not named or named.lower() == "app":
+            for f in fields or []:
+                if self.SIZE_KEY in str(f.get("key") or f.get("id") or ""):
                     return f.get("id")
             return None
         for f in fields or []:
@@ -492,6 +515,7 @@ def jira_pull(args):
     # Which field marks an ask is config, and it is deliberately not one
     # convention every site must adopt. ADR 0028.
     ask_field_id = j.find_ask_field(CFG.get("askField"))
+    size_field_id = j.find_size_field(CFG.get("sizeField"))
     # Three states, three sentences — the same distinction ADR 0025 draws on the
     # Forge tile, because they have entirely different fixes.
     if not bv_field:
@@ -502,7 +526,7 @@ def jira_pull(args):
         print("  note: Business Value is on this site but Value Basis is not, so "
               "figures will arrive with no stated basis beside them.",
               file=sys.stderr)
-    for extra in (bv_field, vb_field, ask_field_id):
+    for extra in (bv_field, vb_field, ask_field_id, size_field_id):
         if extra:
             fields.append(extra)
 
@@ -522,6 +546,23 @@ def jira_pull(args):
             return float(raw)
         except (TypeError, ValueError):
             return None
+
+    def _text_of(f, field_id):
+        """A field's value as a trimmed string, for the two answer fields.
+
+        A select or checkbox on a site's own field arrives as an object; those
+        two shapes are read and anything else is left empty rather than becoming
+        a dict's repr on somebody's epic.
+        """
+        raw = f.get(field_id)
+        if isinstance(raw, str):
+            return raw.strip()
+        if isinstance(raw, dict) and isinstance(raw.get("value"), str):
+            return raw["value"].strip()
+        if isinstance(raw, list) and raw and isinstance(raw[0], dict) \
+                and isinstance(raw[0].get("value"), str):
+            return raw[0]["value"].strip()
+        return ""
 
     def candidate_of_raw(f):
         """The raw answer, trimmed — a string, never a verdict.
@@ -617,6 +658,8 @@ def jira_pull(args):
             out["valueBasis"] = basis_of_raw(f)
         if ask_field_id:
             out["candidate"] = candidate_of_raw(f)
+        if size_field_id:
+            out["tshirt"] = _text_of(f, size_field_id)
         return out
 
     sprint_start = d(sprint.get("startDate")) if sprint else None

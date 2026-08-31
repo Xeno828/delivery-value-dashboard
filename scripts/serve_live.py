@@ -116,7 +116,7 @@ def sequence_for(data, cid):
     # transports: asks here are files somebody wrote, so there is no candidacy
     # answer to fail to read and nothing to report — but a key the page reads on
     # one transport and not the other is how the two drift.
-    res.setdefault("notes", {"unreadable": [], "delivered": []})
+    res.setdefault("notes", {"unreadable": [], "delivered": [], "unsized": []})
     return res
 
 

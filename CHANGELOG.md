@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.68.0
+
+**An epic can carry a t-shirt size, and the sequencer stops treating every ask as the same size.** Until now each Jira-assembled ask drew `reference-class` sizing — the item counts of every epic the board had completed — and a reference class is a property of the *board*, not of the ask. So two candidates sized identically and the orderings differed only by queue position and by the dates they carried. A comparison where nothing is bigger than anything else says less than it appears to. [ADR 0029](docs/adr/0029-a-t-shirt-band-selects-a-reference-class.md).
+
+**A band selects a reference class; it does not estimate a size.** `tshirt_scale` builds S/M/L/XL from **quartiles of the epics this board has already completed** — on the demo board S is 4–6 items, M is 8–12, L is 13–21, XL is 24–38, each from four real epics. "L" therefore means *like this board's third-quartile epics*, never a number somebody wrote in a table, and it means something different on every board. That is what separates it from estimating in points, which ADR 0006 refuses for forecasting: an optimist who calls everything S still gets a distribution made of observed item counts. They have picked the wrong four epics to be compared against, which is an arguable mistake rather than an invisible inflation.
+
+**It makes the comparison say something it could not before.** Three candidates over the demo board, sized XL, S and unsized: putting the small one first costs the others **50 working days**, the unsized one **74**, the large one **84**. Before this all three were identical.
+
+**Each ask its own way, and the row says which.** A banded ask is sized off its band; an unbanded one off the whole reference class, which is what every ask did before. Both appear in one comparison, so every ordering row carries `sizing_method` and `sizing_basis` and the tile shows them in a **Sized by** column. All-or-nothing would let one unsized epic disable the feature for a whole board with nothing saying why; sequencing only the sized asks would silently narrow what is being weighed. Mixing two distributions is defensible — mixing them quietly is not.
+
+**Three answers, as everywhere else here.** `S`, `M`, `L`, `XL`, case-insensitively after trimming; absent is absent; **anything else is neither**. An epic whose field says *"Medium-ish"* falls back to the whole reference class **and is named**, because sizing it off everything is a wider answer than the one that was meant.
+
+**Costs eight completed epics rather than five**, because the history is split four ways — and a board with too few refuses in those words, with the ask named in `skipped` rather than vanishing. On MOBL Cowboys, which has **none**, this changes nothing yet; neither did reference-class sizing, which is why sequencing there refuses for want of history.
+
+**`orgConfig.sizeField` resolves exactly as `askField` does**, so a site that already t-shirts its epics points at the field it has. Text again, because Forge cannot declare a select — a real select the customer made is the better control and the recommended path.
+
+**Both implementations run over one shared set of cases** in `tests/forge_shapes.mjs`, including that `' l '` normalises to `L` on both sides and that an unreadable band is named identically. Deployed as 7.7.0.
+
 ## 1.67.0
 
 **The value and its basis are on the page.** Roadmap item 7, slice four. `sequence` has put `value` and `valueBasis` on every row of every ordering since it was written, and nothing had ever read them — so the figure [ADR 0027](docs/adr/0027-a-value-basis-is-prose-carried-to-a-reader.md) exists to let a reader challenge was computed, carried across two transports, and shown to nobody. The tile now leads with the asks themselves: what each is worth, **why that figure**, and when it is needed, beside the delivery consequence of ordering them.

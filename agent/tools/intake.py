@@ -167,8 +167,25 @@ def asks_from_issues(issues, cfg=None, team=None):
     """
     c = cfg or OC.DEFAULTS
     candidates, unreadable = OC.candidate_issues(issues, c)
-    asks, delivered = [], []
+    asks, delivered, unsized = [], [], []
     for i in candidates:
+        # **A band is a selector, not a number.** It picks which of this board's
+        # completed epics the ask is compared against, so an ask carrying one is
+        # sized off the epics in that quartile and an ask without is sized off
+        # all of them. Both are the board's own delivery; the band only narrows
+        # which part of it applies, which is what separates this from estimating
+        # in points.
+        #
+        # Each ask its own way, and the row says which. A comparison that mixed
+        # two methods without saying so would put two different distributions in
+        # one table and read as one.
+        band = OC.tshirt_answer(i)
+        if band is not None and band not in OC.TSHIRT_BANDS:
+            # Not a band and not an absence. Named, then sized as though
+            # unsized, for the reason an unreadable candidacy answer is named:
+            # it is somebody trying to say something.
+            unsized.append({"id": i.get("key"), "said": band})
+            band = None
         ask = {
             "id": i.get("key"),
             "title": i.get("summary") or i.get("key"),
@@ -177,7 +194,8 @@ def asks_from_issues(issues, cfg=None, team=None):
             # the estimate. A t-shirt size would need somebody to choose one,
             # which is a second thing to maintain and the reason the file-based
             # asks exist at all.
-            "sizing": {"method": "reference-class"},
+            "sizing": ({"method": "tshirt", "size": band} if band
+                       else {"method": "reference-class"}),
             "_source": "jira",
         }
         amount = i.get("businessValue")
@@ -191,6 +209,9 @@ def asks_from_issues(issues, cfg=None, team=None):
             delivered.append({"id": i.get("key"), "resolved": i["resolved"]})
 
     return asks, {
+        # Sizes nobody can read. Sized off the whole reference class instead,
+        # which is a wider distribution than the band they meant.
+        "unsized": unsized,
         # Answers nobody can read. Neither yes nor no, and named rather than
         # dropped — a sequencing table missing the ask the meeting was about is
         # the failure this whole path is trying not to be.
@@ -587,6 +608,12 @@ def sequence(dataset, asks, board=None, as_of=None, trials=8000):
             days = _simulate(s.samples, cap["samples"], queue, trials, SEED)
             p85 = int(round(_pct(days, 85)))
             seq.append({"id": a.get("id"), "title": a.get("title"),
+                        # How this one was sized, and on what. Asks in a single
+                        # comparison may be sized different ways — a band picks
+                        # one quartile of the board's completed epics, no band
+                        # takes all of them — and two distributions in one table
+                        # that does not say so read as one.
+                        "sizing_method": s.method, "sizing_basis": s.basis,
                         "p85_days": p85, "p85_date": F.add_working_days(begin, p85, cfg).isoformat(),
                         "value": (a.get("valueEstimate") or {}).get("amount"),
                         "valueBasis": (a.get("valueEstimate") or {}).get("basis"),

@@ -473,6 +473,51 @@ const candidateOf = (fields, fieldId) => {
  * So candidacy is decided in here, and what crosses is an id, a sizing method,
  * an amount and a date. No title, no basis, no answer.
  */
+/** The module key of this app's own T-Shirt Size field. ADR 0029. */
+export const SIZE_KEY = 'tshirt-size';
+
+/** The field carrying an ask's band — ours, or one the site already has.
+ *  Same rule and same reasoning as `findAskField`. */
+export const findSizeField = (fields, sizeField) => {
+  const named = String(sizeField ?? 'app').trim();
+  if (!named || named.toLowerCase() === 'app') {
+    for (const f of fields || []) {
+      if (String(f?.key ?? f?.id ?? '').includes(SIZE_KEY)) return f.id ?? null;
+    }
+    return null;
+  }
+  for (const f of fields || []) if (String(f?.id ?? '') === named) return f.id ?? null;
+  const want = named.toLowerCase();
+  for (const f of fields || []) {
+    if (String(f?.name ?? '').trim().toLowerCase() === want) return f.id ?? null;
+  }
+  return null;
+};
+
+/** The raw band answer, trimmed. A select or checkbox arrives as an object. */
+const sizeOf = (fields, fieldId) => {
+  if (!fieldId) return '';
+  const raw = fields[fieldId];
+  if (typeof raw === 'string') return raw.trim();
+  if (raw && typeof raw === 'object' && typeof raw.value === 'string') return raw.value.trim();
+  if (Array.isArray(raw) && raw.length && typeof raw[0]?.value === 'string') {
+    return raw[0].value.trim();
+  }
+  return '';
+};
+
+/** The bands `tshirt_scale` calibrates. Mirrors `orgconfig.TSHIRT_BANDS`. */
+export const TSHIRT_BANDS = ['S', 'M', 'L', 'XL'];
+
+/** `null`, a band, or the unrecognised string somebody wrote.
+ *  Mirrors `orgconfig.tshirt_answer`. */
+export const tshirtAnswer = (issue) => {
+  const raw = (issue || {}).tshirt;
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  const band = raw.trim().toUpperCase();
+  return TSHIRT_BANDS.includes(band) ? band : raw.trim();
+};
+
 export const CANDIDATE_YES = ['yes', 'y', 'true'];
 
 /** `true`, `false`, or the unrecognised string somebody actually wrote. */
@@ -522,8 +567,18 @@ export const asksFromIssues = (issues, cfg) => {
   const asks = [];
   const text = {};
   const delivered = [];
+  const unsized = [];
   for (const i of cands) {
-    const a = { id: i.key, sizing: { method: 'reference-class' } };
+    const band = tshirtAnswer(i);
+    const known = band !== null && TSHIRT_BANDS.includes(band);
+    if (band !== null && !known) unsized.push({ id: i.key, said: band });
+    const a = {
+      id: i.key,
+      // Each ask its own way, and the row says which. A band picks one quartile
+      // of this board's completed epics; no band takes all of them. Two
+      // distributions in one table that does not say so read as one.
+      sizing: known ? { method: 'tshirt', size: band } : { method: 'reference-class' },
+    };
     const amount = i.businessValue;
     // Present or absent, never half: `readiness` asks for an amount and a basis
     // or nothing at all. The basis is not on the wire, so the calculator sees a
@@ -539,7 +594,7 @@ export const asksFromIssues = (issues, cfg) => {
     // still an ask and is named instead.
     if (i.resolved) delivered.push({ id: i.key, resolved: i.resolved });
   }
-  return { asks, text, notes: { unreadable, delivered } };
+  return { asks, text, notes: { unreadable, delivered, unsized } };
 };
 
 /* ------------------------------------------------------------------ config
@@ -869,6 +924,10 @@ export const issueFrom = (raw, opts) => {
     // answer, not a verdict: `orgconfig.candidate_answer` decides, and it has
     // three answers rather than two.
     candidate: candidateOf(f, o.askFieldId),
+    // The band, where the site has the field and somebody chose one — ADR 0029.
+    // A selector for which of this board's completed epics an ask is compared
+    // against, never a number of its own.
+    tshirt: sizeOf(f, o.sizeFieldId),
     labels: f.labels || [],
     url: site && raw.key ? `${site}/browse/${encodeURIComponent(raw.key)}` : null,
   };

@@ -15,7 +15,7 @@
 import {
   contextEntry, contextsBody, contextBody, contextId, findStoryPointField,
   mergeOrgConfig, parseContextId, issueFrom, notFound, recentSprints,
-  statusesFromJira, validateOrgConfig, asksFromIssues, candidateAnswer,
+  statusesFromJira, validateOrgConfig, asksFromIssues, candidateAnswer, tshirtAnswer,
   DEFAULT_WINDOW_DAYS, WINDOW_DAYS, windowEntry, windowToken,
   windowMembershipJql, contextsLabel,
 } from '../forge/src/jira.js';
@@ -389,8 +389,11 @@ console.log(JSON.stringify({
   asks: (() => {
     const board = [
       { key: 'E1', summary: 'Saved cards', hierarchyLevel: 1, candidate: 'Yes',
-        businessValue: 210000, valueBasis: '  1,900 abandonments  ', dueDate: '2026-10-30' },
+        businessValue: 210000, valueBasis: '  1,900 abandonments  ', dueDate: '2026-10-30',
+        tshirt: ' l ' },
       { key: 'E2', summary: 'Search rebuild', hierarchyLevel: 1, candidate: 'y' },
+      { key: 'E6', summary: 'Vague size', hierarchyLevel: 1, candidate: 'Yes',
+        tshirt: 'Medium-ish' },
       { key: 'E3', summary: 'Already shipped', hierarchyLevel: 1, candidate: 'Yes',
         resolved: '2026-08-01' },
       { key: 'E4', summary: 'Unclear', hierarchyLevel: 1, candidate: 'Maybe' },
@@ -402,6 +405,8 @@ console.log(JSON.stringify({
     return {
       answers: ['Yes', 'yes', '  Y ', 'true', 'TRUE', '', '   ', 'Maybe']
         .map((a) => [a, candidateAnswer({ candidate: a })]),
+      bands: ['S', ' l ', 'XL', 'xl', 'Medium-ish', '', '  ']
+        .map((b) => [b, tshirtAnswer({ tshirt: b })]),
       asks: out.asks,
       text: out.text,
       notes: out.notes,

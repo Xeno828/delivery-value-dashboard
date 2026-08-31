@@ -99,6 +99,12 @@ DEFAULTS = {
     # questions are separate, even where a site answers both the same way.
     "askField": "app",
     "askFromHierarchy": 1,
+    # Which field carries an ask's t-shirt size, if any. Same rule as
+    # `askField`: `"app"` is the field this app declares, and any other value
+    # names one the site already has. Absent everywhere is the ordinary case and
+    # costs nothing — an ask with no band is sized off the board's whole
+    # reference class, which is what every ask did before this existed.
+    "sizeField": "app",
     # An allow-list of issue type names, matched case-insensitively. Empty means
     # every type that is not excluded above — which is the right default,
     # because naming the types means naming them per site and a site that adds
@@ -579,6 +585,33 @@ def candidate_answer(issue):
     if not isinstance(raw, str):
         return False
     return True if raw.strip().lower() in CANDIDATE_YES else raw.strip()
+
+
+#: The bands `tshirt_scale` calibrates, and the only answers this recognises.
+TSHIRT_BANDS = ("S", "M", "L", "XL")
+
+
+def tshirt_answer(issue):
+    """`None`, a band, or the unrecognised string somebody actually wrote.
+
+    Three answers again, for the reason `candidate_answer` has three: a size
+    this does not understand is not an absence. An epic whose field says
+    "Medium-ish" or "2 sprints" is somebody trying to say something, and reading
+    it as unsized would quietly size that ask off the whole board's history
+    instead of off the band they meant.
+
+    A band is only ever a *selector*. It picks which of this board's completed
+    epics an ask is compared against — `tshirt_scale` builds the bands from
+    quartiles of what the board actually delivered — so an optimist who calls
+    everything S still gets a distribution made of real item counts. That is
+    what separates this from estimating in points: the judgement chooses a
+    reference class, it does not invent a number.
+    """
+    raw = (issue or {}).get("tshirt")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    band = raw.strip().upper()
+    return band if band in TSHIRT_BANDS else raw.strip()
 
 
 def candidate_issues(issues, cfg=None):

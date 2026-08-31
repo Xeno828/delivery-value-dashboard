@@ -28,7 +28,7 @@ import {
   CONFIG_PROPERTY_KEY, contextEntry, contextsBody, contextBody, contextId,
   findStoryPointField, mergeOrgConfig, parseContextId, issueFrom, notFound,
   recentSprints, statusesFromJira, validateOrgConfig, findBusinessValueField,
-  findValueBasisField, findAskField, asksFromIssues,
+  findValueBasisField, findAskField, findSizeField, asksFromIssues,
   WINDOW_DAYS, windowEntry, windowMembershipJql, contextsLabel,
   MAX_TREND_SPRINTS,
 } from './jira.js';
@@ -407,6 +407,7 @@ const issueFields = (storyPointField, appFields) => [
   ...(appFields?.value ? [appFields.value] : []),
   ...(appFields?.basis ? [appFields.basis] : []),
   ...(appFields?.candidate ? [appFields.candidate] : []),
+  ...(appFields?.tshirt ? [appFields.tshirt] : []),
 ].join(',');
 
 const fetchSprintIssues = async (boardId, sprintId, storyPointField, as, appFields) => {
@@ -538,12 +539,13 @@ const fieldListFor = async (as) => {
  *  which is why this takes the resolved config rather than memoising one
  *  answer. Candidacy is the thing every organisation defines differently, and
  *  the app declares a default rather than insisting on it. ADR 0028. */
-const appFieldsFor = async (as, askField) => {
+const appFieldsFor = async (as, askField, sizeField) => {
   const fields = await fieldListFor(as);
   return {
     value: findBusinessValueField(fields),
     basis: findValueBasisField(fields),
     candidate: findAskField(fields, askField),
+    tshirt: findSizeField(fields, sizeField),
   };
 };
 
@@ -866,8 +868,8 @@ const issuesForEntry = async (entry, spField, siteUrl, as) => {
   const parsed = parseContextId(entry.id);
   // Which field marks an ask is config, so it is resolved before the fields
   // are, not after. ADR 0028.
-  const askField = (await orgConfigFor(entry.projectKey, as)).config?.askField;
-  const appFields = await appFieldsFor(as, askField);
+  const entryCfg = (await orgConfigFor(entry.projectKey, as)).config;
+  const appFields = await appFieldsFor(as, entryCfg?.askField, entryCfg?.sizeField);
   const raw = entry.kind === 'window'
     ? await fetchWindowIssues(parsed.boardId, entry, spField, as, appFields)
     : await fetchSprintIssues(parsed.boardId, parsed.sprintId, spField, as, appFields);
@@ -894,6 +896,7 @@ const issuesForEntry = async (entry, spField, siteUrl, as) => {
       // ADR 0028. Absent until the site has the field on a screen and somebody
       // has answered it, which is the state every board starts in.
       askFieldId: appFields.candidate,
+      sizeFieldId: appFields.tshirt,
       // Only so an issue key is a link. Absent, the page leaves it as text
       // rather than guessing a host.
       siteUrl,
@@ -921,6 +924,7 @@ const issuesForEntry = async (entry, spField, siteUrl, as) => {
           businessValueField: appFields.value,
           valueBasisField: appFields.basis,
           askFieldId: appFields.candidate,
+          sizeFieldId: appFields.tshirt,
           siteUrl,
         }),
         contextId: entry.id,
@@ -1375,8 +1379,7 @@ resolver.define('sequence', answering(async ({ payload, context }) => {
   // mirroring holds only because this app never reads a board its reader
   // cannot. `issuesForEntry` above takes the same authority the same way.
   const readAs = undefined;
-  const askField = cfg?.askField;
-  const appFields = await appFieldsFor(readAs, askField);
+  const appFields = await appFieldsFor(readAs, cfg?.askField, cfg?.sizeField);
   const boardId = parseContextId(asked)?.boardId;
   const { epics } = appFields.candidate && boardId
     ? await boardEpicsFor(boardId, readAs, appFields, spField)
@@ -1386,6 +1389,7 @@ resolver.define('sequence', answering(async ({ payload, context }) => {
     businessValueField: appFields.value,
     valueBasisField: appFields.basis,
     askFieldId: appFields.candidate,
+    sizeFieldId: appFields.tshirt,
     siteUrl: context?.siteUrl,
   }));
   const { asks, text, notes } = asksFromIssues(candidates, cfg);

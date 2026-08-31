@@ -3938,6 +3938,7 @@ function showBriefNames(el, id, ids) {
 function sequenceNotes(sq) {
   const nts = (sq && sq.notes) || {};
   const unread = nts.unreadable || [], done = nts.delivered || [];
+  const unsized = nts.unsized || [];
   let out = "";
   if (unread.length) {
     out += '<div class="fc-commit"><b>' + unread.length + " answer" +
@@ -3946,6 +3947,16 @@ function sequenceNotes(sq) {
       '<ul class="seq-un">' +
       unread.map(u => "<li><b>" + esc(u.key) + "</b> says " + esc(u.said) + "</li>").join("") +
       "</ul>Yes, Y or True marks a candidate. Anything else is not a no.</div>";
+  }
+  if (unsized.length) {
+    out += '<div class="fc-commit"><b>' + unsized.length + " size" +
+      (unsized.length === 1 ? "" : "s") + " could not be read, so " +
+      (unsized.length === 1 ? "that ask was" : "those asks were") +
+      " compared against every completed epic rather than one band:</b>" +
+      '<ul class="seq-un">' +
+      unsized.map(u => "<li><b>" + esc(u.id) + "</b> says " + esc(u.said) + "</li>").join("") +
+      "</ul>S, M, L or XL selects a band. Anything else is a wider answer than " +
+      "the one that was meant.</div>";
   }
   if (done.length) {
     out += '<div class="note">' + done.length + " candidate" +
@@ -4007,6 +4018,7 @@ function renderSequence(el, ctrl) {
   if (asks.length) {
     html += '<div class="tv-wrap"><table class="tv fc-tab"><thead><tr>' +
       "<th>Ask</th><th>Worth</th><th>Why that figure</th><th>Needed by</th>" +
+      "<th>Sized by</th>" +
       "</tr></thead><tbody>" +
       asks.map(a => "<tr><td><b>" + esc(a.id) + "</b>" +
         (a.title ? '<br><span class="note">' + esc(a.title) + "</span>" : "") +
@@ -4016,6 +4028,10 @@ function renderSequence(el, ctrl) {
         '</td><td class="note">' +
         (a.value != null ? esc(a.valueBasis || "no basis recorded") : "—") +
         "</td><td>" + (a.neededBy ? esc(fmtD(a.neededBy)) : '<span class="note">no date</span>') +
+        // A band picks one quartile of this board's completed epics; no band
+        // takes all of them. Both are the board's own delivery and they are
+        // different distributions, so the table says which each ask got.
+        '</td><td class="note">' + esc(a.sizing_basis || a.sizing_method || "—") +
         "</td></tr>").join("") + "</tbody></table></div>";
   }
 

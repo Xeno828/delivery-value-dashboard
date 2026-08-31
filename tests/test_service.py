@@ -903,7 +903,10 @@ def test_the_two_transports_answer_the_same_shape():
     # one of item 7 is recognising candidates, not rendering them. The check
     # below still has to find it in agent/tools, so this is not a way to send
     # a field nothing reads. ADR 0028.
-    read_by_tools = {"epicKey", "isSubtask", "hierarchyLevel", "candidate"}
+    # `tshirt` joins them on the same terms as `candidate`: `orgconfig.tshirt_answer`
+    # reads it and `asks_from_issues` turns it into a sizing method. The page reads
+    # the *result* — how each ask was sized — rather than the band itself. ADR 0029.
+    read_by_tools = {"epicKey", "isSubtask", "hierarchyLevel", "candidate", "tshirt"}
     tools = "".join(f.read_text() for f in sorted((ROOT / "agent" / "tools").glob("*.py")))
     for f in sorted(read_by_tools):
         check("%s is read by agent/tools, so sending it is not a loophole either" % f,
@@ -3624,8 +3627,10 @@ def ask_assembly_checks():
     BOARD = [
         {"key": "E1", "summary": "Saved cards", "hierarchyLevel": 1, "candidate": "Yes",
          "businessValue": 210000, "valueBasis": "  1,900 abandonments  ",
-         "dueDate": "2026-10-30"},
+         "dueDate": "2026-10-30", "tshirt": " l "},
         {"key": "E2", "summary": "Search rebuild", "hierarchyLevel": 1, "candidate": "y"},
+        {"key": "E6", "summary": "Vague size", "hierarchyLevel": 1, "candidate": "Yes",
+         "tshirt": "Medium-ish"},
         {"key": "E3", "summary": "Already shipped", "hierarchyLevel": 1, "candidate": "Yes",
          "resolved": "2026-08-01"},
         {"key": "E4", "summary": "Unclear", "hierarchyLevel": 1, "candidate": "Maybe"},
@@ -3641,6 +3646,19 @@ def ask_assembly_checks():
                   for a in ["Yes", "yes", "  Y ", "true", "TRUE", "", "   ", "Maybe"]]
     check("both read the same three answers out of the same strings",
           js["answers"] == py_answers, {"js": js["answers"], "py": py_answers})
+
+    # A band is a selector, not a number: it picks which quartile of this
+    # board's completed epics an ask is compared against. Both sides must
+    # normalise the same or one transport sizes an ask off a different slice of
+    # the same history. ADR 0029.
+    py_bands = [[b, OC.tshirt_answer({"tshirt": b})]
+                for b in ["S", " l ", "XL", "xl", "Medium-ish", "", "  "]]
+    check("both normalise a t-shirt band the same way",
+          js["bands"] == py_bands, {"js": js["bands"], "py": py_bands})
+    check("and a size nobody can read is named, not treated as unsized",
+          js["notes"]["unsized"] == py_notes["unsized"]
+          and py_notes["unsized"] == [{"id": "E6", "said": "Medium-ish"}],
+          {"js": js["notes"]["unsized"], "py": py_notes["unsized"]})
 
     check("both make asks of the same issues, in the same order",
           [a["id"] for a in js["asks"]] == [a["id"] for a in py_asks],
