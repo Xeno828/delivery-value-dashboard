@@ -807,6 +807,55 @@ resolver.define('contexts', answering(async ({ context }) => {
  * sample, which is the narrowing this whole route is arranged to prevent.
  */
 /**
+ * Which of this app's fields a person can actually type into, on this board.
+ *
+ * **The app has been guessing.** The value tile says *"If this site has just
+ * installed the app, its Business Value field exists but a Jira administrator
+ * has to add it to a screen"* — one hedge covering two states with entirely
+ * different fixes, in a product whose whole claim is telling a reader which of
+ * several reasons applies.
+ *
+ * `/rest/api/3/issue/{key}/editmeta` answers it, with the ordinary issue read
+ * this app already has and no new scope: it returns exactly the fields editable
+ * on that issue's screens. Sampling one epic answers it for that epic's screen
+ * scheme, which is the honest scope — the reply is about *this board's epics*
+ * and not about the site, and screen schemes differ per project and issue type.
+ *
+ * Three states per field, three fixes:
+ *
+ *   absent from the site   the app is not installed, or not upgraded to the
+ *                          version declaring it
+ *   present, not on screen an administrator must add it, and no scope lets this
+ *                          app do it for them
+ *   on screen              it is answerable, and anything missing is unanswered
+ *
+ * `null` when there is no epic to sample or the call fails — unknown, said as
+ * unknown, rather than reported as either of the three.
+ */
+const fieldsOnScreen = async (epicKey, as) => {
+  if (!epicKey) return null;
+  try {
+    const res = await jira(as).requestJira(
+      route`/rest/api/3/issue/${epicKey}/editmeta`,
+    );
+    if (!res.ok) return null;
+    const body = await res.json();
+    const fields = body?.fields;
+    return fields && typeof fields === 'object' ? new Set(Object.keys(fields)) : null;
+  } catch {
+    return null;
+  }
+};
+
+/** One field's state, as a word the page can act on rather than a sentence it
+ *  has to parse. `unknown` is a fourth answer and not a fourth failure. */
+const fieldState = (fieldId, onScreen) => {
+  if (!fieldId) return 'absent';
+  if (onScreen === null) return 'unknown';
+  return onScreen.has(fieldId) ? 'ready' : 'off-screen';
+};
+
+/**
  * The board's epics, as issues, with their fields — ADR 0026.
  *
  * **Epics are not on a scrum board and never come back from a sprint fetch.**
@@ -1384,6 +1433,16 @@ resolver.define('sequence', answering(async ({ payload, context }) => {
   const { epics } = appFields.candidate && boardId
     ? await boardEpicsFor(boardId, readAs, appFields, spField)
     : { epics: [] };
+  // What a person can actually type into, on this board's epics. Sampled from
+  // one epic because that is what `editmeta` answers about; the page says "this
+  // board's epics" rather than "this site" for the same reason.
+  const onScreen = await fieldsOnScreen(epics[0]?.key, readAs);
+  const setup = {
+    businessValue: fieldState(appFields.value, onScreen),
+    valueBasis: fieldState(appFields.basis, onScreen),
+    candidate: fieldState(appFields.candidate, onScreen),
+    tshirt: fieldState(appFields.tshirt, onScreen),
+  };
   const candidates = epics.map((raw) => issueFrom(raw, {
     storyPointField: spField,
     businessValueField: appFields.value,
@@ -1405,6 +1464,7 @@ resolver.define('sequence', answering(async ({ payload, context }) => {
         available: false,
         board: boardId == null ? null : String(boardId),
         boardName: entry.boardName ?? null,
+        setup,
         notes,
         sentence: 'Nothing on this board is marked as a candidate, so there is nothing '
                 + 'to sequence. Answer the Candidate field on the epics being weighed '
@@ -1422,6 +1482,7 @@ resolver.define('sequence', answering(async ({ payload, context }) => {
         board: boardId == null ? null : String(boardId),
         boardName: entry.boardName ?? null,
         asks_considered: asks.length,
+        setup,
         notes,
         sentence: 'One candidate is marked on this board, and sequencing compares '
                 + 'orderings of two or more against each other. Nothing was sequenced, '
@@ -1452,6 +1513,7 @@ resolver.define('sequence', answering(async ({ payload, context }) => {
         board: boardId == null ? null : String(boardId),
         boardName: entry.boardName ?? null,
         asks_considered: asks.length,
+        setup,
         notes,
         sentence: answer.sentence,
       },
@@ -1469,6 +1531,7 @@ resolver.define('sequence', answering(async ({ payload, context }) => {
       board: boardId == null ? null : String(boardId),
       boardName: entry.boardName ?? null,
       asks_considered: asks.length,
+      setup,
       notes,
     },
   };

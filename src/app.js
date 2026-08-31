@@ -3923,6 +3923,47 @@ function showBriefNames(el, id, ids) {
   });
 }
 
+/** What this board still needs before sequencing can say anything.
+ *
+ *  Three states per field and three fixes, which is the point: the app used to
+ *  hedge — *"if this site has just installed the app…"* — across two of them,
+ *  in a product whose claim is that it tells you which of several reasons
+ *  applies. `editmeta` knows, so this says.
+ *
+ *  Rendered beside a refusal and not beside an answer: once a board is
+ *  sequencing, a checklist of things that are fine is furniture. `unknown` is
+ *  printed as unknown rather than folded into either answer.
+ */
+function setupNeeds(sq) {
+  const st = (sq && sq.setup) || {};
+  const LABEL = {
+    businessValue: "Business Value", valueBasis: "Value Basis",
+    candidate: "Candidate", tshirt: "T-Shirt Size",
+  };
+  const absent = [], off = [];
+  Object.keys(LABEL).forEach(k => {
+    if (st[k] === "absent") absent.push(LABEL[k]);
+    else if (st[k] === "off-screen") off.push(LABEL[k]);
+  });
+  if (!absent.length && !off.length) return "";
+  let out = '<div class="fc-commit"><b>Before this board can be sequenced:</b><ul class="seq-un">';
+  if (off.length) {
+    out += "<li>A Jira administrator adds " + esc(off.join(", ")) +
+      " to the screen this board's epics use. The field exists; no scope lets " +
+      "this app put it on a screen.</li>";
+  }
+  if (absent.length) {
+    out += "<li>" + esc(absent.join(", ")) +
+      (absent.length === 1 ? " is" : " are") + " not on this site at all — the " +
+      "app version declaring " + (absent.length === 1 ? "it" : "them") +
+      " is not installed, or an <code>orgConfig</code> field name points " +
+      "somewhere that does not exist.</li>";
+  }
+  out += "</ul>Only <b>Candidate</b> or <b>T-Shirt Size</b> is needed to put an " +
+    "epic forward; the other two describe what it is worth.</div>";
+  return out;
+}
+
 /** What was reached for and could not be read, and what is already delivered.
  *
  *  Disclosures rather than errors, and named rather than counted. Shown beside a
@@ -3992,7 +4033,7 @@ function renderSequence(el, ctrl) {
     // The tool's sentence, verbatim. It says which of the several reasons
     // applies, and they are not interchangeable.
     el.innerHTML = ctrl + '<div class="fc-refusal"><b>No sequence.</b> ' +
-      esc(sq.sentence || "not available") + "</div>" + sequenceNotes(sq);
+      esc(sq.sentence || "not available") + "</div>" + setupNeeds(sq) + sequenceNotes(sq);
     return;
   }
 

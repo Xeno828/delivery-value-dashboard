@@ -1220,6 +1220,59 @@ def transports(b):
               refused_tile[:300])
         page.close()
 
+        # ---------- and it says what the board still needs ----------
+        #
+        # The app used to hedge across two states with different fixes — "if
+        # this site has just installed the app, its field exists but an admin
+        # has to add it to a screen". `editmeta` knows which, so this says which.
+        needs_body = {"available": False, "board": "42", "boardName": "Storefront",
+                      "sentence": "Nothing on this board is marked as a candidate.",
+                      "setup": {"businessValue": "ready", "valueBasis": "off-screen",
+                                "candidate": "off-screen", "tshirt": "absent"},
+                      "notes": {"unreadable": [], "delivered": [], "unsized": []}}
+        page = b.new_page(viewport={"width": 1500, "height": 1000})
+        page.add_init_script(seq_stub.replace(json.dumps(seq_body), json.dumps(needs_body)))
+        page.goto(url)
+        page.wait_for_timeout(500)
+        page.evaluate("id => window.DVD.debug.selectContext(id)", cid)
+        page.wait_for_timeout(900)
+        page.evaluate("""() => [...document.querySelectorAll('button')]
+            .find(b => /Sequence asks/i.test(b.textContent)).click()""")
+        page.wait_for_timeout(900)
+        needs = page.text_content("#c-forecast")
+        check("a field that exists but is on no screen names the admin's job",
+              "adds Value Basis, Candidate" in needs and "no scope lets" in needs,
+              needs[:400])
+        check("and a field that is not on the site at all is a different sentence",
+              "T-Shirt Size" in needs and "not on this site at all" in needs,
+              needs[:500])
+        check("a field that is ready is not listed as a job",
+              "Business Value" not in needs.split("Before this board")[1][:400],
+              needs[:500])
+        # Two of the four are enough to put an epic forward. Listing all four as
+        # blockers would overstate what a reader has to do.
+        check("and it says which of them actually gates sequencing",
+              "Only Candidate or T-Shirt Size is needed" in needs, needs[:600])
+        page.close()
+
+        # Nothing to say once a board is set up: a checklist of things that are
+        # fine is furniture.
+        ready_body = dict(needs_body, setup={"businessValue": "ready", "valueBasis": "ready",
+                                             "candidate": "ready", "tshirt": "ready"})
+        page = b.new_page(viewport={"width": 1500, "height": 1000})
+        page.add_init_script(seq_stub.replace(json.dumps(seq_body), json.dumps(ready_body)))
+        page.goto(url)
+        page.wait_for_timeout(500)
+        page.evaluate("id => window.DVD.debug.selectContext(id)", cid)
+        page.wait_for_timeout(900)
+        page.evaluate("""() => [...document.querySelectorAll('button')]
+            .find(b => /Sequence asks/i.test(b.textContent)).click()""")
+        page.wait_for_timeout(900)
+        check("a board with every field ready is told nothing about setup",
+              "Before this board can be sequenced" not in page.text_content("#c-forecast"),
+              page.text_content("#c-forecast")[:200])
+        page.close()
+
         # ---------- a transport that answered, and refused ----------
         # The failure this shipped with: `contexts` came back 404 with a
         # sentence, probeLive returned without reading it, and the customer got

@@ -701,9 +701,13 @@ def jira_pull(args):
             # anything. Filtering on the window found none of them and reported
             # "no candidates" as though it were a fact about the board.
             #
-            # An unreadable answer counts as reached-for too, or the epic whose
-            # field says "Maybe" is dropped before anything can name it.
-            is_candidate = OC.candidate_answer(iss) is not False
+            # **The one rule, asked once**, rather than re-derived here. It
+            # was `candidate_answer(iss) is not False`, which was right while
+            # that returned False for silence and wrong the moment it returned
+            # None — every epic on the board then read as a candidate. Asking
+            # `candidate_issues` also picks up the epics a *band* declares,
+            # which a hand-rolled test of the answer field would have missed.
+            is_candidate = bool(OC.candidate_issues([iss], CFG)[0])
             if not (in_window or is_candidate):
                 continue
             issues.append(iss)

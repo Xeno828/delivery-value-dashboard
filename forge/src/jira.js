@@ -519,14 +519,21 @@ export const tshirtAnswer = (issue) => {
 };
 
 export const CANDIDATE_YES = ['yes', 'y', 'true'];
+/** And the way to say no out loud, which exists because a band implies
+ *  candidacy: without it, sizing an epic in refinement would enter it into a
+ *  comparison and the only way out would be deleting the size. */
+export const CANDIDATE_NO = ['no', 'n', 'false'];
 
-/** `true`, `false`, or the unrecognised string somebody actually wrote. */
+/** `null` (nothing said), `true`, `false` (said no), or the words nobody can
+ *  read. Mirrors `orgconfig.candidate_answer`; four answers, each a different
+ *  fact, and `null` rather than `false` for silence is the point of the split. */
 export const candidateAnswer = (issue) => {
   const raw = (issue || {}).candidate;
-  if (typeof raw !== 'string') return false;
-  const t = raw.trim();
-  if (!t) return false;
-  return CANDIDATE_YES.includes(t.toLowerCase()) ? true : t;
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  const said = raw.trim().toLowerCase();
+  if (CANDIDATE_YES.includes(said)) return true;
+  if (CANDIDATE_NO.includes(said)) return false;
+  return raw.trim();
 };
 
 /** The declared candidates, and the answers nobody can read. */
@@ -542,8 +549,16 @@ export const candidateIssues = (issues, cfg) => {
     // otherwise have no candidates at all.
     if (typeof lvl === 'number' && Number.isFinite(lvl) && lvl < floor) continue;
     const ans = candidateAnswer(i);
-    if (ans === true) asks.push(i);
-    else if (ans !== false) unreadable.push({ key: i?.key, said: ans });
+    if (ans !== null && ans !== true && ans !== false) {
+      unreadable.push({ key: i?.key, said: ans });
+    }
+    if (ans === false) continue;          // said no; a band does not override it
+    const band = tshirtAnswer(i);
+    // A band declares candidacy too — choosing a size is somebody saying how
+    // big this thing they are considering would be, and charging them a second
+    // screen configuration to be taken seriously buys nothing. ADR 0028's
+    // amendment.
+    if (ans === true || (band !== null && TSHIRT_BANDS.includes(band))) asks.push(i);
   }
   return { asks, unreadable };
 };

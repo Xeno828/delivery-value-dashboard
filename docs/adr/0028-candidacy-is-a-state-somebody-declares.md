@@ -133,6 +133,10 @@ whether an epic has started, not from an empty `dueDate`. Every one of those
 would be the app deciding what an organisation meant, and the thing being
 recognised here is a decision somebody made.
 
+*Amended 2026-08-31: it now infers candidacy from **one** thing, a t-shirt
+band, for the reason and at the price set out at the foot of this record. The
+list above is unchanged — none of those became inferences.*
+
 ## What it rules out
 
 **An issue type as the marker**, for the reason above.
@@ -142,3 +146,55 @@ the failure is invisible in exactly the way this record refuses elsewhere.
 
 **Inferring "not yet started" as candidacy.** It would sequence whatever the
 backlog happens to hold, which is not the same as what anybody proposed.
+
+## Amendment: a t-shirt band declares candidacy, and "no" takes it back
+
+Decided 2026-08-31, and it is an amendment rather than a footnote because it
+**reverses this record's refusal to infer**. *What this does not do* says
+candidacy is not inferred from anything. It is now inferred from one thing.
+
+**The reason is the cost of the fourth field.** A tenant that wants everything
+configures Business Value, Value Basis, Candidate and T-Shirt Size on four
+screens before any of it does something, and three of the four are text because
+Forge can declare neither a select nor a checkbox. Four screen configurations
+before a feature works is what an evaluation meets first.
+
+**And the inference is a small one.** Choosing a size for an epic is somebody
+saying how big *this thing they are considering* would be. It is already a
+statement about a piece of work being weighed rather than done, so charging them
+a second field to be taken seriously buys nothing that the first field did not
+already say.
+
+**It is reversible out loud, which is what makes it safe.** `CANDIDATE_NO` —
+`No`, `N`, `False` — was added with it, because the objection is real: a band
+chosen during refinement would otherwise enter an epic into a comparison for
+good, and the only way back out would be deleting the estimate to undo the
+implication. Saying no beats a band. That is the difference between an inference
+and a trap.
+
+So `candidate_answer` has four answers where it had three:
+
+    None    nothing was said — a band may speak for it
+    True    somebody said yes
+    False   somebody said no, and that beats a band
+    str     something nobody can read, which is not a no, and a band may still
+            speak for it
+
+**`None` rather than `False` for silence is the load-bearing part.** An epic
+nobody answered and an epic somebody declined were the same value before this
+and are different facts, and only one of them may be overridden by a size. The
+first version of this change kept the old three answers, and the fetcher's
+"pull the candidates too" rule read `is not False` — which was true of silence
+under the new contract, so every epic on the board became a candidate. The rule
+is asked of `candidate_issues` now rather than re-derived, which also picks up
+the epics a band declares.
+
+## What the amendment does not change
+
+**Nothing else is inferred.** Not from status, not from `resolved`, not from an
+empty `dueDate`, not from an epic having children. One inference, from one
+field, whose own meaning is about work under consideration.
+
+**A size nobody can read declares nothing.** "Medium-ish" is named and falls
+back to the whole reference class ([ADR 0029](0029-a-t-shirt-band-selects-a-reference-class.md));
+it does not make an epic a candidate, because it is not a band.

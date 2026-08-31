@@ -480,6 +480,61 @@ the site's outgoing mail is off.
 
 ---
 
+## 5. The four fields, and the screens they have to be on
+
+The app declares four custom fields. Jira creates them on install; **nothing in
+this app can put one on a screen**, because that needs *Administer Jira*, which
+[ADR 0020](adr/0020-the-anchor-issue-is-the-brief-s-access-control.md) refused
+and [ADR 0021](adr/0021-the-audit-log-is-operational-and-says-so.md) refused
+again. So each one is an administrator's job, once, per screen scheme.
+
+| Field | What it does | Needed for |
+|---|---|---|
+| **Business Value** | What a piece of work is worth, in the board's currency | The value tile, and an ask's worth |
+| **Value Basis** | One sentence saying why that figure is that figure | The sentence beside every value |
+| **Candidate** | `Yes` / `Y` / `True` — this is being weighed against other things | Sequencing |
+| **T-Shirt Size** | `S` / `M` / `L` / `XL` — how big, in this board's terms | Sequencing, and it **also declares candidacy** |
+
+**Only one of the last two is needed to put an epic forward.** A band declares
+candidacy on its own ([ADR 0028](adr/0028-candidacy-is-a-state-somebody-declares.md)'s
+amendment), so a site that t-shirts its epics can skip the Candidate field
+entirely. `No`, `N` or `False` in Candidate takes it back for an epic that is
+sized but not under consideration.
+
+**Value is recorded on epics and above**
+([ADR 0025](adr/0025-the-app-declares-a-business-value-field.md)), so these
+belong on the *epic* screen scheme. A value on a story below a priced epic is
+not counted, and the tile says so rather than counting it twice.
+
+### Use the fields you already have instead
+
+Forge can declare neither a select nor a checkbox — `jira:customField` offers
+number, string, user, group, date and datetime — so three of the four are text
+somebody types into. That is a poor control and a site with better ones should
+use them:
+
+```json
+{ "askField": "Ready for sequencing", "sizeField": "customfield_10500" }
+```
+
+in the project's `orgConfig` property. Either names a field the site already
+has, by id or by display name, and the app reads that instead of its own.
+Candidacy and size are the two things every organisation already expresses
+differently, which is why these exist and why the app's own fields are a default
+rather than a convention.
+
+### What the app will tell you
+
+It does not guess. `/rest/api/3/issue/{key}/editmeta` says which fields are on a
+board's epic screens — an ordinary read, no extra scope — so the sequencing tile
+distinguishes three states with three different fixes:
+
+- **not on this site at all** — the version declaring it is not installed, or an
+  `orgConfig` field name points at nothing
+- **on the site, on no screen** — an administrator adds it; this is the common
+  one on the day of an upgrade
+- **on the screen** — it is answerable, and anything missing is simply unanswered
+
 ## The dashboard scrolls on Forge. Do not test a frame with synthetic input
 
 There is no bug here. This section exists because for most of 2026-08-26 there

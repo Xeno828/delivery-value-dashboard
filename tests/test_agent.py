@@ -630,8 +630,15 @@ def test_which_issues_are_asks_and_who_decides():
         check("%r means candidate" % said,
               OC.candidate_answer({"candidate": said}) is True,
               OC.candidate_answer({"candidate": said}))
+    # Silence is None, not False. An epic nobody answered and an epic somebody
+    # declined are different facts, and only one of them may be overridden by a
+    # size chosen during refinement — ADR 0028's amendment.
     for said in ("", "   ", None):
-        check("%r means not, and says so as a boolean" % said,
+        check("%r means nothing was said, which is not a no" % said,
+              OC.candidate_answer({"candidate": said}) is None,
+              OC.candidate_answer({"candidate": said}))
+    for said in ("No", "n", "FALSE"):
+        check("%r is an explicit no" % said,
               OC.candidate_answer({"candidate": said}) is False,
               OC.candidate_answer({"candidate": said}))
 
@@ -666,6 +673,33 @@ def test_which_issues_are_asks_and_who_decides():
                                    dict(OC.DEFAULTS, askFromHierarchy=0))
     check("the level a candidate must reach is the config's to set",
           [i["key"] for i in asks2] == ["S1"], [i["key"] for i in asks2])
+
+    # ---- a band declares candidacy, and saying no takes it back ----
+    #
+    # Choosing a size is somebody saying how big this thing they are considering
+    # would be; charging them a second screen configuration to be taken
+    # seriously buys nothing. It is the one inference this product makes about
+    # candidacy, and it is reversible out loud — otherwise sizing an epic in
+    # refinement would enter it into a comparison for good.
+    band = lambda k, b, c=None: {"key": k, "hierarchyLevel": 1, "tshirt": b,
+                                 **({"candidate": c} if c is not None else {})}
+    a3, u3 = OC.candidate_issues([
+        band("B1", "L"),                   # a size and nothing said
+        band("B2", "XL", "No"),            # sized, and declined out loud
+        band("B3", "S", "Maybe"),          # sized, and an answer nobody can read
+        band("B4", "Medium-ish"),          # no readable size, nothing said
+        {"key": "B5", "hierarchyLevel": 1, "candidate": "No"},
+    ])
+    check("a band alone declares a candidate",
+          "B1" in [i["key"] for i in a3], [i["key"] for i in a3])
+    check("and an explicit no beats a band",
+          "B2" not in [i["key"] for i in a3], [i["key"] for i in a3])
+    check("an unreadable answer does not beat one, because it is not a no",
+          "B3" in [i["key"] for i in a3], [i["key"] for i in a3])
+    check("a size nobody can read declares nothing",
+          "B4" not in [i["key"] for i in a3], [i["key"] for i in a3])
+    check("and the unreadable answer is still named",
+          [u["key"] for u in u3] == ["B3"], u3)
 
 
 def test_the_fetcher_reads_the_fields_this_app_declares():

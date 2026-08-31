@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.69.0
+
+**A t-shirt band declares candidacy, and the app stops guessing what a board still needs.** Two changes about the same thing: a tenant that wanted everything configured four custom fields on four screens before any of it did anything, and three of the four are text because Forge can declare neither a select nor a checkbox. Four screen configurations before a feature works is what an evaluation meets first.
+
+**Choosing a size is already a statement about work being weighed rather than done**, so charging somebody a second field to be taken seriously buys nothing the first field did not already say. A band now puts an epic forward on its own, and a site that t-shirts its epics can skip the Candidate field entirely. It **reverses** ADR 0028's refusal to infer, which is why it is written up as an amendment to that record rather than a line in this one.
+
+**It is reversible out loud, and that is what makes it safe rather than a trap.** `No`, `N` and `False` were added with it: a band chosen during refinement would otherwise enter an epic into a comparison for good, and the only way back would be deleting the estimate to undo the implication. Saying no beats a band; an answer nobody can read does not, because it is not a no.
+
+**`candidate_answer` has four answers where it had three**, and `None` rather than `False` for silence is the load-bearing part — an epic nobody answered and an epic somebody declined were the same value before and are different facts now. **The first cut of this broke the fetcher and a test caught it**: the "pull the candidates too" rule read `is not False`, which was true of silence under the new contract, so every epic on the board read as a candidate. It asks `candidate_issues` now rather than re-deriving the answer, which also picks up the epics a band declares.
+
+**And the sequencing tile says which of three states each field is in, rather than hedging across two of them.** It used to offer *"if this site has just installed the app, its Business Value field exists but a Jira administrator has to add it to a screen"* — one sentence covering two situations with entirely different fixes, in a product whose claim is that it tells you which of several reasons applies. `/rest/api/3/issue/{key}/editmeta` answers it with the ordinary issue read this app already has and **no new scope**: not on this site at all, on the site but on no screen, or answerable. Sampled from one of the board's epics, and reported as being about *this board's epics* rather than the site, because screen schemes differ per project and issue type. `unknown` is printed as unknown.
+
+Shown beside a refusal and not beside an answer — once a board is sequencing, a checklist of things that are fine is furniture — and it says that only Candidate **or** T-Shirt Size gates sequencing, because listing all four as blockers would overstate the job.
+
+**`docs/forge-deployment.md` gains the setup it never had**: the four fields, which screen scheme they belong on, that one of the last two is enough, and how `orgConfig.askField` / `sizeField` let a site point at the select or checkbox it already has instead of typing into the app's text field.
+
 ## 1.68.0
 
 **An epic can carry a t-shirt size, and the sequencer stops treating every ask as the same size.** Until now each Jira-assembled ask drew `reference-class` sizing — the item counts of every epic the board had completed — and a reference class is a property of the *board*, not of the ask. So two candidates sized identically and the orderings differed only by queue position and by the dates they carried. A comparison where nothing is bigger than anything else says less than it appears to. [ADR 0029](docs/adr/0029-a-t-shirt-band-selects-a-reference-class.md).
