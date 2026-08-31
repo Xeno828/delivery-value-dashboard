@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.74.0
+
+**A third Cloud Run region, London, and a check that makes the drift it invites impossible.** [ADR 0030](docs/adr/0030-the-manifest-commits-to-its-hostnames-and-realms-once.md) decided that `GB` gets its own service rather than being pointed at Frankfurt. This is the half that had to exist before the realm could be declared: `europe-west2` is deployed to, and the manifest points at it in the change after this one, because a realm cannot name a URL that does not yet exist.
+
+**The regions were named in two places and are now named in one.** `.github/workflows/deploy.yml` hardcoded `for region in us-central1 europe-west3` and repeated both region names in its summary table. Forgetting the loop is the expensive direction: a service that exists, is declared in `forge/manifest.yml`, and quietly stops receiving new versions while every check here goes green — a UK tenant reading answers from a calculator that stopped being updated, which is the failure class `CLAUDE.md` names as the worst one this project has. `REGIONS` is set once and both the loop and the summary read it.
+
+**And a guard, because naming them once is not the same as keeping them in step.** A new step reads the realms out of `forge/manifest.yml` and asserts every `baseUrl` points at a service this run actually deployed. The direction matters: a declared realm with no deployment behind it **fails the run**, because that is the stale-calculator case; a region deployed that no realm points at only **warns**, because that is money rather than a wrong number. Proved by running it over three states before it ever ran in CI — today's manifest with London deployed and undeclared, which passes with the warning; a manifest declaring `GB` with London absent, which exits 1 naming the realm and the URL; and both present, which passes and prints the four realms.
+
+**A region's Artifact Registry repository is created out of band, and the workflow now says so instead of failing at `docker push`.** The deploy identity holds `artifactregistry.writer`, not admin, so this workflow cannot create a registry — and widening a deliberately narrow deploy identity to save one manual step is the kind of reach this product refuses everywhere else. A preflight per region checks the repository exists and, when it does not, prints the exact `gcloud artifacts repositories create` command. Without it the failure is Docker reporting a name it cannot resolve, which reads as a broken build rather than a missing prerequisite.
+
+`service/provision-gcp.sh` carried the same pair of regions and now carries three, because a fresh provision that created two of the three registries would fail the third region's preflight — the good version of that mistake, and worth not making at all.
+
 ## 1.73.0
 
 **Two entries in `forge/manifest.yml` were free to change until the first external install and a forced reinstall for every customer afterwards, and both are now decided.** The first private trial is expected in September, so the window that made them free is a few weeks from closing. [ADR 0030](docs/adr/0030-the-manifest-commits-to-its-hostnames-and-realms-once.md) records them together, because they are the same decision seen twice: what the manifest commits to before anybody installs.

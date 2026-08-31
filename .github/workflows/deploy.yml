@@ -1,7 +1,8 @@
 name: deploy the calculator
 
-# The hosted calculator, to Cloud Run, in the two regions
-# docs/hosting-the-calculator.md §5 settles on: us-central1 and europe-west3.
+# The hosted calculator, to Cloud Run, in the three regions
+# docs/hosting-the-calculator.md §5 settles on: us-central1 and europe-west3;
+# europe-west2 (London) was added for the GB realm — docs/adr/0030.
 #
 # Three triggers, and the middle one is a decision rather than a convenience:
 #
@@ -70,6 +71,13 @@ concurrency:
 env:
   AR_REPO: calculator
   SERVICE: calculator
+  # The regions, named once. They were hardcoded in the deploy loop and again
+  # in the summary table, which is two places to forget — and forgetting the
+  # loop is the expensive direction: a service that exists, is declared in
+  # forge/manifest.yml, and quietly stops receiving new versions while every
+  # check here goes green. A UK tenant would read answers from a stale
+  # calculator and nothing would say so. docs/adr/0030.
+  REGIONS: us-central1 europe-west3 europe-west2
 
 jobs:
   deploy:
@@ -158,11 +166,30 @@ jobs:
             )
           fi
 
-          for region in us-central1 europe-west3; do
+          for region in $REGIONS; do
             host="${region}-docker.pkg.dev"
             repo="${host}/${{ vars.GCP_PROJECT_ID }}/${AR_REPO}/${SERVICE}"
 
             echo "── ${region} ───────────────────────────────────────────────"
+
+            # A region's Artifact Registry repository is created out of band,
+            # because the deploy identity holds artifactregistry.writer and not
+            # admin — and widening it so this workflow can create registries
+            # would trade a narrow deploy identity for one manual step. Without
+            # this check the failure is `docker push` reporting a name it cannot
+            # resolve, which reads as a broken build rather than a missing
+            # prerequisite.
+            if ! gcloud artifacts repositories describe "${AR_REPO}" \
+                   --location="$region" --project="${{ vars.GCP_PROJECT_ID }}" \
+                   --format='value(name)' >/dev/null 2>&1; then
+              echo "::error::${region}: no Artifact Registry repository '${AR_REPO}'."
+              echo "::error::Create it once, then re-run:"
+              echo "::error::  gcloud artifacts repositories create ${AR_REPO} \\"
+              echo "::error::    --repository-format=docker --location=${region} \\"
+              echo "::error::    --project=${{ vars.GCP_PROJECT_ID }}"
+              exit 1
+            fi
+
             gcloud auth configure-docker "$host" --quiet
 
             # Pushed to a registry in the same region the service runs in, so a
@@ -224,6 +251,7 @@ jobs:
                     --project="${{ vars.GCP_PROJECT_ID }}" --format='value(status.url)')
             echo "deployed: $url"
             echo "URL_$(echo "$region" | tr 'a-z-' 'A-Z_')=$url" >> "$GITHUB_ENV"
+            echo "$url" >> deployed-urls.txt
 
             # NOT /healthz. On Cloud Run that exact literal path is swallowed
             # by Google's front end and never reaches the container: it answers
@@ -252,6 +280,54 @@ jobs:
             echo
           done
 
+      - name: Every realm the manifest declares points at a region deployed here
+        run: |
+          set -euo pipefail
+          python3 - <<'GUARD'
+          import pathlib, re, sys
+
+          # The manifest's realms and this workflow's regions are two halves of
+          # one fact, and they drift silently. A realm pointing at a service
+          # this workflow does not deploy to is a customer reading answers from
+          # a calculator that stopped being updated — the failure class
+          # CLAUDE.md names as the worst one here, because every check stays
+          # green while a figure goes quietly stale. docs/adr/0030.
+          deployed = set(pathlib.Path("deployed-urls.txt").read_text().split())
+          lines = pathlib.Path("forge/manifest.yml").read_text().splitlines()
+
+          try:
+              start = next(i for i, l in enumerate(lines) if l.strip() == "baseUrl:")
+          except StopIteration:
+              sys.exit("no baseUrl block in forge/manifest.yml — has the remote moved?")
+
+          declared = {}
+          for line in lines[start + 1:]:
+              m = re.match(r"\s+(\w+):\s*(https?://\S+)\s*$", line)
+              if not m:
+                  break
+              declared[m.group(1)] = m.group(2).rstrip("/")
+
+          if not declared:
+              sys.exit("baseUrl declares no realms — that cannot be right")
+
+          missing = {k: v for k, v in declared.items() if v not in deployed}
+          for realm, url in sorted(missing.items()):
+              print(f"::error::realm {realm} points at {url}, which this run did not deploy")
+          if missing:
+              print("::error::Either the region is absent from REGIONS, or the URL is stale.")
+              sys.exit(1)
+
+          # The other direction is money rather than correctness: a region
+          # deployed and referenced by nobody is a service being paid for and
+          # never called. Worth saying, never worth failing a deploy over.
+          for url in sorted(deployed - set(declared.values())):
+              print(f"::warning::{url} was deployed but no realm in the manifest points at it")
+
+          print(f"{len(declared)} realms, all pointing at services deployed in this run:")
+          for realm, url in sorted(declared.items()):
+              print(f"  {realm:8} {url}")
+          GUARD
+
       - name: Say where it went
         run: |
           {
@@ -259,8 +335,10 @@ jobs:
             echo
             echo "| Region | URL |"
             echo "|---|---|"
-            echo "| us-central1 | ${URL_US_CENTRAL1:-not reported} |"
-            echo "| europe-west3 | ${URL_EUROPE_WEST3:-not reported} |"
+            for region in $REGIONS; do
+              var="URL_$(echo "$region" | tr 'a-z-' 'A-Z_')"
+              echo "| ${region} | ${!var:-not reported} |"
+            done
             echo
             if [ -n "${{ vars.FORGE_AUDIENCE }}" ]; then
               echo "Running \`SERVICE_AUTH=forge-token\`: tenant-aware, and this"

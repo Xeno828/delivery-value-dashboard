@@ -195,7 +195,13 @@ ENV_FILE=".gcp-deploy.env"
 
 GH_REPO="Xeno828/delivery-value-dashboard"
 AR_REPO="calculator"
-REGIONS="us-central1 europe-west3"
+# Three regions, and they must match `REGIONS` in .github/workflows/deploy.yml:
+# this script creates each region's Artifact Registry repository and the
+# workflow refuses to deploy to a region that has none. A fresh provision
+# that made two of three would fail the third region's preflight with a
+# clear message, which is the good version of this mistake — the bad one is
+# the realm being declared anyway. docs/adr/0030.
+REGIONS="us-central1 europe-west3 europe-west2"
 POOL="github"
 PROVIDER="github"
 SECRET_NAME="calculator-shared-secret"
