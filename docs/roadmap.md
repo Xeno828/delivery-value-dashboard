@@ -26,7 +26,7 @@ references are wrong.
 | 4 | Durable sprint history | 3 — make it defensible | 3–4 wk | **Done** — 2026-08-29 |
 | 5 | Permission mirroring | 3 — make it defensible | 5–8 wk | **First pass done** — three exposures answered by accepting and naming them; no permission model built |
 | 6 | SSO, audit log, data residency | 3 — make it defensible | 6–10 wk | **Done** — residency, activity log and SSO, all 2026-08-29; two of the three needed no engineering |
-| 7 | Cross-team roll-up and intake sequencing | 4 — sell it upward | 4–6 wk | **Roll-up done** 2026-08-30. Sequencing has a size, a value and a basis; it has no way to read an *ask* |
+| 7 | Cross-team roll-up and intake sequencing | 4 — sell it upward | 4–6 wk | **Done** — roll-up 2026-08-30, sequencing 2026-08-31: a board declares its candidates and an ordering renders |
 
 Sizes are engineering weeks at planning time, never reconciled against actuals —
 the same caveat the dashboard puts on its own value figures. They are a floor.
@@ -155,9 +155,10 @@ these:
 - **7**'s roll-up half is **done and wired**: `rollteams:<project>` is offered as
   *"— all boards —"*, names the boards it covers, and refuses to forecast
   ([ADR 0023](adr/0023-a-cross-team-rollup-spans-what-the-reader-can-see.md)).
-  **Sequencing is half-answered.** The product question — *what is an ask?* —
-  got its first answer on 2026-08-29: an ask is an **issue type**, at story
-  level or epic level. Acting on that turned up a bug older than the question
+  **Sequencing is answered, in three passes over three days.** The product
+  question — *what is an ask?* — got its first answer on 2026-08-29: an ask is
+  an **issue type**, at story level or epic level. Acting on that turned up a
+  bug older than the question
   (subtasks were counted as items, [ADR 0024](adr/0024-a-parent-and-its-subtasks-are-one-piece-of-work.md))
   and produced the reader's own type filter, a declared **Business Value** field
   ([ADR 0025](adr/0025-the-app-declares-a-business-value-field.md)) and the
@@ -168,18 +169,34 @@ these:
   ([ADR 0027](adr/0027-a-value-basis-is-prose-carried-to-a-reader.md)). An
   enumerated basis would have been one join away from the weight
   [ADR 0004](adr/0004-no-priority-score.md) refuses.
-  **What is still missing is the ask itself.** An ask is a document with a
-  problem, a success measure, a needed-by date, a size and a value with a basis;
-  an epic carrying a value and a basis has two of those six, and nothing in a
-  Jira site marks an issue as a request being weighed against others. The
-  `sequence` resolver still refuses and now names only that. Product decision,
-  not a coding task.
+  **The ask itself arrived on 2026-08-31**, the day after this paragraph said
+  it had not. An ask is a document with a problem, a success measure, a
+  needed-by date, a size and a value with a basis. What nothing in a Jira site
+  said was which epics are being weighed against each other: a declared
+  **Candidate** field says it now, and `orgConfig.askField` lets a site point at
+  the discovery status or checkbox it already keeps
+  ([ADR 0028](adr/0028-candidacy-is-a-state-somebody-declares.md)). A
+  **T-Shirt Size** band declares candidacy too — the one inference that record
+  permits, taken because four screen configurations before anything works is
+  what an evaluation meets first — and it selects which of the board's own
+  completed epics an ask is compared against rather than asserting a number
+  ([ADR 0029](adr/0029-a-t-shirt-band-selects-a-reference-class.md)).
+  `asks_from_issues()` assembles the shape `sequence` already consumed, the
+  resolver delegates to `/v1/sequence`, and the panel renders an ordering with
+  each ask's value and its basis beside it. **Two of the six still have no
+  field on a board**: an epic carries no problem statement and no success
+  measure. `readiness` names both as gaps rather than the sequencing refusing
+  over them, which is what that shape was built to do.
 - **7** was recorded as blocked on both 4 and 5, and was wrong about each.
   [ADR 0023](adr/0023-a-cross-team-rollup-spans-what-the-reader-can-see.md) has
   it. **Intake sequencing is built** — `intake.sequence()`, a CLI, a service
-  route, a renderer and tests — and refuses on Forge for a reason that has
-  nothing to do with items 4 or 5: nobody has decided **what an ask is inside
-  Jira**, and there is no issue type that means one. **The cross-team roll-up**
+  route, a renderer and tests — and it refused on Forge until 2026-08-31 for a
+  reason that had nothing to do with items 4 or 5: nobody had decided **what an
+  ask is inside Jira**. The answer, when it came, was that no issue type could
+  mean one — an epic already committed and half built is not being weighed
+  against anything, so candidacy is a state somebody declares and then stops
+  declaring ([ADR 0028](adr/0028-candidacy-is-a-state-somebody-declares.md)).
+  **The cross-team roll-up**
   did depend on item 5 in shape, and item 5's first pass answers it: the panel
   reads as the viewer, so a board they cannot browse never arrives, and the
   roll-up **names the boards it covers** because this app cannot know which ones
@@ -284,17 +301,32 @@ Until then the tile says how many are waiting, which is the honest state.
 ## What stands between here and a Marketplace listing
 
 Asked on 2026-08-30 and answered from the repository rather than from memory,
-because two of these are not on the numbered list at all.
+because two of these are not on the numbered list at all. **Revised 2026-08-31**:
+the one piece of engineering it named was built the following day, and a
+section that keeps naming work already done is the reason nobody trusts a
+roadmap.
 
-**Engineering.** One thing: **sequencing needs a way to read an ask out of
-Jira**. The value basis it also needed was answered on 2026-08-30
-([ADR 0027](adr/0027-a-value-basis-is-prose-carried-to-a-reader.md)); what is
-left is that no issue is marked as a request being weighed against others, and
-the problem, success measure and needed-by date have no field either. That is a
-product decision before it is a build. Everything else either works or is a
-decision rather than a build. Item 5 is a first pass — all three exposures
-answered by *accepting a disclosure and naming it*, which is a coherent position
-and is not the permission model its 5–8 weeks was for.
+**Engineering: nothing, as of 2026-08-31.** This paragraph named one thing —
+*sequencing needs a way to read an ask out of Jira* — alongside a value basis
+answered the day it was written
+([ADR 0027](adr/0027-a-value-basis-is-prose-carried-to-a-reader.md)). A
+declared **Candidate** field now says which epics are being weighed against
+each other, with `orgConfig.askField` for a site that already records that its
+own way ([ADR 0028](adr/0028-candidacy-is-a-state-somebody-declares.md)), and a
+**T-Shirt Size** band both declares candidacy and selects the reference class
+an ask is forecast against
+([ADR 0029](adr/0029-a-t-shirt-band-selects-a-reference-class.md)). The
+resolver assembles the asks and the panel renders the ordering. It was a
+product decision before it was a build, exactly as this said, and the decision
+went to a state somebody declares rather than to an issue type.
+
+**What an epic still carries no field for is a problem statement and a success
+measure**, and that is not a blocker: `readiness` names both as gaps beside the
+forecast, which is the whole point of a shape that reports what would widen an
+answer instead of refusing to give one. Everything remaining on this list is a
+decision, Console work or commercial work. Item 5 is a first pass — all three
+exposures answered by *accepting a disclosure and naming it*, which is a
+coherent position and is not the permission model its 5–8 weeks was for.
 
 **Two decisions that are cheap now and expensive after the first external
 install.** Both are irreversible in the same way: changing them later is a major
