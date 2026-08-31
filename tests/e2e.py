@@ -1220,6 +1220,60 @@ def transports(b):
               refused_tile[:300])
         page.close()
 
+
+        # ---------- the value tile states which of three, and stops guessing ----------
+        #
+        # It said "No completed item carries a value estimate. If this site has
+        # just installed the app, its Business Value field exists but a Jira
+        # administrator has to add it to a screen" — one hedge over two states
+        # with different fixes, and over a *file*, which has no app and no
+        # screen. `editmeta` knows; the body carries it; this reads it.
+        #
+        # And it is carried on the context rather than the dataset, because a
+        # body key nothing assigns is dropped in silence — which is how the
+        # config whitelist and `asks_considered` both got here.
+        unpriced = json.loads(json.dumps(forge_shaped))
+        for i in unpriced.get("issues", []):
+            i.pop("businessValue", None)
+
+        def value_tile_with(setup):
+            body = dict(unpriced)
+            if setup is not None:
+                body["setup"] = setup
+            stub = """
+            window.__DVD_BRIDGE__ = { name: 'stub', invoke: (route) => {
+                const bodies = %s;
+                if (route === 'contexts') return Promise.resolve({status: 200, body: bodies.contexts});
+                if (route === 'context') return Promise.resolve({status: 200, body: bodies.context});
+                return Promise.resolve({status: 404, body: null}); } };
+            """ % json.dumps({"contexts": contexts_body, "context": body})
+            pg = b.new_page(viewport={"width": 1500, "height": 1000})
+            pg.add_init_script(stub)
+            pg.goto(url)
+            pg.wait_for_timeout(500)
+            pg.evaluate("id => window.DVD.debug.selectContext(id)", cid)
+            pg.wait_for_timeout(1100)
+            text = pg.text_content("#value-body") or ""
+            pg.close()
+            return text
+
+        off = value_tile_with({"businessValue": "off-screen", "valueBasis": "off-screen"})
+        check("a field on no screen is stated, not guessed at",
+              "is on none of this board's epic screens" in off and "if this site" not in off.lower(),
+              off[:260])
+        absent = value_tile_with({"businessValue": "absent", "valueBasis": "absent"})
+        check("and a field the site does not have is a different sentence",
+              "no Business Value field from this app" in absent, absent[:260])
+        ready = value_tile_with({"businessValue": "ready", "valueBasis": "ready"})
+        check("a field that is answerable blames nobody",
+              "Nothing completed here carries a value estimate yet" in ready
+              and "administrator" not in ready, ready[:260])
+        # The transport with no Jira behind it: a file's value came from a file
+        # and there is no screen to send anybody to.
+        none = value_tile_with(None)
+        check("and a body that says nothing about fields invents no administrator",
+              "administrator" not in none and "screen" not in none, none[:260])
+
         # ---------- and it says what the board still needs ----------
         #
         # The app used to hedge across two states with different fixes — "if

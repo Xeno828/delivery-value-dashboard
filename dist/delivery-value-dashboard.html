@@ -3782,7 +3782,12 @@ function renderValue(m) {
   const priced = m.done.filter(i => i.businessValue > 0);
   if (!m.valueItems.length) {
     const belowLine = priced.filter(i => i.valueCounts === false);
-    const anyField = S.view.issues.some(i => i.businessValue > 0);
+    // What the producer knows about the field, where a producer knows anything.
+    // Absent over a transport with no Jira behind it, and absent is not a state
+    // to guess at: a file's value came from a file and there is no screen to
+    // send anybody to.
+    const here = (S.data.contexts || []).find(c => c.id === S.ctx);
+    const st = ((here && here.setup) || {}).businessValue;
     host.innerHTML = '<div class="fc-refusal"><b>No value to report.</b> ' +
       (belowLine.length
         ? esc(belowLine.length + " completed item" + (belowLine.length === 1 ? "" : "s") +
@@ -3790,12 +3795,18 @@ function renderValue(m) {
           (belowLine.length === 1 ? "it sits" : "they sit") + " below the level value is " +
           "counted at — value belongs on an epic or above, or an epic and its stories " +
           "would be added together.")
-        : anyField
-        ? "Nothing completed here carries a value estimate yet."
-        : "No completed item carries a value estimate. If this site has just " +
-          "installed the app, its Business Value field exists but a Jira " +
-          "administrator has to add it to a screen before anyone can fill it in " +
-          "— the app cannot do that for them.") + "</div>";
+        : st === "off-screen"
+        // It used to say this as a guess, hedged with "if this site has just
+        // installed the app". `editmeta` knows, so this states it — and states
+        // it only when it is true.
+        ? "The Business Value field exists on this site but is on none of this " +
+          "board's epic screens, so nobody can fill it in yet. A Jira " +
+          "administrator adds it; no scope lets this app do that for them."
+        : st === "absent"
+        ? "This site has no Business Value field from this app — the version " +
+          "declaring it is not installed, or an orgConfig field name points at " +
+          "something that is not there."
+        : "Nothing completed here carries a value estimate yet.") + "</div>";
     host.onclick = null;
     return;
   }
@@ -5970,7 +5981,16 @@ async function loadContext(id, select = true) {
     }
     const j = r.body;
     const ctx = S.data.contexts.find(c => c.id === id);
-    if (ctx) { Object.assign(ctx, j.context || {}); delete ctx.stub; }
+    // What the producer knows about this app's own fields on this board, where
+    // a producer knows anything. Kept on the *context* rather than on the
+    // dataset, so switching boards cannot leave a diagnosis from the last one
+    // on screen — and dropped silently is exactly what happens to a body key
+    // nothing assigns, which this session has now watched happen three times.
+    if (ctx) {
+      Object.assign(ctx, j.context || {});
+      ctx.setup = j.setup || null;
+      delete ctx.stub;
+    }
     const fresh = (j.issues || []).map(i => {
       const o = normaliseIssue(i, S.data.meta, S.data.orgConfig);
       o.contextId = id;                       // never let normalise() re-tag these

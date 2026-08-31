@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.69.1
+
+**The value tile stops guessing.** It said *"No completed item carries a value estimate. If this site has just installed the app, its Business Value field exists but a Jira administrator has to add it to a screen"* — one sentence covering two situations with entirely different fixes, in a product whose whole claim is that it tells a reader which of several reasons applies. And it said it over a **file** too, which has no app, no administrator and no screen.
+
+Three states now, each stated only when it is true: the field is **on no screen** on this board's epics, so an administrator adds it and no scope lets the app do it instead; the field is **not on this site at all**, so the version declaring it is not installed or an `orgConfig` name points at nothing; or it is **answerable and unanswered**, which blames nobody.
+
+**`/rest/api/3/issue/{key}/editmeta` answers it with no new scope**, and it is asked **only when it would change what a reader is told** — a board where somebody has already priced something needs no diagnosis, and this route runs on every panel load. An honest sentence should not cost every load a round trip.
+
+**The body key would have reached nobody, which is now the third time this session.** `contextBody` carried `setup` and `loadContext` assigned nothing from it, so the tile would have read `undefined` and quietly fallen through to its mildest sentence — the same silent drop as the `orgConfig` whitelist and the missing `asks_considered`. It is kept on the **context** rather than the dataset, so switching boards cannot leave the last board's diagnosis on screen.
+
+**And a guard was pinning a sentence rather than a rule.** `tests/test_service.py` required the literal *"the app cannot do that for them"*; the wording changed when the tile stopped guessing, and the check failed on a tile that says the same thing more precisely. It tests the property now: if this tile sends somebody to an administrator, it says in the same breath why the app did not just do it — because an app that asks for work without saying why is an app whose next version asks for a scope.
+
 ## 1.69.0
 
 **A t-shirt band declares candidacy, and the app stops guessing what a board still needs.** Two changes about the same thing: a tenant that wanted everything configured four custom fields on four screens before any of it did anything, and three of the four are text because Forge can declare neither a select nor a checkbox. Four screen configurations before a feature works is what an evaluation meets first.

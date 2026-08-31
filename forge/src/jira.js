@@ -1031,7 +1031,12 @@ const addedMidSprint = (raw, sprintStart) => {
  * empty series is not a silent gap: the page prints "no burndown series in
  * this dataset" where the chart would be.
  */
-export const contextBody = (entry, issues, orgConfig) => ({
+export const contextBody = (entry, issues, orgConfig, setup) => ({
+  // Which of this app's fields a person can actually type into, when that is
+  // the difference between "nobody has priced anything" and "nobody *can*".
+  // Absent on a transport with no Jira behind it — a file's value came from a
+  // file, and there is no screen to be told about. ADR 0025.
+  ...(setup ? { setup } : {}),
   context: {
     ...entry,
     // The entry's own as-of, with the planned end as a last resort. This

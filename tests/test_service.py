@@ -4727,8 +4727,31 @@ def business_value_checks():
             ("add it to a screen", "the field is not on a screen yet")):
         check("the value tile names the case: %s" % why,
               phrase in value_tile, phrase)
-    check("and does not tell an administrator to do something the app could do",
-          "the app cannot do that for them" in value_tile, "admin action named")
+    # **The property, not the phrasing.** This pinned one sentence — "the app
+    # cannot do that for them" — and the tile's wording changed when it stopped
+    # guessing which of the three states applied. The rule did not change: if
+    # this tile sends somebody to an administrator, it says in the same breath
+    # why the app did not just do it, because an app that asks for work without
+    # saying why is an app whose next version asks for a scope.
+    names_admin = "administrator" in value_tile
+    explains = ("no scope lets this app" in value_tile
+                or "the app cannot do that for them" in value_tile)
+    check("and does not tell an administrator to do something without saying why "
+          "the app cannot", (not names_admin) or explains,
+          {"names an admin": names_admin, "explains": explains})
+
+    # ---- and it states which of the three, rather than hedging ----
+    #
+    # It used to cover "the field is not on a screen" and "nobody has filled it
+    # in" with one sentence beginning "if this site has just installed the app",
+    # which is a guess in a product whose claim is that it says which of several
+    # reasons applies. `editmeta` answers it, so the tile reads an answer.
+    check("the tile reads the producer's answer rather than guessing",
+          "here.setup" in value_tile or "setup || {}" in value_tile,
+          [l.strip() for l in value_tile.splitlines() if "setup" in l][:2])
+    check("and invents no administrator where nothing told it about a field",
+          "off-screen" in value_tile and "absent" in value_tile,
+          [l.strip() for l in value_tile.splitlines() if "off-screen" in l][:1])
 
 
 if __name__ == "__main__":

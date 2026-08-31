@@ -1076,10 +1076,30 @@ resolver.define('context', answering(async ({ payload, context }) => {
 
   const spField = await storyPointFieldFor();
   const issues = await issuesForEntry(entry, spField, context?.siteUrl);
+  const cfg = (await orgConfigFor(entry.projectKey)).config;
+
+  // **Only when it would change what a reader is told.** This is a call per
+  // panel load, and a board where somebody has already priced something needs
+  // no diagnosis — the tile is going to show a figure either way. Asking only
+  // when the value tile is about to refuse is what keeps an honest sentence
+  // from costing every load a round trip.
+  let setup;
+  if (!issues.some((i) => i.businessValue != null)) {
+    const appFields = await appFieldsFor(undefined, cfg?.askField, cfg?.sizeField);
+    const boardId = parsed.boardId;
+    const sample = appFields.value && boardId
+      ? (await boardEpicsFor(boardId, undefined, appFields, spField)).epics[0]?.key
+      : null;
+    const onScreen = await fieldsOnScreen(sample, undefined);
+    setup = {
+      businessValue: fieldState(appFields.value, onScreen),
+      valueBasis: fieldState(appFields.basis, onScreen),
+    };
+  }
 
   return {
     status: 200,
-    body: contextBody(entry, issues, (await orgConfigFor(entry.projectKey)).config),
+    body: contextBody(entry, issues, cfg, setup),
   };
 }));
 
