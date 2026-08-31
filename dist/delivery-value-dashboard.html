@@ -2871,10 +2871,17 @@ function renderBurn(m) {
        simply not carry the series. A board that runs no sprints is a third and
        is not handled here — the tile is not shown at all on one, and its
        reason lives with the other two in FLOW_UNAVAILABLE. */
+    /* The producer's own reason, where it has one, printed verbatim. A Forge
+       install saw "No burndown series in the dataset" for a chart this
+       transport had never built — the sentence blamed the tenant's data for a
+       gap in the product, and the two have entirely different fixes. */
+    const why = (S.view.ctx || {}).burndownNote;
     host.innerHTML = '<div class="note">' + (S.view.ctx.isRollup
       ? "A burndown describes one sprint. This view rolls up " + esc(rollupCovers(S.view.ctx)) +
         ", so there is no single line to draw — pick an individual sprint above. " +
         "Everything else on this page is valid across the rollup."
+      : why
+      ? esc(why)
       : "No burndown series in the dataset.") + "</div>";
     return;
   }
@@ -6008,6 +6015,9 @@ async function loadContext(id, select = true) {
       // "nobody measured", not "nothing was excluded" — the tile says different
       // things for those two and a zero would collapse them.
       ctx.valueWindow = j.valueWindow || null;
+      // Why the burndown is empty, where the producer knows. Four causes, four
+      // fixes, and one sentence between them until now.
+      ctx.burndownNote = j.burndownNote || null;
       delete ctx.stub;
     }
     const fresh = (j.issues || []).map(i => {

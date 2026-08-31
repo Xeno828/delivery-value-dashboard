@@ -1073,13 +1073,16 @@ export const creditableEpics = (epics, entry) => {
 /**
  * The envelope `GET api/context?id=…` returns.
  *
- * The four series are empty because this app computes nothing. A burndown is
- * built by `build_burndown()` in Python, and Forge cannot run Python — it
- * would have to come from the hosted calculator, which is not provisioned. An
- * empty series is not a silent gap: the page prints "no burndown series in
- * this dataset" where the chart would be.
+ * Three of the four series are empty because this app computes nothing and no
+ * route serves them yet. The burndown is no longer one of them: the calculator
+ * is provisioned, `metrics.burndown` is served at `/v1/burndown`, and the
+ * caller passes the rows in. When they are empty `burndownNote` says which of
+ * the four reasons it was — a window has no committed scope to burn down, a
+ * sprint can be missing its dates, the calculator can refuse or be
+ * unreachable, and a file can simply carry no series. They had one sentence
+ * between them and it was the wrong one on every Forge install.
  */
-export const contextBody = (entry, issues, orgConfig, setup, valueWindow) => ({
+export const contextBody = (entry, issues, orgConfig, setup, valueWindow, burndown) => ({
   // Which of this app's fields a person can actually type into, when that is
   // the difference between "nobody has priced anything" and "nobody *can*".
   // Absent on a transport with no Jira behind it — a file's value came from a
@@ -1104,7 +1107,17 @@ export const contextBody = (entry, issues, orgConfig, setup, valueWindow) => ({
   },
   orgConfig: orgConfig || {},
   issues,
-  burndown: [],
+  // Was hardcoded `[]` with a comment saying Forge cannot run Python. It still
+  // cannot — `metrics.burndown` is served by the hosted calculator now, and the
+  // caller does the asking. `burndownNote` says why the series is empty when it
+  // is, because "no burndown series in this dataset" blamed a tenant's data for
+  // a chart this transport had simply never built.
+  burndown: (burndown && burndown.rows) || [],
+  // Always sent, `null` when there is nothing to explain — unlike `setup` and
+  // `valueWindow`, which are omitted because a producer may genuinely not know.
+  // Here it always does: it either built a series or knows why it did not, and
+  // an always-present key is one both transports can be held to.
+  burndownNote: (burndown && burndown.note) || null,
   history: [],
   releases: [],
   dora: null,

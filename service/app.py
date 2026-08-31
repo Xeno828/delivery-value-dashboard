@@ -27,6 +27,7 @@ Routes
     POST /v1/ask             intake.forecast_ask
     POST /v1/sequence        intake.sequence
     POST /v1/history         metrics.history_series
+    POST /v1/burndown        metrics.burndown
 
 Every POST takes {"dataset": {...}, ...} and returns
 {"ok": true, "calendar": "...", "result": {...}} or {"ok": false, "error": "..."}.
@@ -785,6 +786,38 @@ def route_history(body):
     }
 
 
+def route_burndown(body):
+    """One sprint's daily burndown, for a caller that cannot compute one.
+
+    The same case as `/v1/history` and the same rule. A Forge resolver holds the
+    tenant's issues and their dates, and Forge cannot run Python — so before
+    this route existed `contextBody` sent an empty series and the page drew
+    nothing. Two of this product's eighteen tiles are a burndown and a reader
+    who wants one is not served by a chart that is permanently blank.
+
+    A resolver that built the series itself would be the fourth implementation
+    of an algorithm that already has three, held together by a test. This
+    service still computes nothing: it validates, delegates to
+    `metrics.burndown`, and passes the rows back.
+
+    `meta.workingDays` is the caller's to supply and is not derived here when it
+    is absent — a window has no working-day list on purpose (ADR 0011), and a
+    calendar invented at this end is the third opinion `CLAUDE.md` warns about.
+    Absent both that and a start/end pair, the answer is an empty series, which
+    is what a period with no clock honestly has.
+    """
+    ds = clean_dataset(body)
+    meta = ds.get("meta") or {}
+    if not (meta.get("workingDays") or (meta.get("startDate") and meta.get("endDate"))):
+        raise Refused('send dataset.meta with either "workingDays" or a '
+                      '"startDate" and "endDate" — a burndown needs days to plot '
+                      "against. Nothing was calculated.")
+    # The config the *dataset* carries, resolved the one way every other tool
+    # resolves it. `CLAUDE.md`: it travels inside the data and is never read
+    # from a file beside it.
+    return {"burndown": MT.burndown(ds.get("issues") or [], meta, OC.from_dataset(ds))}
+
+
 ROUTES = {
     "/v1/facts": route_facts,
     "/v1/forecast": route_forecast,
@@ -793,6 +826,7 @@ ROUTES = {
     "/v1/ask": route_ask,
     "/v1/sequence": route_sequence,
     "/v1/history": route_history,
+    "/v1/burndown": route_burndown,
 }
 
 

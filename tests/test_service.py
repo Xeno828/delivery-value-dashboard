@@ -3719,6 +3719,87 @@ def ask_assembly_checks():
           [l.strip() for l in svc.splitlines() if "ASK_TEXT_FIELDS" in l][:1])
 
 
+def test_a_burndown_is_served_rather_than_left_blank():
+    """A Forge reader gets the chart a file reader gets, from the same function.
+
+    Two of this product's tiles are a burndown and on Forge they were blank on
+    every install since the bridge existed. `contextBody` hardcoded
+    `burndown: []` because `build_burndown` was a step inside
+    `scripts/fetch_delivery_data.py`, the container image ships `agent/tools/`
+    and not `scripts/`, and Forge cannot run Python — so the page printed *"No
+    burndown series in the dataset"*, which blamed the tenant's data for a chart
+    this transport had never built. Those have entirely different fixes.
+
+    The algorithm is not reimplemented to fix that, and this is the whole point:
+    it already existed three times — `metrics.burndown` (moved there from the
+    fetcher), `src/import.js`, and `scripts/rebuild_burndown.py` — pinned to one
+    answer by `tests/test_agent.py`. A resolver that built its own would be the
+    fourth and the first to be wrong. It calls `/v1/burndown` instead.
+
+    So the two things worth asserting are that the service adds nothing to the
+    tool, and that an empty series now says which of its four causes it was.
+    """
+    print("a burndown is served rather than left blank")
+
+    # ---- the service computes nothing ----
+    #
+    # Same rule as every other route and the same check: the answer must equal
+    # the tool called directly, byte for byte. A wrapper that rounded one figure
+    # is a second implementation, and the day it disagrees every number in the
+    # product becomes something to check rather than read.
+    ds = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+    # Projected as a real caller must: the door refuses issue text, and a test
+    # that sent it would be testing the guard rather than the calculation.
+    issues = [{k: v for k, v in i.items() if k not in SVC.FREE_TEXT_FIELDS}
+              for i in ds["issues"]]
+    payload = {"dataset": {"issues": issues, "meta": ds["meta"],
+                           "orgConfig": ds.get("orgConfig") or {}}}
+    served = SVC.route_burndown(payload)["burndown"]
+    direct = MT.burndown(issues, ds["meta"], OC.from_dataset(ds))
+    check("the service's burndown is the tool's, byte for byte",
+          json.dumps(served) == json.dumps(direct), len(served))
+    check("and it is a real series, so the comparison means something",
+          len(served) > 1 and any(r["remainingItems"] is not None for r in served),
+          len(served))
+
+    # A period with no days to plot against is refused, not answered with an
+    # empty series that reads as "nothing was outstanding".
+    try:
+        SVC.route_burndown({"dataset": {"issues": issues, "meta": {}}})
+        check("a burndown with no clock is refused", False, "it answered")
+    except SVC.Refused as e:
+        check("a burndown with no clock is refused", "Nothing was calculated" in str(e), str(e))
+
+    # ---- and an empty series says which cause it was ----
+    node = subprocess.run(["node", str(ROOT / "tests" / "forge_shapes.mjs")],
+                          capture_output=True, text=True, cwd=str(ROOT))
+    if node.returncode != 0:
+        check("the Forge shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    body = json.loads(node.stdout)["context"]
+    check("the context body carries a reason beside the series",
+          "burndownNote" in body, sorted(body))
+    check("and it is the producer's sentence, not the page's fallback",
+          "No burndown series in the dataset" not in (body["burndownNote"] or ""),
+          body["burndownNote"])
+
+    # One reader, two transports, one explanation. A window has no committed
+    # scope to burn down on either, and being told different things about the
+    # same board depending on how the page was reached is the drift ADR 0009
+    # exists to prevent.
+    idx = (ROOT / "forge" / "src" / "index.js").read_text()
+    m = re.search(r"if \(entry\.kind === 'window'\) \{\s*return \{ rows: \[\], note: '(.*?)' \};",
+                  idx, re.S)
+    check("the resolver has a window sentence to compare", bool(m),
+          "matched" if m else "no window branch found in index.js")
+    if m:
+        js = m.group(1).replace("'\n      + '", "")
+        check("both transports explain a window in the same words",
+              js == LIVE.WINDOW_HAS_NO_BURNDOWN,
+              {"js": js[:90], "py": LIVE.WINDOW_HAS_NO_BURNDOWN[:90]})
+
+
 def test_an_epic_the_window_excludes_is_counted_not_dropped():
     """A finished, priced epic outside the sprint's window is reported, not lost.
 
@@ -5036,6 +5117,7 @@ if __name__ == "__main__":
     counting_checks()
     business_value_checks()
     test_an_epic_the_window_excludes_is_counted_not_dropped()
+    test_a_burndown_is_served_rather_than_left_blank()
     value_basis_checks()
     ask_assembly_checks()
     body_keys_reach_a_reader()

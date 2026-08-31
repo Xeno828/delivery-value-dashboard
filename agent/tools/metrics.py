@@ -101,6 +101,77 @@ def in_sprint(i, start):
 
 
 # --------------------------------------------------------------------- facts
+def burndown(issues, meta, cfg=None):
+    """Reconstruct a daily burndown from resolution dates and mid-sprint adds.
+
+    **Moved here from `scripts/fetch_delivery_data.py` so that a caller who
+    cannot run the fetcher can still have one.** A Forge resolver holds the
+    tenant's own issues and must not derive a series itself — `CLAUDE.md` is
+    explicit that nothing between a tool and a reader does arithmetic, and this
+    algorithm already exists three times (here, `src/import.js`, and
+    `scripts/rebuild_burndown.py`) with a test pinning them to one answer. A
+    fourth written in a resolver is the version that would be wrong first.
+
+    An approximation, and it says so: it assumes an issue's points and its item
+    leave the chart on the resolution date. Both units are always emitted —
+    the dashboard's toggle needs the item series and the forecasting agent works
+    in items, and a points-only burndown puts the two in different units by
+    construction.
+
+    Story points absent read as zero **for the purpose of this sum only**. A
+    site with no story-point field at all flattens the points series to a flat
+    line, which is why `probeBoardIssues` names the field it resolved: the page
+    you land on when a burndown has flattened and nothing has said why. The item
+    series is unaffected and is the one the forecaster reads.
+    """
+    days = meta.get("workingDays") or working_days(
+        meta.get("startDate"), meta.get("endDate"), cfg)
+    if not days:
+        return []
+    sp = lambda i: (i.get("storyPoints") or 0)
+    planned = [i for i in issues if not i.get("addedMidSprint")]
+    base_p = sum(sp(i) for i in planned)
+    base_i = len(planned)
+
+    added_by_day = defaultdict(lambda: [0.0, 0])
+    done_by_day = defaultdict(lambda: [0.0, 0])
+    for i in issues:
+        if i.get("addedMidSprint") and i.get("created"):
+            added_by_day[i["created"]][0] += sp(i)
+            added_by_day[i["created"]][1] += 1
+        if i.get("resolved"):
+            done_by_day[i["resolved"]][0] += sp(i)
+            done_by_day[i["resolved"]][1] += 1
+
+    as_of = meta.get("asOfDate") or date.today().isoformat()
+    out = []
+    scope_p, rem_p = base_p, base_p
+    scope_i, rem_i = base_i, base_i
+    n = len(days)
+    for k, day in enumerate(days):
+        add = added_by_day.get(day, [0.0, 0])
+        scope_p += add[0]; rem_p += add[0]
+        scope_i += add[1]; rem_i += add[1]
+        dn = done_by_day.get(day, [0.0, 0])
+        rem_p -= dn[0]
+        rem_i -= dn[1]
+        # A day after the as-of has not happened. `None` and not the last known
+        # value: a flat line to the right edge reads as a stall that was
+        # observed, which is a claim about days nobody has lived through.
+        future = day > as_of
+        frac = (1 - k / (n - 1)) if n > 1 else 0
+        out.append({
+            "date": day,
+            "remainingSP": None if future else round(rem_p, 1),
+            "scopeSP": None if future else round(scope_p, 1),
+            "idealSP": round(base_p * frac, 1),
+            "remainingItems": None if future else rem_i,
+            "scopeItems": None if future else scope_i,
+            "idealItems": round(base_i * frac, 1),
+        })
+    return out
+
+
 def history_row(issues, sprint_name, as_of, cfg=None):
     """One sprint's row of the trend series, as it stood at `as_of`.
 

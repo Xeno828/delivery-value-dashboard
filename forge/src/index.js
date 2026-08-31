@@ -1003,6 +1003,61 @@ const issuesForEntry = async (entry, spField, siteUrl, as) => {
  * asked for, the answer is 404. A project key supplied by the page would
  * otherwise label another project's board.
  */
+/**
+ * One sprint's burndown, from the calculator.
+ *
+ * This is why the tile was blank on every Forge install: Forge cannot run
+ * Python, `build_burndown` was a step inside the fetcher, and `contextBody`
+ * therefore sent `burndown: []` with the page printing "no burndown series in
+ * this dataset" — which blamed the tenant's data for something this transport
+ * had never computed. The algorithm now lives in `metrics.burndown` and
+ * `/v1/burndown` serves it, so a Forge reader gets the same chart a file
+ * reader gets. Nothing is derived here: the issues go out projected and the
+ * rows come back.
+ *
+ * **A window is not a clock.** A flow board's period bounds a selection and
+ * nobody committed to finishing by the end of it, so there is no scope to burn
+ * down to and no call is made. ADR 0011, and `serve_live.py` refuses it in the
+ * same words on the same test.
+ *
+ * Returns `{ rows, note }` — and the note is the point of the pair. An empty
+ * series has four causes with four different fixes, and until now they all
+ * printed the same sentence.
+ */
+const burndownFor = async (entry, issues, cfg) => {
+  if (entry.kind === 'window') {
+    return { rows: [], note: 'A burndown plots a committed scope down to the date it '
+      + 'was committed for. This period is a rolling window rather than a sprint, so '
+      + 'nobody committed to finishing by the end of it and there is no line to draw. '
+      + 'Everything else on this page is valid for it.' };
+  }
+  if (!entry.startDate || !entry.endDate) {
+    return { rows: [], note: 'This sprint has no start or end date recorded in Jira, '
+      + 'so there are no days to plot a burndown against. Setting both on the sprint '
+      + 'is the fix; nothing else on this page depends on it.' };
+  }
+  const projected = issues.map(projectIssue);
+  assertNoFreeText(projected);
+  const answer = await callCalculator('/v1/burndown', {
+    dataset: {
+      issues: projected,
+      meta: {
+        startDate: entry.startDate,
+        endDate: entry.endDate,
+        asOfDate: entry.asOfDate || entry.endDate || null,
+      },
+      orgConfig: cfg || {},
+    },
+  });
+  if (answer.available === false) {
+    // The calculator's own sentence, verbatim. "Unavailable" names none of the
+    // several things this is, and the reader who can act on it is the one told
+    // which.
+    return { rows: [], note: `No burndown could be calculated for this sprint. ${answer.sentence}` };
+  }
+  return { rows: (answer.result ?? {}).burndown ?? [], note: null };
+};
+
 resolver.define('context', answering(async ({ payload, context }) => {
   const asked = payload?.id;
   const parsed = parseContextId(asked);
@@ -1110,7 +1165,8 @@ resolver.define('context', answering(async ({ payload, context }) => {
 
   return {
     status: 200,
-    body: contextBody(entry, issues, cfg, setup, valueWindow),
+    body: contextBody(entry, issues, cfg, setup, valueWindow,
+                      await burndownFor(entry, issues, cfg)),
   };
 }));
 

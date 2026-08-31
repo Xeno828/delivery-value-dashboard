@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.72.0
+
+**The burndown tile has been blank on every Forge install since the bridge existed, and the sentence under it blamed the tenant's data.** *"No burndown series in the dataset"* — for a chart this transport had never built. Asked which they would rather have, the answer was the chart: some businesses run on burndowns, and the option not existing is worse than the option being empty.
+
+`contextBody` hardcoded `burndown: []`, and the comment above it said why: `build_burndown` was a step inside `scripts/fetch_delivery_data.py`, the container image ships `agent/tools/` and not `scripts/`, and Forge cannot run Python. Two of those three are still true. The one that changed is that the calculator is provisioned — the manifest has said so for several versions while `jira.js` still said it was not — so the algorithm only had to move somewhere the calculator could reach it.
+
+**It moved rather than being rewritten, and that is the whole decision.** This algorithm already existed three times: in the fetcher, in `src/import.js`, and in `scripts/rebuild_burndown.py`, pinned to one answer by `tests/test_agent.py`. A resolver that built its own series would have been the fourth, in a fourth language, and the first to disagree. `metrics.burndown` is now the one implementation the calculator serves; `build_burndown` is a two-line delegate so the fetcher, both bundle generators and the live server keep the name they call. Verified byte-identical against the real board's committed dataset before anything else was touched.
+
+`/v1/burndown` follows `/v1/history` exactly, for the same stated reason — a caller that cannot compute one. The service computes nothing: it validates, delegates and passes the rows back, and the test asserts its answer equals the tool called directly, byte for byte. **No projection change was needed**: `CALC_FIELDS` already carried `created`, `resolved`, `storyPoints` and `addedMidSprint`, and the free-text guard refuses the rest at the door as it does for every route.
+
+**A period with no clock is refused rather than answered with an empty series**, because an empty series reads as "nothing was outstanding". `meta.workingDays` stays the caller's to supply and is never derived at the service end — a window has no working-day list on purpose (ADR 0011) and a calendar invented there is the third opinion `CLAUDE.md` warns about.
+
+### Four reasons an empty chart can have, and now four sentences
+
+The tile had one sentence for all of them and it was the wrong one on every Forge install. `burndownNote` travels beside the series and says which: a rolling window has no committed scope to burn down to, a sprint can be missing its dates in Jira, the calculator can refuse or be unreachable — its own sentence, verbatim, because *"unavailable"* names none of the several things that is — and a file can simply carry no series.
+
+**Both transports send it and both explain a window in the same words.** `WINDOW_HAS_NO_BURNDOWN` in `serve_live.py` and the window branch in the resolver are held equal by a test, because a reader being told different things about the same board depending on how the page was reached is the drift ADR 0009 exists to prevent. It is sent **always**, `null` when there is nothing to explain — unlike `setup` and `valueWindow`, which are omitted because a producer may genuinely not know. This one always does: it either built a series or knows why it did not, and an always-present key is one the envelope-parity check can hold both sides to.
+
+Proved by hardcoding `burndown: []` back and watching the parity check and the reason check fail, and by letting the service round one figure of its own and watching byte-for-byte parity fail.
+
+**The calculator is deployed by pushing `service/**` or `agent/tools/**` to `main`**, not by `forge deploy`. Deploying the app first means the resolver calls a route the running calculator does not have and the tile says the calculator returned 404 — honest, and not the point. Push first. `CLAUDE.md`'s architecture paragraph said the calculator was unprovisioned and now says this instead.
+
 ## 1.71.0
 
 **A tile said the wrong thing about a board where it was working correctly, and a refusal disproved itself in its own sentence.** Both were reported from the dev site by looking at the page. Every suite was green through both, which is now the fourth time in two sessions that the thing that found a defect was a person clicking a tile.

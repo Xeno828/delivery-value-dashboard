@@ -221,7 +221,13 @@ console.log(JSON.stringify({
      omits `valueWindow` when the producer did not measure one, so a shape built
      without it leaves the body-key guard blind to exactly the key whose reader
      could go missing. */
-  { start: selected.startDate, end: selected.endDate, excluded: 2, excludedWithValue: 1 }),
+  { start: selected.startDate, end: selected.endDate, excluded: 2, excludedWithValue: 1 },
+  /* And the sixth, for the same reason again. The rows come from the
+     calculator, so a shape built here supplies a representative pair — an
+     empty series *and* the note saying why — because `burndownNote` is omitted
+     when there is nothing to explain and a guard cannot check a key it never
+     sees. */
+  { rows: [], note: 'No burndown could be calculated for this sprint. The calculator returned 503.' }),
   storyPointField: {
     found: findStoryPointField(fieldList),
     // A site with no such field at all. Points must come back null rather than

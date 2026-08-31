@@ -99,7 +99,7 @@ import orgconfig as OC  # noqa: E402
 # One derivation of a sprint's trend row, and it lives in a tool rather than
 # here: a Forge tenant has no Python, so its rows come from the calculator,
 # which ships agent/tools/ and nothing else. ADR 0015.
-from metrics import history_row  # noqa: E402
+from metrics import burndown as _burndown, history_row  # noqa: E402
 
 TIMEOUT = 45
 
@@ -893,54 +893,18 @@ def jira_bundle(args):
 # derived series
 # --------------------------------------------------------------------------
 def build_burndown(issues, meta):
-    """Reconstruct a daily burndown from resolution dates and mid-sprint adds.
-    This is an approximation: it assumes an issue's points leave the chart on
-    its resolution date. If your Jira has a real sprint report API you trust,
-    substitute it here."""
-    days = meta.get("workingDays") or working_days(meta.get("startDate"), meta.get("endDate"))
-    if not days:
-        return []
-    planned = [i for i in issues if not i.get("addedMidSprint")]
-    base_p = sum(i["storyPoints"] for i in planned)
-    base_i = len(planned)
+    """The fetcher's name for `metrics.burndown`, which is where it now lives.
 
-    added_by_day, done_by_day = defaultdict(lambda: [0.0, 0]), defaultdict(lambda: [0.0, 0])
-    for i in issues:
-        if i.get("addedMidSprint") and i.get("created"):
-            added_by_day[i["created"]][0] += i["storyPoints"]
-            added_by_day[i["created"]][1] += 1
-        if i.get("resolved"):
-            done_by_day[i["resolved"]][0] += i["storyPoints"]
-            done_by_day[i["resolved"]][1] += 1
+    Moved so the hosted calculator can serve one to a caller that cannot run
+    Python — a Forge resolver holds the tenant's issues and computes nothing.
+    The container image ships `agent/tools/` and not `scripts/`, so a burndown
+    reachable over HTTP had to be a tool rather than a step in a fetch.
 
-    as_of = meta.get("asOfDate") or date.today().isoformat()
-    out = []
-    scope_p, rem_p, scope_i, rem_i = base_p, base_i, base_p, base_i
-    scope_p, rem_p = base_p, base_p
-    scope_i, rem_i = base_i, base_i
-    n = len(days)
-    for k, day in enumerate(days):
-        add = added_by_day.get(day, [0.0, 0])
-        scope_p += add[0]; rem_p += add[0]
-        scope_i += add[1]; rem_i += add[1]
-        dn = done_by_day.get(day, [0.0, 0])
-        rem_p -= dn[0]
-        rem_i -= dn[1]
-        future = day > as_of
-        frac = (1 - k / (n - 1)) if n > 1 else 0
-        # Both units, always. The dashboard's toggle needs the item series and
-        # the forecasting agent works in items; a points-only burndown puts the
-        # two tools in different units by construction.
-        out.append({
-            "date": day,
-            "remainingSP": None if future else round(rem_p, 1),
-            "scopeSP": None if future else round(scope_p, 1),
-            "idealSP": round(base_p * frac, 1),
-            "remainingItems": None if future else rem_i,
-            "scopeItems": None if future else scope_i,
-            "idealItems": round(base_i * frac, 1),
-        })
-    return out
+    Kept as a name here because three call sites and the sample generators use
+    it, and because a function that moves is easier to follow than a function
+    that vanishes.
+    """
+    return _burndown(issues, meta)
 
 
 def trend_window(cfg):

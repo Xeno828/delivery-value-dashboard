@@ -214,6 +214,18 @@ def window_entry(board_id, board_name, project_key, project_name, days, as_of):
 
 
 # --------------------------------------------------------------- backends
+#: Why a flow board has no burndown. ADR 0011: a window bounds a selection and
+#: is not a clock, so nothing was committed to finishing by the end of it.
+#: `forge/src/jira.js` carries the same sentence and `tests/test_service.py`
+#: asserts the two are identical — a reader on one transport must not be
+#: given a different explanation from a reader on the other.
+WINDOW_HAS_NO_BURNDOWN = (
+    "A burndown plots a committed scope down to the date it was committed for. "
+    "This period is a rolling window rather than a sprint, so nobody committed to "
+    "finishing by the end of it and there is no line to draw. Everything else on "
+    "this page is valid for it."
+)
+
 class BundleBackend:
     """Reads an existing bundle file. Used for demos, tests, and for working
     offline on a plane with last week's pull."""
@@ -255,6 +267,11 @@ class BundleBackend:
             "orgConfig": OC.from_dataset(self.data),
             "issues": [i for i in self.data["issues"] if i.get("contextId") == cid],
             "burndown": by.get("burndown", []), "history": by.get("history", []),
+            # A bundle carries whatever series it was baked with, so the only
+            # thing this producer can explain is a window — which has no
+            # committed scope whoever is serving it.
+            "burndownNote": (WINDOW_HAS_NO_BURNDOWN
+                             if ctx.get("kind") == "window" else None),
             "releases": by.get("releases", []), "dora": by.get("dora"),
         }
 
@@ -371,6 +388,7 @@ class JiraBackend:
                 # wrong answer that looks right.
                 return {"context": dict(ctx), "orgConfig": self.cfg, "issues": [],
                         "burndown": [], "history": [], "releases": [], "dora": None,
+                        "burndownNote": None,
                         "error": "Board %s does not expose the filter behind it, so the "
                                  "issues on it cannot be scoped to. Nothing was queried."
                                  % ctx["boardId"]}
@@ -395,8 +413,16 @@ class JiraBackend:
             # A burndown needs a committed scope and an end to burn down to. A
             # window has neither, so the series is empty and the tile says why
             # rather than drawing a line against a boundary nobody agreed to.
+            #
+            # The sentence is sent rather than left to the page, because the
+            # page has no way to tell this apart from the three other reasons a
+            # series can be empty — and on Forge it printed the wrong one of
+            # them for a whole install. `WINDOW_HAS_NO_BURNDOWN` is the same
+            # wording `forge/src/jira.js` sends, held equal by a test.
             "burndown": ([] if ctx.get("kind") == "window"
                          else self.F.build_burndown(issues, meta)),
+            "burndownNote": (WINDOW_HAS_NO_BURNDOWN
+                             if ctx.get("kind") == "window" else None),
             "history": [], "releases": [], "dora": None,
         }
         ctx["issueCount"] = len(issues)
