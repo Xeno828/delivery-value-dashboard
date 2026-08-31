@@ -196,7 +196,7 @@ A Fargate task bills for its entire lifetime, has no scale-to-zero, and needs a 
 
 ## 5. Data residency: Forge does the routing, and that is the finding
 
-Day one, EU and US, per the answer given.
+Day one, EU and US, per the answer given. **`GB` was added on 2026-08-31**, before the first install, because the United Kingdom is its own realm and the first customer is a UK company — [ADR 0030](adr/0030-the-manifest-commits-to-its-hostnames-and-realms-once.md) has the decision, the London service that backs it, and the one question about undeclared realms that Atlassian has not answered.
 
 The good news is larger than expected. Atlassian's [realm pinning for remotes](https://developer.atlassian.com/platform/forge/remote/remote-realm-pinning/) means **this is a manifest change, not a routing system**:
 
@@ -327,6 +327,8 @@ Cloud Run gives every service a `*.run.app` URL with managed TLS, free. A custom
 **Launch on the `*.run.app` URLs.** But note what that commits: changing a `baseUrl`, or converting its format, is a major version change requiring `--approve MAJOR_VERSION_RULE` and a reinstall on every tenant (§5). Moving to a custom domain later is therefore not a hosting change, it is a forced reinstall for every customer.
 
 So the decision to take now is not which hostname, it is **whether a custom domain is ever wanted**. If the answer is yes, do it before the first external install, when the reinstall costs nothing. If the answer is no, `*.run.app` is a fine permanent address for a backend nobody types. The plan's position: **`*.run.app`, permanently**, because this endpoint is never seen by a human — the customer sees a Jira panel — and a forced reinstall is a real cost paid for a cosmetic one. Revisit only if a security review objects to the hostname, which would be an odd objection to a Google-operated domain.
+
+**Decided 2026-08-31: `*.run.app`, permanently** — and on a stronger argument than this section's, which weighs only the cosmetics. The case for a domain is that it is the sole layer of indirection between the manifest and the infrastructure; it lost because a project migrated into an organisation keeps its id and number, so the hostnames cannot move unless the project is *recreated*, which is now declined rather than insured against. [ADR 0030](adr/0030-the-manifest-commits-to-its-hostnames-and-realms-once.md), which also records that Cloud Run's load-balancer-free domain mappings are not an option here: preview, not production-ready, and `europe-west3` is not a supported region.
 
 ---
 
@@ -473,8 +475,8 @@ Not assumed, and each one changes something concrete.
 
 1. **Is the volume model right?** §4.1 assumes roughly two calculator calls per dashboard open and 20 opens per tenant per working day. If a tenant's dashboard refreshes on a timer, or if the panel calls on every render, the multiplier changes and the Marketplace tier moves — though it would take about a 15× increase before the bill reaches $50/month, so this is a question about sizing, not about affordability.
 2. **Is there a budget ceiling worth designing against?** On these numbers the answer is likely "no, spend the four dollars", but `min-instances` (§4.2) and a custom domain (§9) are both ten-to-twenty-times decisions and are the only two places where a ceiling would actually bind.
-3. **Does a Marketplace listing require a named vendor-hosted region beyond EU and US?** Atlassian supports realm pinning for Australia, Canada, Germany, India, Japan, Singapore, South Korea, Switzerland and the UK. Each additional one is another deployment, another rebuild target — and adding a region later is a major version change and a reinstall. If any of these is foreseeable, adding it at step 6 of §13 is nearly free and adding it afterwards is not.
-4. **Who owns the Google Cloud account, and is it a new organisation or a personal project?** This is a Marketplace product; a personal-account project is a single point of failure with no second admin, and the fix costs nothing at creation and is painful later.
+3. **Does a Marketplace listing require a named vendor-hosted region beyond EU and US?** *Answered 2026-08-31, by a customer rather than by the listing: `GB` is declared and backed by a London service, because the first private trial is a UK company and the UK is its own realm. What an undeclared realm does to a tenant is still unknown and is now a question with Atlassian. [ADR 0030](adr/0030-the-manifest-commits-to-its-hostnames-and-realms-once.md).* Atlassian supports realm pinning for Australia, Canada, Germany, India, Japan, Singapore, South Korea, Switzerland and the UK. Each additional one is another deployment, another rebuild target — and adding a region later is a major version change and a reinstall. If any of these is foreseeable, adding it at step 6 of §13 is nearly free and adding it afterwards is not.
+4. **Who owns the Google Cloud account, and is it a new organisation or a personal project?** *Confirmed 2026-08-31: a personal project, `calculator-506614`, with no organisation parent. A second owner is being added as the immediate mitigation and the move under an organisation is deferred until nearer a public release — safe to defer because a migration preserves the project id and number, and therefore the hostnames.* This is a Marketplace product; a personal-account project is a single point of failure with no second admin, and the fix costs nothing at creation and is painful later.
 5. **Does §1.3 stay open until a real token is measured?** The recommendation is yes. Confirm that is acceptable — it means launching with a 30-second leeway on a 25-second token for as long as step 7 takes.
 
 ---

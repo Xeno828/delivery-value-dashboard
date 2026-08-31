@@ -328,14 +328,25 @@ decision, Console work or commercial work. Item 5 is a first pass — all three
 exposures answered by *accepting a disclosure and naming it*, which is a
 coherent position and is not the permission model its 5–8 weeks was for.
 
-**Two decisions that are cheap now and expensive after the first external
-install.** Both are irreversible in the same way: changing them later is a major
-version and a forced reinstall for every customer.
+**Two decisions that were cheap then and expensive after the first external
+install, both answered 2026-08-31** — while the only installation was still
+`development`, and with the first private trial expected in September. Each was
+irreversible in the same way: changing it later is a major version and a forced
+reinstall for every customer.
+[ADR 0030](adr/0030-the-manifest-commits-to-its-hostnames-and-realms-once.md)
+carries both, and the argument that nearly went the other way.
 
-1. **A custom domain, or `*.run.app` for ever?** §9 of
-   `docs/hosting-the-calculator.md`. Free to decide today.
-2. **Which residency regions?** EU and US exist. Nine more are available and
-   each is another deployment. §5, §14.
+1. **A custom domain, or `*.run.app` for ever?** `*.run.app`, permanently. A
+   domain is the only indirection between the manifest and the infrastructure,
+   which is a better case than §9's cosmetic one — it lost to the fact that a
+   project migrated into an organisation keeps its id and number, so the
+   hostnames move only if the project is *recreated*, which is declined rather
+   than insured against at £30–40 a month.
+2. **Which residency regions?** Three: `US`, `EU` and now `GB`, the last with
+   its own London service, because the United Kingdom is a separate realm from
+   the EU and the first customer is a UK company. What a tenant pinned to an
+   *undeclared* realm receives is documented nowhere and is the open question
+   that decides whether `DE` and `CH` follow.
 
 **And one that already bit.** The app has been through two major versions on
 the dev site this week — the `llm` module and `read:epic:jira-software` — both
