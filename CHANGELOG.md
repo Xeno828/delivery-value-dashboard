@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.66.1
+
+**Both transports looked for candidates in the one place a candidate cannot be.** Found the moment two epics were marked on a live board: the fetcher reported *0 candidates* and the resolver would have said *nothing on this board is marked as a candidate* — a refusal that reads as a fact about the board, while `MOBL-4` and `MOBL-1` both answered `Y`.
+
+**The window is the right rule for value and the wrong one for candidacy.** Epics are not on a scrum board, so both transports fetch them separately and keep those that **finished inside the period** — because an epic's value belongs to the period it completed in ([ADR 0026](docs/adr/0026-items-and-value-are-counted-from-two-different-sets.md)). A candidate is being weighed against other things *precisely because nobody has done it*. It has no resolution date to fall inside anything, so the filter excluded every one of them, always.
+
+An epic is now kept when it finished in the window **or** when it has been reached for — and an unreadable answer counts as reached for, or the epic whose field says "Maybe" is dropped before anything can name it.
+
+**Nothing else moved, and that was checked rather than assumed.** Every scalar figure `metrics.facts` produces was captured before and after against the same board: 65 figures, and the only ones that changed were the counting disclosure — *"12 of 41 issues are not counted as items (4 epic or above, 8 subtask)"* where it had said 10 of 39. Delivery, value, load and flow are identical, which is what ADR 0024 and ADR 0026 predict for two unresolved epics: an epic is never an item, and value is credited only on resolution.
+
+**And a ReferenceError that `node --check` cannot see.** The resolver referenced a bare `as` for the read authority, which is declared in no scope there. It parses; it throws on the first call. The authority is named and stated now — `asUser`, like every other panel read, because item 5's permission mirroring holds only while this app never reads a board its reader cannot.
+
+**On the live board it now finds both, assembles both, and refuses for a different reason.** `MOBL-4` at £100,000 and `MOBL-1` at £30,000 arrive with their bases and their needed-by dates, and `sequence` then declines: *"too little delivery history on this team to forecast against (0 observations, 10 needed). A wider range would not fix this — the evidence is absent, not noisy."* That is the right answer for a board with one sprint behind it, and it is a different sentence from the one about candidates, which is the whole point of there being more than one.
+
 ## 1.66.0
 
 **The Forge sequencing refusal is gone.** Roadmap item 7, slice three. It stood since the resolver was written and it was accurate every day of it: `intake.sequence` compares orderings of asks, and nothing in a Jira site said which issues were being weighed against each other. It does now (ADR 0028), so the resolver assembles them and delegates to `/v1/sequence`.

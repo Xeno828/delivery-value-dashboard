@@ -647,11 +647,24 @@ def jira_pull(args):
         for e in epics:
             if e["key"] in seen:
                 continue
-            done = d((e.get("fields") or {}).get("resolutiondate"))
-            if not (start and end and done and start <= done <= end):
+            iss = build(e, sprint_start)
+            done = iss.get("resolved")
+            in_window = bool(start and end and done and start <= done <= end)
+            # **A candidate is pulled whenever it was raised.** The window is
+            # the right rule for value — an epic's value belongs to the period
+            # it completed in, ADR 0026 — and exactly the wrong one here: a
+            # candidate is being weighed against other things precisely because
+            # nobody has done it, so it has no resolution date to fall inside
+            # anything. Filtering on the window found none of them and reported
+            # "no candidates" as though it were a fact about the board.
+            #
+            # An unreadable answer counts as reached-for too, or the epic whose
+            # field says "Maybe" is dropped before anything can name it.
+            is_candidate = OC.candidate_answer(iss) is not False
+            if not (in_window or is_candidate):
                 continue
-            issues.append(build(e, sprint_start))
-            added += 1
+            issues.append(iss)
+            added += 1 if in_window else 0
         if added:
             print("  %d epic%s finished in this sprint and carried value"
                   % (added, "" if added == 1 else "s"), file=sys.stderr)

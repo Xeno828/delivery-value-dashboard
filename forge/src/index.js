@@ -1360,7 +1360,35 @@ resolver.define('sequence', answering(async ({ payload, context }) => {
   const spField = await storyPointFieldFor();
   const issues = await issuesForEntry(entry, spField, context?.siteUrl);
   const cfg = (await orgConfigFor(projectKey)).config;
-  const { asks, text, notes } = asksFromIssues(issues, cfg);
+
+  // **Candidates come from the board's epics, not from this period's issues.**
+  //
+  // `issuesForEntry` returns the sprint's issues plus the epics that *finished
+  // inside the window* — which is right for value, because value is credited
+  // to the period an epic completed in (ADR 0026), and exactly wrong here. A
+  // candidate is by definition unfinished: it is being weighed against other
+  // things precisely because nobody has done it. Assembling asks from that set
+  // found nothing on a board with two epics marked, and said so as if it were a
+  // fact about the board rather than about where this looked.
+  // Read as the viewer, like every other panel read, and stated rather than
+  // left to a default: `jira(undefined)` is `asUser()`, and item 5's permission
+  // mirroring holds only because this app never reads a board its reader
+  // cannot. `issuesForEntry` above takes the same authority the same way.
+  const readAs = undefined;
+  const askField = cfg?.askField;
+  const appFields = await appFieldsFor(readAs, askField);
+  const boardId = parseContextId(asked)?.boardId;
+  const { epics } = appFields.candidate && boardId
+    ? await boardEpicsFor(boardId, readAs, appFields, spField)
+    : { epics: [] };
+  const candidates = epics.map((raw) => issueFrom(raw, {
+    storyPointField: spField,
+    businessValueField: appFields.value,
+    valueBasisField: appFields.basis,
+    askFieldId: appFields.candidate,
+    siteUrl: context?.siteUrl,
+  }));
+  const { asks, text, notes } = asksFromIssues(candidates, cfg);
 
   // Two refusals, and they are different facts about the board. One says
   // nobody has put anything forward; the other says one person has, and an
