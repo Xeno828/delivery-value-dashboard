@@ -21,7 +21,7 @@ A story-point estimate carried on an issue. A display lens for whether scope gro
 _Avoid_: Estimate (as a noun for size), effort
 
 **Epic**:
-A parent grouping of issues. Also the sample unit for sizing an ask, once it has stopped growing and is nearly complete.
+A parent grouping of issues. Also the sample unit for sizing an ask, once it has stopped growing and is nearly complete — and, where one is declared a **candidate**, an ask itself.
 _Avoid_: Initiative, feature (as a synonym)
 
 **Board**:
@@ -191,8 +191,12 @@ _Avoid_: Target, quota, plan
 ### Intake
 
 **Ask**:
-A described product request with no tickets written yet — the input to intake.
-_Avoid_: Request, requirement, feature request, epic (which is a tracker object)
+A product request being weighed against others — the input to intake. What makes something an ask is that somebody declared it under consideration, not whether tickets exist for it: it is either a document written in `data/asks/`, or an epic on a board marked a **candidate**.
+_Avoid_: Request, requirement, feature request, epic (unqualified — an epic is a tracker object, and only a declared candidate is an ask)
+
+**Candidate**:
+An issue somebody has declared to be under consideration, which is the declaration that makes it an ask. A state rather than an issue type — it becomes untrue when whoever declared it takes it back, never because the work has since started or finished. ADR 0028.
+_Avoid_: Proposal, unstarted work, backlog item (candidacy is declared, or implied by a **band** unless somebody said no; never inferred from status or from an epic not having started)
 
 **Sizing method**:
 Which evidence an ask's size range was built from: **t-shirt**, **reference class**, or **explicit**. Recorded and reported with every forecast, because it bounds how far the answer can be trusted.
@@ -202,8 +206,12 @@ _Avoid_: Estimation approach
 S/M/L/XL bands derived from one board's own completed epics, in items. Never an organisation-wide scale — an "L" has never meant the same thing on two teams.
 _Avoid_: Sizing scale (unqualified), points
 
+**Band**:
+The S, M, L or XL somebody put on an epic. It selects which quartile of the board's completed epics the ask is forecast against; it asserts no number of its own, which is what separates it from estimating in points. ADR 0029.
+_Avoid_: Size estimate, t-shirt estimate (both imply the band is the size rather than the selector)
+
 **Reference class**:
-The board's completed epics used as the sample when no sizing judgement has been made at all. Widest range, fewest assumptions.
+The board's completed epics used as the sample an ask is forecast against. The whole class when no band has been chosen, or none can be read — widest range, fewest assumptions — and one quartile of it when there is a band.
 _Avoid_: Baseline, historical average
 
 **Readiness**:
