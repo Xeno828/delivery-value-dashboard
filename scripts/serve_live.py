@@ -112,6 +112,11 @@ def sequence_for(data, cid):
     res.setdefault("board", str(board))
     res.setdefault("boardName", ctx.get("boardName"))
     res["asks_considered"] = len(asks)
+    # Empty, and present anyway. ADR 0009 is one set of body shapes over two
+    # transports: asks here are files somebody wrote, so there is no candidacy
+    # answer to fail to read and nothing to report — but a key the page reads on
+    # one transport and not the other is how the two drift.
+    res.setdefault("notes", {"unreadable": [], "delivered": []})
     return res
 
 

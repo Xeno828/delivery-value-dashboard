@@ -1130,6 +1130,96 @@ def transports(b):
                   {"served": str(loop_print[field])[:120],
                    "forge-shaped": str(shaped_print[field])[:120]})
 
+
+        # ---------- the sequencing tile, over a Forge-shaped body ----------
+        #
+        # Value and its basis sit on every row of every ordering and nothing had
+        # ever read them, so the figure ADR 0027 exists to let a reader
+        # challenge was computed, carried across two transports and shown to
+        # nobody. The notes are ADR 0028's disclosures, and they matter most
+        # beside a refusal: a board whose only candidacy answers were unreadable
+        # refuses *and* has the reason to hand.
+        XSSY = '<img src=x onerror="window.__seq=1">'
+        seq_body = {
+            "available": True, "as_of": "2026-08-14",
+            "asks_considered": 2, "board": "42", "boardName": "Storefront",
+            "queue_items": 7, "basis": "queued behind 7 committed items",
+            "note": "Dates are 85th-percentile.",
+            "orderings": [{"first": "E1", "order": [
+                {"id": "E1", "title": "Saved cards", "p85_days": 30,
+                 "p85_date": "2026-10-01", "value": 210000,
+                 "valueBasis": "1,900 abandonments a month", "neededBy": "2026-10-30"},
+                {"id": "E2", "title": XSSY, "p85_days": 50,
+                 "p85_date": "2026-11-20", "value": None, "valueBasis": ""},
+            ]}],
+            "comparison": [{"first": "E1", "its_own_p85_date": "2026-10-01",
+                            "delays_others_by_days": 12, "misses_a_needed_by": []}],
+            "skipped": [],
+            "unachievable_at_any_priority": [],
+            "notes": {"unreadable": [{"key": "E9", "said": XSSY}],
+                      "delivered": [{"id": "E7", "resolved": "2026-08-01"}]},
+        }
+        seq_stub = """
+        window.__DVD_BRIDGE__ = { name: 'stub', invoke: (route, params) => {
+            const bodies = %s;
+            if (route === 'contexts') return Promise.resolve({status: 200, body: bodies.contexts});
+            if (route === 'context') return Promise.resolve({status: 200, body: bodies.context});
+            if (route === 'sequence') return Promise.resolve({status: 200, body: bodies.sequence});
+            return Promise.resolve({status: 404, body: null}); } };
+        """ % json.dumps({"contexts": contexts_body, "context": forge_shaped,
+                          "sequence": seq_body})
+        page = b.new_page(viewport={"width": 1500, "height": 1400})
+        page.add_init_script(seq_stub)
+        page.goto(url)
+        page.wait_for_timeout(500)
+        page.evaluate("id => window.DVD.debug.selectContext(id)", cid)
+        page.wait_for_timeout(900)
+        page.evaluate("""() => [...document.querySelectorAll('button')]
+            .find(b => /Sequence asks/i.test(b.textContent)).click()""")
+        page.wait_for_timeout(900)
+        tile = page.text_content("#c-forecast")
+
+        check("the ask's worth is on the page at last",
+              "210,000" in tile.replace(" ", " "), tile[:200])
+        check("and the sentence a reader is meant to challenge is beside it",
+              "1,900 abandonments a month" in tile, tile[:300])
+        # An unpriced ask says so rather than showing a zero, and carries no
+        # basis it does not have.
+        check("an unpriced ask reads as not priced, never as nil",
+              "not priced" in tile, tile[:400])
+        check("the disclosures are named beside the answer",
+              "could not be read" in tile and "E9" in tile
+              and "already been delivered" in tile and "E7" in tile, tile[:600])
+        # An ask title and a candidacy answer are both written by whoever can
+        # edit an issue. `esc()` at output, once.
+        check("hostile text in a title or an answer is escaped, not run",
+              page.evaluate("() => window.__seq === undefined")
+              and page.evaluate("() => !document.querySelector('#c-forecast img')"),
+              tile[:120])
+        page.close()
+
+        # ---------- and a refusal still shows what was reached for ----------
+        refused_body = {"available": False, "board": "42", "boardName": "Storefront",
+                        "sentence": "Nothing on this board is marked as a candidate.",
+                        "notes": {"unreadable": [{"key": "E9", "said": "Maybe"}],
+                                  "delivered": []}}
+        page = b.new_page(viewport={"width": 1500, "height": 1000})
+        page.add_init_script(seq_stub.replace(json.dumps(seq_body), json.dumps(refused_body)))
+        page.goto(url)
+        page.wait_for_timeout(500)
+        page.evaluate("id => window.DVD.debug.selectContext(id)", cid)
+        page.wait_for_timeout(900)
+        page.evaluate("""() => [...document.querySelectorAll('button')]
+            .find(b => /Sequence asks/i.test(b.textContent)).click()""")
+        page.wait_for_timeout(900)
+        refused_tile = page.text_content("#c-forecast")
+        check("a refusal carries the tool's sentence verbatim",
+              "marked as a candidate" in refused_tile, refused_tile[:200])
+        check("and still names the answer nobody could read",
+              "E9" in refused_tile and "could not be read" in refused_tile,
+              refused_tile[:300])
+        page.close()
+
         # ---------- a transport that answered, and refused ----------
         # The failure this shipped with: `contexts` came back 404 with a
         # sentence, probeLive returned without reading it, and the customer got

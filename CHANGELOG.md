@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.67.0
+
+**The value and its basis are on the page.** Roadmap item 7, slice four. `sequence` has put `value` and `valueBasis` on every row of every ordering since it was written, and nothing had ever read them — so the figure [ADR 0027](docs/adr/0027-a-value-basis-is-prose-carried-to-a-reader.md) exists to let a reader challenge was computed, carried across two transports, and shown to nobody. The tile now leads with the asks themselves: what each is worth, **why that figure**, and when it is needed, beside the delivery consequence of ordering them.
+
+Nothing sorts, ranks or scores on it. The cost of an ordering is computable and the worth of the thing ordered is not, which is ADR 0004 and the whole reason this tile returns consequences rather than a priority.
+
+**An unpriced ask says so.** *"Not priced"* rather than a zero, and no basis where there is no figure — the same distinction the value tile draws between a thing nobody valued and a thing worth nothing.
+
+**The disclosures are rendered, and beside a refusal as well as an answer.** An unreadable candidacy answer is named with the issue key and the words somebody wrote; a candidate already delivered is named with its date and the reminder that clearing the field is the answer, because nothing here infers that a finished thing has stopped being a candidate (ADR 0028). Showing them only next to a successful table would have been the wrong way round: a board whose only answers were unreadable *refuses*, and that is exactly when the reason matters.
+
+**Two shape bugs, found by rendering it rather than by reading it.**
+
+`scripts/serve_live.py` adds `asks_considered`, `board` and `boardName` around the tool's answer and the Forge resolver added none of them — so the panel would have read **"Sequencing 0 asks"** over a table of two. ADR 0009 is one set of body shapes over two transports, and this was one set of shapes over one.
+
+And the page carried a transport-specific sentence: the "no sequencing" branch named `data/asks/`, which is true of the loopback server and meaningless on Forge, where asks come from a field. `src/app.js` must never learn which transport it has. It is neutral now, and the server that genuinely runs on files says so in its own refusal sentence, which arrives in the body rather than being written into the page.
+
+**Verified rendering, not just returning.** Against the loopback server on the demo bundle: four asks on Storefront Delivery, two of them priced at US$64,000 and US$240,000 with their bases printed, one ask that no ordering delivers by its date, and two that could not be sized — each named with its reason. Pinned in `tests/e2e.py` over a Forge-shaped body, including that a hostile ask title and a hostile candidacy answer are escaped rather than run: both are written by anyone who can edit an issue.
+
 ## 1.66.1
 
 **Both transports looked for candidates in the one place a candidate cannot be.** Found the moment two epics were marked on a live board: the fetcher reported *0 candidates* and the resolver would have said *nothing on this board is marked as a candidate* — a refusal that reads as a fact about the board, while `MOBL-4` and `MOBL-1` both answered `Y`.

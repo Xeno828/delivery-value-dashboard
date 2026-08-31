@@ -3923,6 +3923,41 @@ function showBriefNames(el, id, ids) {
   });
 }
 
+/** What was reached for and could not be read, and what is already delivered.
+ *
+ *  Disclosures rather than errors, and named rather than counted. Shown beside a
+ *  refusal as well as beside an answer: a board whose only candidacy answers were
+ *  unreadable refuses *and* has the reason to hand, and printing the refusal
+ *  without the reason tells a reader nothing is marked when something nearly is.
+ *
+ *  ADR 0028. An answer this cannot read is neither a yes nor a no, and a
+ *  candidate already delivered is still a candidate, because un-declaring one
+ *  belongs to whoever declared it and inferring it here would be this product
+ *  deciding what somebody meant.
+ */
+function sequenceNotes(sq) {
+  const nts = (sq && sq.notes) || {};
+  const unread = nts.unreadable || [], done = nts.delivered || [];
+  let out = "";
+  if (unread.length) {
+    out += '<div class="fc-commit"><b>' + unread.length + " answer" +
+      (unread.length === 1 ? "" : "s") + " could not be read, and " +
+      (unread.length === 1 ? "is" : "are") + " neither in the comparison nor out of it:</b>" +
+      '<ul class="seq-un">' +
+      unread.map(u => "<li><b>" + esc(u.key) + "</b> says " + esc(u.said) + "</li>").join("") +
+      "</ul>Yes, Y or True marks a candidate. Anything else is not a no.</div>";
+  }
+  if (done.length) {
+    out += '<div class="note">' + done.length + " candidate" +
+      (done.length === 1 ? " has" : "s have") + " already been delivered and " +
+      (done.length === 1 ? "is" : "are") + " still being sequenced: " +
+      done.map(x => esc(x.id) + " (" + esc(fmtD(x.resolved)) + ")").join(", ") +
+      ". Nothing here infers that a finished thing has stopped being a candidate; " +
+      "clearing the field is the answer.</div>";
+  }
+  return out;
+}
+
 function renderSequence(el, ctrl) {
   const id = S.ctx, sq = S.sequences[id];
   if (sq === undefined) {
@@ -3931,16 +3966,22 @@ function renderSequence(el, ctrl) {
     return;
   }
   if (sq === null || sq.unknown) {
+    // Transport-neutral on purpose. This branch is "the route answered with
+    // nothing", which is a fact about the connection rather than about asks —
+    // and the page must not learn which transport it has (ADR 0009). It used to
+    // name `data/asks/` here, which is true of one transport and meaningless on
+    // the other; the server that *does* run on files says so in its own refusal
+    // sentence, which arrives below rather than being written in here.
     el.innerHTML = ctrl + '<div class="fc-offline"><b>No sequencing for this selection.</b>' +
-      '<div class="note">The server has no asks recorded against it. Sequencing runs per board, ' +
-      "from the files in <code>data/asks/</code>.</div></div>";
+      '<div class="note">Nothing was ordered, and nothing else on this page depends ' +
+      "on it.</div></div>";
     return;
   }
   if (!sq.available) {
     // The tool's sentence, verbatim. It says which of the several reasons
     // applies, and they are not interchangeable.
     el.innerHTML = ctrl + '<div class="fc-refusal"><b>No sequence.</b> ' +
-      esc(sq.sentence || "not available") + "</div>";
+      esc(sq.sentence || "not available") + "</div>" + sequenceNotes(sq);
     return;
   }
 
@@ -3948,6 +3989,35 @@ function renderSequence(el, ctrl) {
     " ask" + (sq.asks_considered === 1 ? "" : "s") + "</b> on <b>" +
     esc(sq.boardName || sq.team && sq.team.boardName || "this board") + "</b> — queued behind " +
     sq.queue_items + " committed item" + (sq.queue_items === 1 ? "" : "s") + ".</div>";
+
+  // ---- what is being ordered, and what anyone said it is worth ----
+  //
+  // The comparison below is about *orderings*; this is about the asks. Value
+  // and its basis sit on every row of every ordering — `sequence` puts them
+  // there — and nothing had ever read them, so the figure ADR 0027 exists to
+  // let a reader challenge was computed, carried across two transports, and
+  // never shown to anybody.
+  //
+  // Printed beside the amount and used for nothing else. Nothing here sorts,
+  // ranks or scores on it: the cost of an ordering is computable and the worth
+  // of the thing ordered is not, which is ADR 0004 and the reason this tile
+  // returns consequences rather than a priority.
+  const firstOrdering = (sq.orderings || [])[0];
+  const asks = (firstOrdering && firstOrdering.order) || [];
+  if (asks.length) {
+    html += '<div class="tv-wrap"><table class="tv fc-tab"><thead><tr>' +
+      "<th>Ask</th><th>Worth</th><th>Why that figure</th><th>Needed by</th>" +
+      "</tr></thead><tbody>" +
+      asks.map(a => "<tr><td><b>" + esc(a.id) + "</b>" +
+        (a.title ? '<br><span class="note">' + esc(a.title) + "</span>" : "") +
+        "</td><td>" + (a.value != null
+          ? esc(money(a.value, S.view.meta.currency))
+          : '<span class="note">not priced</span>') +
+        '</td><td class="note">' +
+        (a.value != null ? esc(a.valueBasis || "no basis recorded") : "—") +
+        "</td><td>" + (a.neededBy ? esc(fmtD(a.neededBy)) : '<span class="note">no date</span>') +
+        "</td></tr>").join("") + "</tbody></table></div>";
+  }
 
   const un = sq.unachievable_at_any_priority || [];
   if (un.length) {
@@ -3979,6 +4049,7 @@ function renderSequence(el, ctrl) {
       "</ul></div>";
   }
 
+  html += sequenceNotes(sq);
   html += '<div class="note fc-basis">' + esc(sq.basis || "") + "</div>";
   html += '<div class="note fc-src">' + esc(sq.note || "") +
     "<br>Computed by <code>intake.py</code> as at " + esc(fmtD(sq.as_of)) +

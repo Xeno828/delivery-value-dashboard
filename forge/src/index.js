@@ -1399,6 +1399,8 @@ resolver.define('sequence', answering(async ({ payload, context }) => {
       status: 200,
       body: {
         available: false,
+        board: boardId == null ? null : String(boardId),
+        boardName: entry.boardName ?? null,
         notes,
         sentence: 'Nothing on this board is marked as a candidate, so there is nothing '
                 + 'to sequence. Answer the Candidate field on the epics being weighed '
@@ -1413,6 +1415,9 @@ resolver.define('sequence', answering(async ({ payload, context }) => {
       status: 200,
       body: {
         available: false,
+        board: boardId == null ? null : String(boardId),
+        boardName: entry.boardName ?? null,
+        asks_considered: asks.length,
         notes,
         sentence: 'One candidate is marked on this board, and sequencing compares '
                 + 'orderings of two or more against each other. Nothing was sequenced, '
@@ -1436,10 +1441,33 @@ resolver.define('sequence', answering(async ({ payload, context }) => {
     board: parseContextId(asked)?.boardId,
   });
   if (answer.available === false) {
-    return { status: 200, body: { available: false, notes, sentence: answer.sentence } };
+    return {
+      status: 200,
+      body: {
+        available: false,
+        board: boardId == null ? null : String(boardId),
+        boardName: entry.boardName ?? null,
+        asks_considered: asks.length,
+        notes,
+        sentence: answer.sentence,
+      },
+    };
   }
 
-  return { status: 200, body: { ...reattachAsks(answer.result, text), notes } };
+  // The same three keys `scripts/serve_live.py` adds around the tool's answer.
+  // ADR 0009 is one set of body shapes over two transports, and the page reads
+  // `asks_considered` for its own heading — without it the panel says
+  // "Sequencing 0 asks" over a table of two.
+  return {
+    status: 200,
+    body: {
+      ...reattachAsks(answer.result, text),
+      board: boardId == null ? null : String(boardId),
+      boardName: entry.boardName ?? null,
+      asks_considered: asks.length,
+      notes,
+    },
+  };
 }));
 
 /* ------------------------------------------------------------------------
