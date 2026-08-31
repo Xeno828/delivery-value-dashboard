@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.72.1
+
+**The burndown shipped broken and the tile said so: *"the calculation failed. Nothing partial was returned."*** Reported on the first real Forge load, minutes after deploying 1.72.0.
+
+`orgconfig.working_days` returns `date` objects. The local helper it replaced inside the fetcher returned ISO strings. Every day in a burndown is compared against `asOfDate` and emitted as a `date` field, and both of those are strings — so the moved function threw `'>' not supported between instances of 'datetime.date' and 'str'` the moment anything took that branch. `working_days_iso` is the one that was wanted, and is what it calls now.
+
+**What is worth recording is why the test passed.** `metrics.burndown` derives its own days only when `meta.workingDays` is absent, and **every dataset in this repository carries one** — the fetcher writes it, the bundles carry it, `serve_live` sets it. So the branch had no fixture, and the parity test written specifically to cover this route exercised the other one. A Forge resolver sends a sprint's dates and has no working-day list to send, which makes the uncovered branch the only branch that transport ever takes.
+
+That is the shape this repository keeps finding and it found it again from a screenshot rather than from a suite: a test that passes over the path nobody uses, guarding a path everybody does. The test now runs both branches and asserts they return byte-identical rows, because which one a caller happens to take must not decide what the chart says. Proved by restoring the date-returning helper and watching it throw.
+
+The refusal itself behaved correctly — the calculator's own sentence reached the tile verbatim and named the failure instead of drawing an empty chart, which is the only reason this took one screenshot to find. Its punctuation is fixed: it read *"for this sprint. the calculation failed"* and now joins with a dash.
+
 ## 1.72.0
 
 **The burndown tile has been blank on every Forge install since the bridge existed, and the sentence under it blamed the tenant's data.** *"No burndown series in the dataset"* — for a chart this transport had never built. Asked which they would rather have, the answer was the chart: some businesses run on burndowns, and the option not existing is worse than the option being empty.

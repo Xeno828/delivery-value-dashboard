@@ -124,8 +124,17 @@ def burndown(issues, meta, cfg=None):
     you land on when a burndown has flattened and nothing has said why. The item
     series is unaffected and is the one the forecaster reads.
     """
-    days = meta.get("workingDays") or working_days(
-        meta.get("startDate"), meta.get("endDate"), cfg)
+    # `working_days_iso` and not `working_days`: this module's `working_days`
+    # returns `date` objects, and every day here is compared against `asOfDate`
+    # and emitted as a `date` field — both of which are ISO strings. The
+    # fetcher's own local helper returned strings, so moving the function here
+    # silently changed the type on this branch alone. It threw `'>' not
+    # supported between instances of 'datetime.date' and 'str'` the first time
+    # a caller relied on it, which was the first Forge load: every dataset in
+    # this repository carries `meta.workingDays`, so the branch had no fixture
+    # and the parity test that was supposed to cover this never ran it.
+    days = meta.get("workingDays") or OC.working_days_iso(
+        meta.get("startDate"), meta.get("endDate"), cfg or OC.DEFAULTS)
     if not days:
         return []
     sp = lambda i: (i.get("storyPoints") or 0)

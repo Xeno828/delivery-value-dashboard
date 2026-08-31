@@ -1053,7 +1053,7 @@ const burndownFor = async (entry, issues, cfg) => {
     // The calculator's own sentence, verbatim. "Unavailable" names none of the
     // several things this is, and the reader who can act on it is the one told
     // which.
-    return { rows: [], note: `No burndown could be calculated for this sprint. ${answer.sentence}` };
+    return { rows: [], note: `No burndown could be calculated for this sprint — ${answer.sentence}` };
   }
   return { rows: (answer.result ?? {}).burndown ?? [], note: null };
 };

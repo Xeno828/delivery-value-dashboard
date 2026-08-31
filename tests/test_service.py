@@ -3762,6 +3762,35 @@ def test_a_burndown_is_served_rather_than_left_blank():
           len(served) > 1 and any(r["remainingItems"] is not None for r in served),
           len(served))
 
+    # ---- the branch every fixture in this repository hides ----
+    #
+    # `meta.workingDays` is present in every dataset here, so the *derived*
+    # branch had no coverage — and it is the only branch a Forge caller takes,
+    # because a resolver sends the sprint's dates and has no working-day list to
+    # send. It threw on the first real load: `orgconfig.working_days` returns
+    # `date` objects where the fetcher's own local helper had returned ISO
+    # strings, and `day > as_of` compared a date against a string.
+    #
+    # The tile said "the calculation failed. Nothing partial was returned",
+    # which was true, and the test that was supposed to cover this had passed.
+    dated = {"startDate": "2026-08-31", "endDate": "2026-09-04",
+             "asOfDate": "2026-09-02"}
+    two = [{"key": "A", "resolved": "2026-08-31", "created": "2026-08-28", "storyPoints": 3},
+           {"key": "B", "resolved": "2026-09-02", "created": "2026-08-28", "storyPoints": 5}]
+    derived = SVC.route_burndown({"dataset": {"issues": two, "meta": dated}})["burndown"]
+    check("a burndown derives its own days from a start and an end",
+          len(derived) == 5, derived)
+    check("and every date it emits is an ISO string, not a date object",
+          all(isinstance(r["date"], str) for r in derived),
+          [type(r["date"]).__name__ for r in derived])
+    # The two branches must agree, or which one a caller happens to take decides
+    # what the chart says.
+    supplied = SVC.route_burndown({"dataset": {"issues": two, "meta": dict(
+        dated, workingDays=OC.working_days_iso(
+            dated["startDate"], dated["endDate"], OC.DEFAULTS))}})["burndown"]
+    check("and supplying the days gives byte-identical rows",
+          json.dumps(derived) == json.dumps(supplied), {"derived": derived[:1]})
+
     # A period with no days to plot against is refused, not answered with an
     # empty series that reads as "nothing was outstanding".
     try:
