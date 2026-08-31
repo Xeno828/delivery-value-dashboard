@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.74.2
+
+**The guard added in 1.74.0 did not run on the change it exists for.** It asserts that every realm in `forge/manifest.yml` points at a service the deploy actually produced — and it lives in the deploy workflow, which triggers on `service/**`, `agent/tools/**` and itself. The manifest is none of those. So 1.74.1, the commit that declared `GB`, was the one manifest change in this project's history that most needed checking against reality and was the one the check sat out.
+
+Nothing was wrong with that commit — the URL came from the deploy log that created the service. The hole is that had it been a typo, the answer would have been a UK tenant routed at a hostname nobody verified, and it would have stayed that way until the next service push or the Monday rebuild: up to a week. `forge/manifest.yml` is now a trigger path, with a comment saying it is there for the guard and not for the image, which it cannot reach. Redeploying an unchanged image costs a couple of minutes, and this workflow already does exactly that every Monday with nobody watching.
+
 ## 1.74.1
 
 **`GB` is declared, and a UK tenant's numbers are now computed in London.** The realm points at `https://calculator-jtfw7qf4ea-nw.a.run.app`, the `europe-west2` service 1.74.0 deployed — declared only after it existed, because a realm naming a URL that does not answer is the same stale-calculator failure seen from the other end. [ADR 0030](docs/adr/0030-the-manifest-commits-to-its-hostnames-and-realms-once.md) has the decision; this is it landing.

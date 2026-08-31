@@ -45,6 +45,15 @@ on:
       # being timid about; this one is narrowed only where the Dockerfile makes
       # it safe.
       - '!service/**.md'
+      # The manifest is here for the guard below rather than for the image,
+      # which it cannot reach. A realm is declared by editing this file, and
+      # the only thing that knows whether a realm's URL is a service that
+      # actually answers is a deploy — so a manifest change that added a realm
+      # would otherwise go unchecked until the next service push or the Monday
+      # rebuild, which is up to a week of a customer being routed at a URL
+      # nobody verified. Redeploying an unchanged image is cheap and this
+      # workflow already does it weekly with nobody watching.
+      - 'forge/manifest.yml'
   schedule:
     # Mondays, 03:00 UTC. Weekly rather than daily because this service has no
     # dependencies of its own to churn, and a daily rebuild of an unchanged
