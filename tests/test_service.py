@@ -1465,7 +1465,9 @@ def test_epic_sizing_survives_the_projection():
     # And the whole way through the service, which is the route that was dead.
     ok, body = call("POST", "/v1/ask", {
         "dataset": {"issues": keyed_issues, "meta": {"asOfDate": as_of}},
-        "ask": {"title": "A new thing", "board": "any",
+        # No title: an ask's words stay with whatever is showing the answer,
+        # and the service refuses them. This check is about grouping by key.
+        "ask": {"id": "A-NEW-THING", "board": "any",
                 "sizing": {"method": "reference-class"}},
         "asOf": as_of,
     })
@@ -3576,15 +3578,114 @@ def value_basis_checks():
     # same failure as a figure that is quietly stale — and this repository has
     # already printed "no sprint calendar" for three different causes, one of
     # them a calendar that was present and correct.
-    seq = idx.split("resolver.define('sequence'", 1)[1].split("}));", 1)[0]
+    seq = idx.split("resolver.define('sequence'", 1)[1].split("\n}));", 1)[0]
     check("sequencing no longer claims no field carries a basis",
           "no field that carries a value basis" not in seq, seq[:200])
-    check("and still says what is actually missing",
-          "no way to read an ask from Jira" in seq, seq[:200])
+    # Slice three answered the other half too, so the resolver no longer says
+    # it cannot read an ask — it reads them. What is left are two refusals about
+    # this board rather than about the product, and they are different facts:
+    # nobody has put anything forward, or one person has and an ordering of one
+    # thing is not a comparison.
+    check("it no longer claims it cannot read an ask at all",
+          "no way to read an ask from Jira" not in seq, seq[:200])
+    check("it refuses when nothing on the board is marked",
+          "Nothing on this board is marked as a candidate" in seq, seq[:200])
+    check("and separately when only one thing is",
+          "One candidate is marked on this board" in seq, seq[:200])
     # The closing clause every refusal in this product carries: what was not
     # done, and that nothing else on the page depends on it.
-    check("and still closes by saying nothing was sequenced",
-          "Nothing was sequenced" in seq, seq[:200])
+    check("and both still close by saying nothing was sequenced",
+          seq.count("Nothing was sequenced") >= 2, seq.count("Nothing was sequenced"))
+
+
+def ask_assembly_checks():
+    """The two ask implementations agree — roadmap item 7, ADR 0028.
+
+    `orgconfig.candidate_answer` / `intake.asks_from_issues` are the original;
+    `asksFromIssues` in `forge/src/jira.js` is the mirror, and this runs both
+    over one shared set of cases in `tests/forge_shapes.mjs`.
+
+    **The mirror exists on purpose, and it is not free.** Sending one more field
+    would let the tools assemble the asks server-side with nothing to keep in
+    step. It cannot: an answer nobody can read is reported back with the issue
+    key *and the words somebody wrote*, and those words are free text about a
+    customer's business. Deciding candidacy in the calculator would mean sending
+    them, which is precisely what the projection exists to prevent.
+    """
+    print("asks, in two languages")
+    node = subprocess.run(["node", str(ROOT / "tests" / "forge_shapes.mjs")],
+                          capture_output=True, text=True, cwd=str(ROOT))
+    if node.returncode != 0:
+        check("the Forge shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-200:])
+        return
+    js = json.loads(node.stdout)["asks"]
+
+    BOARD = [
+        {"key": "E1", "summary": "Saved cards", "hierarchyLevel": 1, "candidate": "Yes",
+         "businessValue": 210000, "valueBasis": "  1,900 abandonments  ",
+         "dueDate": "2026-10-30"},
+        {"key": "E2", "summary": "Search rebuild", "hierarchyLevel": 1, "candidate": "y"},
+        {"key": "E3", "summary": "Already shipped", "hierarchyLevel": 1, "candidate": "Yes",
+         "resolved": "2026-08-01"},
+        {"key": "E4", "summary": "Unclear", "hierarchyLevel": 1, "candidate": "Maybe"},
+        {"key": "S1", "summary": "A story", "hierarchyLevel": 0, "candidate": "Yes"},
+        {"key": "E5", "summary": "Not put forward", "hierarchyLevel": 1, "candidate": ""},
+        {"key": "OLD", "summary": "No level recorded", "candidate": "TRUE"},
+    ]
+    py_asks, py_notes = IN.asks_from_issues(BOARD, {"askFromHierarchy": 1}, team="X")
+
+    # Two implementations of "Yes means yes" agree by accident; the third answer
+    # is where they would drift.
+    py_answers = [[a, OC.candidate_answer({"candidate": a})]
+                  for a in ["Yes", "yes", "  Y ", "true", "TRUE", "", "   ", "Maybe"]]
+    check("both read the same three answers out of the same strings",
+          js["answers"] == py_answers, {"js": js["answers"], "py": py_answers})
+
+    check("both make asks of the same issues, in the same order",
+          [a["id"] for a in js["asks"]] == [a["id"] for a in py_asks],
+          {"js": [a["id"] for a in js["asks"]], "py": [a["id"] for a in py_asks]})
+    check("both name the same unreadable answers",
+          js["notes"]["unreadable"] == py_notes["unreadable"],
+          {"js": js["notes"]["unreadable"], "py": py_notes["unreadable"]})
+    check("and the same already-delivered candidates",
+          js["notes"]["delivered"] == py_notes["delivered"],
+          {"js": js["notes"]["delivered"], "py": py_notes["delivered"]})
+
+    py_by = {a["id"]: a for a in py_asks}
+    for a in js["asks"]:
+        p = py_by[a["id"]]
+        check("%s carries the same amount and needed-by date in both" % a["id"],
+              (a.get("valueEstimate", {}).get("amount"), a.get("neededBy"))
+              == ((p.get("valueEstimate") or {}).get("amount"), p.get("neededBy")),
+              {"js": a, "py": p})
+        check("%s is sized the same way in both" % a["id"],
+              a["sizing"] == p["sizing"], {"js": a["sizing"], "py": p["sizing"]})
+
+    # ---- and the wire payload carries none of the words ----
+    #
+    # This is the half that must NOT match: the Python assembles asks for a tool
+    # reading a local file, and the JS assembles a payload crossing to a hosted
+    # calculator. `title` is the one somebody will add, because it is what a
+    # reader wants beside an ordering.
+    for a in js["asks"]:
+        leaked = [f for f in ("title", "team", "summary", "basis") if f in a]
+        leaked += ["valueEstimate.basis"] if "basis" in (a.get("valueEstimate") or {}) else []
+        check("%s crosses with no free text on it" % a["id"], leaked == [], leaked)
+    check("the words are kept behind, keyed by id, to be joined back on",
+          sorted(js["text"]) == sorted(a["id"] for a in js["asks"])
+          and js["text"]["E1"]["basis"] == "1,900 abandonments",
+          {"keys": sorted(js["text"]), "E1": js["text"].get("E1")})
+
+    # ---- and the service refuses them if they ever arrive ----
+    idx = (ROOT / "forge" / "src" / "index.js").read_text()
+    check("the resolver checks its ask payload as well as its issue payload",
+          "assertAsksCarryNoText(asks)" in idx and "assertNoFreeText(projected)" in idx,
+          [l.strip() for l in idx.splitlines() if "assertAsks" in l][:2])
+    svc = (ROOT / "service" / "app.py").read_text()
+    check("and the service refuses an ask carrying words, as it does an issue",
+          "_refuse_ask_text" in svc and "ASK_TEXT_FIELDS" in svc,
+          [l.strip() for l in svc.splitlines() if "ASK_TEXT_FIELDS" in l][:1])
 
 
 def test_the_image_takes_debians_security_updates():
@@ -4683,6 +4784,7 @@ if __name__ == "__main__":
     counting_checks()
     business_value_checks()
     value_basis_checks()
+    ask_assembly_checks()
     print("the container image")
     test_dockerfile_copies_everything_the_service_imports()
     test_the_image_takes_debians_security_updates()

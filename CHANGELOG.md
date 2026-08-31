@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.66.0
+
+**The Forge sequencing refusal is gone.** Roadmap item 7, slice three. It stood since the resolver was written and it was accurate every day of it: `intake.sequence` compares orderings of asks, and nothing in a Jira site said which issues were being weighed against each other. It does now (ADR 0028), so the resolver assembles them and delegates to `/v1/sequence`.
+
+**Nothing is computed in the resolver.** The orderings, the dates and the delay each ask costs the others all come back from the calculator. What the resolver does is decide which issues are candidates, build a payload with no free text in it, and put the words back afterwards.
+
+**Candidacy is decided inside the tenant, and it costs a mirror.** Sending one more field would have let the tools assemble the asks server-side with nothing to keep in step — the cheaper design, and not available. An answer nobody can read is reported back with the issue key **and the words somebody wrote**: *"Maybe"*, *"Q3?"*, *"ask Priya"*. That is free text about a customer's business, and deciding candidacy where the calculator is means sending it. So `forge/src/jira.js` carries `candidateAnswer`, `candidateIssues` and `asksFromIssues`, and `tests/test_service.py` runs them against the Python over one shared set of cases — the same arrangement as the working week and `counted_issues`.
+
+**What crosses is an id, a sizing method, an amount and a date.** No title, no basis, no answer. The calculator echoes an ordering with no words in it and the resolver joins them back on by id, which is a lookup rather than a calculation and the same move `reattach` already makes for item risk.
+
+**A door nobody was watching, found while building this.** `assertNoFreeText` protects the *issues* because they are projected through an allow-list. An ask is **built** rather than projected, so nothing looked at it — `/v1/sequence` and `/v1/ask` would have accepted a title, a problem statement and a value basis without complaint. That made the projection's guarantee *"no customer text reaches the calculator, except through this other door"*. `assertAsksCarryNoText` in the resolver and `_refuse_ask_text` in the service both refuse one now, and `title` is the field the guard exists for: it is what a reader wants beside an ordering, so it is the one somebody adds.
+
+**Two refusals, because they are two different facts about a board.** *Nothing here is marked as a candidate* tells a reader to answer the field on the epics being weighed against each other. *One candidate is marked* tells somebody who has already done that why they still see nothing — an ordering of one thing is not a comparison. One sentence for both would have left the second reader with nowhere to go.
+
+**Deployed as 7.5.0.** It answers, and on this site it answers with the first of those two refusals, because the Candidate field is on no screen yet and nothing has been put forward. Marking two epics is what turns it into a table.
+
 ## 1.65.0
 
 **A declared candidate becomes an ask.** Roadmap item 7, slice two. `intake.asks_from_issues()` assembles the shape `sequence` and `readiness` already consume out of a Jira board, which is what makes sequencing possible where nobody maintains files in `data/asks/`.

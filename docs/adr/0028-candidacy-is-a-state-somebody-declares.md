@@ -88,12 +88,45 @@ before anyone can answer it, separately from the value fields. The state every
 board starts in is *the field exists and nobody has answered it*, which reads as
 zero candidates and says so.
 
+## Where candidacy is decided, and why it costs a mirror
+
+Wiring this up made the choice concrete: the calculator could decide candidacy
+itself, given one more field in the projection, and then `asks_from_issues`
+would run server-side with no second implementation to keep in step. That is
+the cheaper design and it is not available.
+
+**Because of what the third answer is.** An answer this does not recognise is
+reported back with the issue key *and the words somebody wrote* — "Maybe",
+"Q3?", "ask Priya". That is free text about a customer's business, and it is
+exactly what `NEVER_SEND` and `FREE_TEXT_FIELDS` exist to keep inside the
+tenant. Deciding candidacy where the calculator is means sending the answers
+there.
+
+So `forge/src/jira.js` carries `candidateAnswer`, `candidateIssues` and
+`asksFromIssues`, and `tests/test_service.py` runs them against the Python over
+one shared set of cases — the same arrangement as the working week,
+`counted_issues` and `validate`. Change one, change both.
+
+**What crosses is an id, a sizing method, an amount and a date.** No title, no
+basis, no answer. The calculator therefore echoes an ordering with no words in
+it, and the resolver joins the title and the basis back on by id — a lookup,
+not a calculation, and the same move `reattach` already makes for item risk.
+
+**And the ask payload gets its own guard.** `assertNoFreeText` protects issues
+because they are *projected* through an allow-list; an ask is built rather than
+projected, so nothing was looking at it. `assertAsksCarryNoText` in the resolver
+and `_refuse_ask_text` in the service both refuse one now — because `title` is
+the field somebody will add, it being what a reader wants beside an ordering.
+Before this, `/v1/sequence` and `/v1/ask` would have accepted a title, a problem
+statement and a value basis without complaint, which made the projection's
+guarantee "no customer text reaches the calculator, except through this other
+door".
+
 ## What this does not do
 
-**It does not sequence anything yet.** This is recognition only — the field, the
-rule, and what was found reported. Assembling asks, calling `/v1/sequence` and
-rendering the result are the slices after it, and the Forge resolver still
-refuses until they land.
+**It does not render anything yet.** Recognition, assembly and the resolver are
+done; the panel that shows an ordering is not. The `sequence` route answers, and
+what reads it is the slice after this one.
 
 **It does not infer candidacy from anything.** Not from status, not from
 whether an epic has started, not from an empty `dueDate`. Every one of those

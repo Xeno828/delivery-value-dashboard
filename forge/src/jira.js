@@ -454,6 +454,94 @@ const candidateOf = (fields, fieldId) => {
   return '';
 };
 
+/* ----------------------------------------------------------------- asks
+ *
+ * Which issues are asks, and the ask payload the calculator is allowed to see.
+ * Mirrors `orgconfig.candidate_answer`, `orgconfig.candidate_issues` and
+ * `intake.asks_from_issues`. Change one, change both — `tests/test_service.py`
+ * runs the two over one shared set of cases.
+ *
+ * **Why this is decided here and not in the calculator.** Sending the candidate
+ * answers would be simpler: the dataset already crosses, and one more field
+ * would let `asks_from_issues` run server-side with no mirror to maintain. It
+ * cannot, because of what the answer *is*. An answer this does not recognise is
+ * reported back with the issue key and **the words somebody wrote** — "Maybe",
+ * "Q3?", "ask Priya" — and that is free text about a customer's business. The
+ * disclosure is the reason the rule has three answers rather than two, and it
+ * is exactly the thing `NEVER_SEND` exists to keep inside the tenant.
+ *
+ * So candidacy is decided in here, and what crosses is an id, a sizing method,
+ * an amount and a date. No title, no basis, no answer.
+ */
+export const CANDIDATE_YES = ['yes', 'y', 'true'];
+
+/** `true`, `false`, or the unrecognised string somebody actually wrote. */
+export const candidateAnswer = (issue) => {
+  const raw = (issue || {}).candidate;
+  if (typeof raw !== 'string') return false;
+  const t = raw.trim();
+  if (!t) return false;
+  return CANDIDATE_YES.includes(t.toLowerCase()) ? true : t;
+};
+
+/** The declared candidates, and the answers nobody can read. */
+export const candidateIssues = (issues, cfg) => {
+  let floor = cfg?.askFromHierarchy;
+  if (typeof floor !== 'number' || !Number.isFinite(floor)) floor = 1;
+  const asks = [];
+  const unreadable = [];
+  for (const i of issues || []) {
+    const lvl = i?.hierarchyLevel;
+    // An issue with no recorded level still qualifies, for the same reason it
+    // still carries value: every dataset written before levels existed would
+    // otherwise have no candidates at all.
+    if (typeof lvl === 'number' && Number.isFinite(lvl) && lvl < floor) continue;
+    const ans = candidateAnswer(i);
+    if (ans === true) asks.push(i);
+    else if (ans !== false) unreadable.push({ key: i?.key, said: ans });
+  }
+  return { asks, unreadable };
+};
+
+/**
+ * `{ asks, text, notes }` — the wire payload, the words that stay here, and
+ * what a reader has to be told.
+ *
+ * `asks` is what the calculator gets and it carries **no free text**: an id, a
+ * sizing method, an amount and a needed-by date. `text` is the title and the
+ * basis, held in the tenant and joined back onto the answer by id — which is a
+ * lookup, not a calculation, and is the only reason a reader sees a basis
+ * beside an ordering at all.
+ *
+ * `team` is omitted rather than sent. `sequence` never reads it — the board is
+ * a separate argument — and a board's name is a customer's word for a customer's
+ * team.
+ */
+export const asksFromIssues = (issues, cfg) => {
+  const { asks: cands, unreadable } = candidateIssues(issues, cfg);
+  const asks = [];
+  const text = {};
+  const delivered = [];
+  for (const i of cands) {
+    const a = { id: i.key, sizing: { method: 'reference-class' } };
+    const amount = i.businessValue;
+    // Present or absent, never half: `readiness` asks for an amount and a basis
+    // or nothing at all. The basis is not on the wire, so the calculator sees a
+    // bare amount and the tenant puts the sentence back.
+    if (typeof amount === 'number' && Number.isFinite(amount) && amount) {
+      a.valueEstimate = { amount };
+    }
+    if (i.dueDate) a.neededBy = i.dueDate;
+    asks.push(a);
+    text[i.key] = { title: i.summary || i.key, basis: String(i.valueBasis ?? '').trim() };
+    // Candidacy is declared and un-declaring it belongs to whoever declared it.
+    // ADR 0028 refuses to infer it from status, so a delivered candidate is
+    // still an ask and is named instead.
+    if (i.resolved) delivered.push({ id: i.key, resolved: i.resolved });
+  }
+  return { asks, text, notes: { unreadable, delivered } };
+};
+
 /* ------------------------------------------------------------------ config
 
    The assumptions that are true of exactly one company: which statuses mean

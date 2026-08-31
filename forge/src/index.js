@@ -28,7 +28,7 @@ import {
   CONFIG_PROPERTY_KEY, contextEntry, contextsBody, contextBody, contextId,
   findStoryPointField, mergeOrgConfig, parseContextId, issueFrom, notFound,
   recentSprints, statusesFromJira, validateOrgConfig, findBusinessValueField,
-  findValueBasisField, findAskField,
+  findValueBasisField, findAskField, asksFromIssues,
   WINDOW_DAYS, windowEntry, windowMembershipJql, contextsLabel,
   MAX_TREND_SPRINTS,
 } from './jira.js';
@@ -111,6 +111,54 @@ const reattach = (result, byKey) => {
     if (!local) continue;
     item.summary = local.summary ?? '';
     item.assignee = local.assignee ?? null;
+  }
+  return result;
+};
+
+/**
+ * The same refusal as `assertNoFreeText`, for the other thing that goes out.
+ *
+ * An ask is built here rather than projected from an issue, so the allow-list
+ * that protects the issue payload never looks at it. A field added to an ask in
+ * a later change would reach the calculator by a door nobody was watching, and
+ * `title` is the obvious one to add — it is what a reader wants beside an
+ * ordering, and it is a customer's words for a customer's work.
+ */
+const ASK_TEXT_FIELDS = ['title', 'basis', 'team', 'summary', 'problemStatement',
+  'successMeasure', 'assumptions', 'dependencies'];
+const assertAsksCarryNoText = (asks) => {
+  for (const a of asks || []) {
+    for (const f of ASK_TEXT_FIELDS) {
+      if (f in a) {
+        throw new Error(`refusing to send: ask "${a.id}" carries "${f}". Nothing was sequenced.`);
+      }
+    }
+    if (a.valueEstimate && 'basis' in a.valueEstimate) {
+      throw new Error(`refusing to send: ask "${a.id}" carries a value basis. Nothing was sequenced.`);
+    }
+  }
+};
+
+/**
+ * Put the title and the basis back beside each ordering, by id.
+ *
+ * The calculator answered with ids because that is all it was given. These are
+ * the words that never left, joined on — a lookup, not a calculation, and the
+ * only reason a reader sees a basis beside an ordering at all. It is the same
+ * move `reattach` makes for item risk, one route along.
+ */
+const reattachAsks = (result, text) => {
+  for (const ordering of result?.orderings ?? []) {
+    for (const row of ordering.order ?? []) {
+      const local = text[row.id];
+      if (!local) continue;
+      row.title = local.title;
+      row.valueBasis = local.basis;
+    }
+  }
+  for (const d of result?.deltas ?? []) {
+    const local = text[d.first];
+    if (local) d.title = local.title;
   }
   return result;
 };
@@ -1274,41 +1322,96 @@ resolver.define('history', answering(async ({ payload, context }) => {
 }));
 
 /**
- * Sequencing, which is not blocked on a calculator.
+ * Sequencing — roadmap item 7, and the refusal below it is gone.
  *
- * `intake.sequence` compares orderings of a board's outstanding *asks*, and an
- * ask is a document somebody writes — a problem it solves, a measure of whether
- * it worked, a date it is wanted by, a size, and a value with a stated basis.
- * Over loopback they are files in `data/asks/`.
+ * It stood since this resolver was written and it was accurate every day of it:
+ * `intake.sequence` compares orderings of *asks*, and nothing in a Jira site
+ * said which issues were being weighed against each other. It does now
+ * ([ADR 0028](docs/adr/0028-candidacy-is-a-state-somebody-declares.md)), so
+ * this assembles them and delegates.
  *
- * **One of the two things this used to name now exists.** ADR 0027 declares a
- * Value Basis field, so a value read from Jira arrives with the sentence that
- * explains it instead of as a bare number. That was half the reason this
- * refused, and it is answered.
+ * **Nothing is computed here.** The orderings, the dates and the delay each ask
+ * costs the others all come back from `/v1/sequence`. What this does is decide
+ * which issues are candidates, build a payload with no free text in it, and put
+ * the titles and bases back afterwards — a lookup by key, which is the same
+ * move `reattach` already makes for item risk.
  *
- * What is still absent is the *ask*. Nothing in a Jira site marks an issue as a
- * request being weighed against others, and the rest of what `readiness` looks
- * for — the problem, the success measure, the needed-by date — has no field
- * either. An epic carrying a value and a basis is not an ask; it is an epic
- * with two of an ask's six parts.
- *
- * So this is not the calculator being unreachable, and saying so would be wrong
- * the moment the forecast above starts answering. It refuses and says which of
- * the two it is — and it no longer says no field carries a basis, which was
- * true when this was written and stopped being true when the module landed. A
- * refusal that outlives its reason is the same failure as a figure that does.
+ * **Candidacy is decided here rather than in the calculator, deliberately.**
+ * Handing over one more field would have let the tools assemble the asks with
+ * no mirror to keep in step. It cannot: an answer nobody can read is reported
+ * back with the issue key *and the words somebody wrote*, and those words are
+ * free text about a customer's business. `jira.js` carries the mirror and
+ * `tests/test_service.py` runs it against the Python over shared cases.
  */
-resolver.define('sequence', () => ({
-  status: 200,
-  body: {
-    available: false,
-    sentence: 'Sequencing compares orderings of the asks recorded for a board, and this '
-            + 'app has no way to read an ask from Jira. The value basis it needs is a '
-            + 'field somebody can now fill in, but nothing marks an issue as a request '
-            + 'being weighed against others, and the problem it solves and the date it '
-            + 'is wanted by have no field at all. Nothing was sequenced, and nothing '
-            + 'about the forecast on this page depends on it.',
-  },
+resolver.define('sequence', answering(async ({ payload, context }) => {
+  const asked = payload?.id;
+  const projectKey = moduleProjectKey(context);
+  if (!projectKey) return NO_PROJECT(context);
+  if (!parseContextId(asked)) {
+    return { status: 404, body: notFound(asked, 'that is not a project/board/period id') };
+  }
+
+  const { contexts } = await projectContexts(projectKey);
+  const entry = contexts.find((c) => c.id === asked);
+  if (!entry) {
+    return { status: 404, body: notFound(asked, 'this site does not offer that context') };
+  }
+
+  const spField = await storyPointFieldFor();
+  const issues = await issuesForEntry(entry, spField, context?.siteUrl);
+  const cfg = (await orgConfigFor(projectKey)).config;
+  const { asks, text, notes } = asksFromIssues(issues, cfg);
+
+  // Two refusals, and they are different facts about the board. One says
+  // nobody has put anything forward; the other says one person has, and an
+  // ordering of one thing is not a comparison. Saying "not enough" for both
+  // would leave a reader who marked a single epic wondering what else to do.
+  if (!asks.length) {
+    return {
+      status: 200,
+      body: {
+        available: false,
+        notes,
+        sentence: 'Nothing on this board is marked as a candidate, so there is nothing '
+                + 'to sequence. Answer the Candidate field on the epics being weighed '
+                + 'against each other — or point orgConfig.askField at the field you '
+                + 'already use for it. Nothing was sequenced, and nothing else on this '
+                + 'page depends on it.',
+      },
+    };
+  }
+  if (asks.length < 2) {
+    return {
+      status: 200,
+      body: {
+        available: false,
+        notes,
+        sentence: 'One candidate is marked on this board, and sequencing compares '
+                + 'orderings of two or more against each other. Nothing was sequenced, '
+                + 'and nothing else on this page depends on it.',
+      },
+    };
+  }
+
+  const projected = issues.map(projectIssue);
+  assertNoFreeText(projected);
+  // The same guard, applied to the other thing going out. The ask payload is
+  // built here rather than projected from an issue, so `assertNoFreeText` would
+  // not have looked at it — and a field added to an ask in a later change is
+  // exactly how customer text reaches a calculator by a door nobody was
+  // watching.
+  assertAsksCarryNoText(asks);
+
+  const answer = await callCalculator('/v1/sequence', {
+    dataset: { issues: projected, contexts, orgConfig: cfg },
+    asks,
+    board: parseContextId(asked)?.boardId,
+  });
+  if (answer.available === false) {
+    return { status: 200, body: { available: false, notes, sentence: answer.sentence } };
+  }
+
+  return { status: 200, body: { ...reattachAsks(answer.result, text), notes } };
 }));
 
 /* ------------------------------------------------------------------------

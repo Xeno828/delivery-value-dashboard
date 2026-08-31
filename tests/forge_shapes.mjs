@@ -15,7 +15,7 @@
 import {
   contextEntry, contextsBody, contextBody, contextId, findStoryPointField,
   mergeOrgConfig, parseContextId, issueFrom, notFound, recentSprints,
-  statusesFromJira, validateOrgConfig,
+  statusesFromJira, validateOrgConfig, asksFromIssues, candidateAnswer,
   DEFAULT_WINDOW_DAYS, WINDOW_DAYS, windowEntry, windowToken,
   windowMembershipJql, contextsLabel,
 } from '../forge/src/jira.js';
@@ -382,4 +382,29 @@ console.log(JSON.stringify({
     written: writeSeries({ sprints: {} }, 'SFT/2/22',
       entryFrom({ sprintState: 'closed' }, good, '2026-07-17', STATUSES_NOW)),
   },
+  /* Candidacy and ask assembly — ADR 0028. The Python is the original and
+     this is the mirror; `tests/test_service.py` runs both over these cases.
+     The wire payload carries no free text, deliberately: the disclosure names
+     the words somebody wrote, and those stay in the tenant. */
+  asks: (() => {
+    const board = [
+      { key: 'E1', summary: 'Saved cards', hierarchyLevel: 1, candidate: 'Yes',
+        businessValue: 210000, valueBasis: '  1,900 abandonments  ', dueDate: '2026-10-30' },
+      { key: 'E2', summary: 'Search rebuild', hierarchyLevel: 1, candidate: 'y' },
+      { key: 'E3', summary: 'Already shipped', hierarchyLevel: 1, candidate: 'Yes',
+        resolved: '2026-08-01' },
+      { key: 'E4', summary: 'Unclear', hierarchyLevel: 1, candidate: 'Maybe' },
+      { key: 'S1', summary: 'A story', hierarchyLevel: 0, candidate: 'Yes' },
+      { key: 'E5', summary: 'Not put forward', hierarchyLevel: 1, candidate: '' },
+      { key: 'OLD', summary: 'No level recorded', candidate: 'TRUE' },
+    ];
+    const out = asksFromIssues(board, { askFromHierarchy: 1 });
+    return {
+      answers: ['Yes', 'yes', '  Y ', 'true', 'TRUE', '', '   ', 'Maybe']
+        .map((a) => [a, candidateAnswer({ candidate: a })]),
+      asks: out.asks,
+      text: out.text,
+      notes: out.notes,
+    };
+  })(),
 }, null, 2));

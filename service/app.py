@@ -666,8 +666,34 @@ def route_ask(body):
     ask = body.get("ask")
     if not isinstance(ask, dict):
         raise Refused("send an \"ask\" object — see docs/product-intake.md")
+    _refuse_ask_text(ask, "the ask")
     return IN.forecast_ask(ds, dict(ask), board=body.get("board"),
                            as_of=_iso_or_none(body, "asOf"))
+
+
+#: Free text on an *ask*, refused for the reason FREE_TEXT_FIELDS above are.
+#:
+#: The projection protects the issues in `dataset`. Nothing looked at `asks`,
+#: which are built by the caller rather than projected from anything — so a
+#: title, a problem statement or a value basis would have travelled straight
+#: through, and `title` is the obvious one to send because it is what a reader
+#: wants beside an ordering. The Forge resolver holds those words back and joins
+#: them on afterwards; this makes that a rule rather than a habit.
+ASK_TEXT_FIELDS = ("title", "team", "requestedBy", "problemStatement",
+                   "successMeasure", "assumptions", "dependencies", "basis",
+                   "summary")
+
+
+def _refuse_ask_text(ask, where):
+    present = [f for f in ASK_TEXT_FIELDS if f in (ask or {})]
+    nested = [n for n in ("valueEstimate", "sizing")
+              if isinstance((ask or {}).get(n), dict) and "basis" in ask[n]]
+    if present or nested:
+        raise Refused(
+            "%s carries %s. This service sequences and forecasts; it is not a "
+            "place a customer's words live, and an ask's title and basis belong "
+            "beside the answer in whatever is showing it. Nothing was computed."
+            % (where, ", ".join(sorted(present + ["%s.basis" % n for n in nested]))))
 
 
 def route_sequence(body):
@@ -680,6 +706,8 @@ def route_sequence(body):
         raise Refused("%d asks is over this service's limit of %d. Nothing was "
                       "sequenced: a comparison of some of the asks reads as a "
                       "comparison of all of them." % (len(asks), MAX_ASKS), 413)
+    for a in asks:
+        _refuse_ask_text(a, "ask %r" % ((a or {}).get("id") or "?"))
     return IN.sequence(ds, [dict(a) for a in asks], board=body.get("board"),
                        as_of=_iso_or_none(body, "asOf"))
 
