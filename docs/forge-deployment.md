@@ -1,6 +1,6 @@
 # Finishing the Forge route
 
-Three things in the Forge work were unfinished, and all three for the same reason: they needed an account, a platform or a tool that the code cannot supply itself. Section 1 is now done and is kept as the runbook for the next person who registers their own app. Sections 2 and 3 are still open. Each is what you need, what to do, and how to know it worked.
+Three things in the Forge work were unfinished, and all three for the same reason: they needed an account, a platform or a tool that the code cannot supply itself. **All three are now done — 1 and 2 on 2026-08-25, 3 on the first deploy the same day — and each is kept as the runbook for the next person who registers their own app**, because the app id is per-developer and none of this is inherited. Each section is what you need, what to do, and how to know it worked, followed by what actually happened when it was done here.
 
 Nothing here is required to use the product. OAuth 2.0 (3LO) in [`scripts/jira_auth.py`](../scripts/jira_auth.py) is the working connection. This is the path to a Marketplace listing. Why the route is shaped this way: [ADR 0008](adr/0008-forge-calls-a-hosted-calculator.md).
 
@@ -187,7 +187,7 @@ Reached, on a dev site. Getting there took three deploys, and all three were the
 
 ---
 
-## 2. Verify the Forge invocation token — written, not yet confirmed against Atlassian
+## 2. Verify the Forge invocation token — confirmed against a real token, 2026-08-25
 
 **Read [hosting the calculator](hosting-the-calculator.md) §1 before starting this.** The four values below are now confirmed and dated, and confirming them turned up three things this section did not know: the resolver used plain `fetch` and so would have received no token at all, the verifier read the tenant with a flat lookup against a claim that is nested, and the clock-skew allowance is longer than the token's whole life. The first two are fixed and pinned by the suite; the third is left at 30 seconds deliberately until a real token measures the lifetime. This section is otherwise still correct — it is the *"only you can do it"* framing that was wrong, because two of the three were code.
 
@@ -200,7 +200,9 @@ The tenant-aware mechanism is the invocation token Forge attaches to a remote ca
 
 `_verify_forge_token()` is written and every mechanic below is proved by `tests/test_service.py`, which generates a keypair, serves a JWKS from a local HTTP server and mints its own tokens. A verifier now returns *who the caller is* rather than a boolean, so the access log names the tenant; the shared-secret mode returns no tenant rather than a placeholder, because one string presented by every installation cannot identify anybody.
 
-### What is not, and it is the part only you can do
+### What was not, and it was the part only a person with an account could do
+
+**All of it is now done; the values are in [hosting the calculator](hosting-the-calculator.md) Appendix A, confirmed and dated.** This subsection is kept because anybody standing this up on their own app has to confirm them again, and because the reasoning for why they are variables rather than constants is the reasoning for not copying them out of here on trust.
 
 The four values that identify Atlassian's issuer are **configuration, not constants**, and the service refuses to start in this mode without them:
 
@@ -213,9 +215,9 @@ The four values that identify Atlassian's issuer are **configuration, not consta
 
 They are environment variables precisely so that no value nobody has confirmed lives in the source. Confirm each against current Atlassian documentation, and record the date beside the deployment that sets them. Guessing one produces a verifier that rejects every real token — or, the case that matters, accepts one minted for a different app.
 
-Also still unconfirmed: whether the call presents an app-system token or a user token, and whether that differs between a scheduled trigger and a user-initiated resolver call.
+This section also asked whether the call presents an app-system token or a user token, and whether that differs between a scheduled trigger and a user-initiated resolver call. **It is neither, and the question was the wrong shape** — those are two additional headers a manifest opts into, not a property of the invocation token, and this app declines both. Appendix A of the hosting doc has the answer and why enabling either would be wrong here.
 
-**No real Forge token has been through this.** The mechanics are proved against a signer the test controls, which is the only way to test a verifier without one. That is a different claim from "it works", and it is the claim being made.
+**When this was written, no real Forge token had been through it.** The mechanics were proved against a signer the test controls, which is the only way to test a verifier without one — a different claim from "it works", and it was the claim being made. One has since been accepted and attributed; *Done when*, below, has the log lines.
 
 ### What it has to check
 
@@ -278,9 +280,9 @@ Keep the shared-secret mode — it is what makes the service testable without a 
 
 ---
 
-## 3. Build and scan the container image
+## 3. Build and scan the container image — done, and both gates are in CI
 
-`service/Dockerfile` has never been built. It was written on a machine with no Docker.
+**When this was written, `service/Dockerfile` had never been built: it was written on a machine with no Docker.** It has been built many times since — the image is what runs in both Cloud Run regions, and every push that touches it rebuilds, smoke-tests and scans it before anything is pushed to a registry. The rest of this section is the local loop, which is still worth running before a push.
 
 ### Already covered
 
@@ -316,8 +318,7 @@ docker rm -f calc
 The policy this section calls "a decision rather than a task" is taken in
 [hosting the calculator](hosting-the-calculator.md) §11, and the rebuild cadence in §10.
 
-
-Not yet in CI, because adding a scanner that fails the build on somebody else's CVE feed needs a policy decision about what blocks a merge:
+**Both are now in CI.** `service/scan.sh` carries the policy — fixable `HIGH` and `CRITICAL` block, unfixable ones are printed and do not — and both `ci.yml` and `deploy.yml` call it. What follows is the raw form, for running it by hand:
 
 ```bash
 docker scout cves delivery-value-calculator
@@ -325,11 +326,13 @@ docker scout cves delivery-value-calculator
 trivy image --severity HIGH,CRITICAL delivery-value-calculator
 ```
 
-The base is `python:3.12-slim` and the service installs nothing, so the attack surface is the base image. Rebuild on a schedule rather than only on source changes — the image goes stale even when this repository does not. That is the argument for a weekly scheduled build, and it is the one gap here that is a decision rather than a task.
+The base is `python:3.12-slim` and the service installs one wheel — `PyJWT[crypto]`, for §2's verifier — so essentially the whole attack surface is the base image. Rebuild on a schedule rather than only on source changes, because the image goes stale even when this repository does not. **That decision was taken:** Mondays 03:00 UTC, and the rebuild deploys, because one that never ships leaves the running service ageing exactly as fast as it would have without it. The reasoning is in [hosting the calculator](hosting-the-calculator.md) §10 and the schedule is in `deploy.yml`.
 
 ### Done when
 
 The `container` job is green, a local scan is clean at HIGH and CRITICAL, and the image is pushed to a registry your platform can pull from.
+
+**All three, from 2026-08-25.** The image is pushed to an Artifact Registry in each of `us-central1` and `europe-west3` and deployed to the Cloud Run service there. The scan is not a one-off: [hosting the calculator](hosting-the-calculator.md) §11 records the run on 2026-08-28 where the gate went red on a fixable OpenSSL CVE and every push failed until the fix was taken, which is the gate working rather than the gate being too strict.
 
 ---
 

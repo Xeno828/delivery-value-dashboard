@@ -4,7 +4,9 @@ Where `service/` runs, what it costs, and the operational decisions that come wi
 
 `service/README.md` says the service is stateless and sub-second and that this suits scale-to-zero. That was right and it is not the hard part. The hard part is that **the calculator being reachable is not the same as the Forge app being able to call it**, and three things stand between those two states that the runbook did not know about. They are in §1, before the provider comparison, because two of them change what has to be built and one of them changes which provider wins.
 
-The plan is a plan: nothing is deployed and no cloud account exists yet. The two code changes §1 turned up have landed and are pinned by the suite — §3 says what is done and what waits for the switchover.
+**Written as a plan on 2026-08-25, when nothing was deployed and no cloud account existed. It is now a record: the switchover it plans ran to its last step the same day.** The plan is kept in its own tense below, because what it decided is what is running — Cloud Run, two regions, `SERVICE_AUTH=forge-token`, `min-instances=0`, `*.run.app` hostnames — and a decision reads differently from the evidence that later confirmed it. Where an observation has replaced a projection it is dated beside the estimate rather than written over it: the cold start in §7, the live verifier's refusals in §13, the scan findings in §11.
+
+**What exists, as of 2026-08-25.** Google Cloud project `calculator-506614` and two Cloud Run services, whose URLs are in §13 and in the region-pinned `remotes` block of `forge/manifest.yml` that reaches them. [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) redeploys both on any push to `main` touching `service/**` or `agent/tools/**`. The two code changes §1 turned up have landed and are pinned by the suite. §3 says what is done and what is not — one thing is not, and it is the clock-skew allowance in §1.3.
 
 ---
 
@@ -101,12 +103,12 @@ The handoff framed this as a genuine choice: confirm the four values and run ten
 | `permissions.external.fetch` removed with the `fetch` it authorised | `forge/manifest.yml` | **done** |
 | Dotted-path tenant claim | `service/app.py` | **done**, nested case asserted |
 | The manifest and resolver comments that said a `remote` declaration attaches the token | both | **done** |
-| Region-pinned `baseUrl` object (§5) | `forge/manifest.yml` | **switchover only** |
+| Region-pinned `baseUrl` object (§5) | `forge/manifest.yml` | **done** 2026-08-25, at §13 step 6 |
 | Leeway 30 s → 5 s (§1.3) | `service/app.py` | **deferred** until a real token is measured |
 
-Everything but the last two has landed and is pinned by `tests/test_service.py`. The `baseUrl` cannot land early: the suite fails a real URL with the offline refusals still in place, and fails the reverse, so it moves exactly once (§13 step 6). `forge/manifest.yml` carries a locally registered app id that must never reach `HEAD` — **stage it by hand and check the diff**, because the file now has changes worth committing sitting beside a line that must not be.
+Everything but the leeway has landed and is pinned by `tests/test_service.py`. The `baseUrl` could not land early: the suite fails a real URL with the offline refusals still in place, and fails the reverse, so it moved exactly once, at §13 step 6 on 2026-08-25, and the manifest carries the two Cloud Run URLs today. `forge/manifest.yml` also carries a locally registered app id that must never reach `HEAD` — **stage it by hand and check the diff**, because the file has changes worth committing sitting beside a line that must not be.
 
-**None of it is validated by `forge lint`,** which needs a CLI and an account this repository does not have. `make forge-lint` and a deploy to `development` are the confirmation, and the line most worth watching is the removed `permissions.external.fetch`: Atlassian's own example manifest for `invokeRemote` carries no such permission, but that is documentation rather than a lint run. It fails loudly at deploy if wrong, which is the acceptable direction.
+**None of it was validated by `forge lint` when this was written,** which needs a CLI and an account this repository does not have; `make forge-lint` and a deploy to `development` were named as the confirmation. Both have since run — §13 step 6 records `0 errors, 0 warnings` and the one `MAJOR_VERSION_RULE` approval the `baseUrl` conversion is supposed to raise. The line most worth watching was the removed `permissions.external.fetch`, because Atlassian's own example manifest for `invokeRemote` carries no such permission and that is documentation rather than a lint run. It held.
 
 ---
 
@@ -213,7 +215,7 @@ Forge selects the region-specific URL **at install time**, from the customer's o
 
 Three details that matter:
 
-**`operations: [compute]` is doing two jobs.** It is what `invokeRemote` requires (§1.1), and it is also the declaration that this remote processes data without storing it. Atlassian's default, when `operations` is absent, is to assume the app **is** storing end-user data on the remote — which is the worst reading of a service that stores nothing, and it is the reading the manifest currently invites by omitting the key. Declaring `compute` states the true thing and is what keeps the app eligible for `PINNED` status.
+**`operations: [compute]` is doing two jobs.** It is what `invokeRemote` requires (§1.1), and it is also the declaration that this remote processes data without storing it. Atlassian's default, when `operations` is absent, is to assume the app **is** storing end-user data on the remote — which is the worst reading of a service that stores nothing, and it was the reading the manifest invited by omitting the key. Declaring `compute` states the true thing and is what keeps the app eligible for `PINNED` status; the manifest declares it.
 
 **Converting `baseUrl` from a string to an object is a major version change.** So are adding a region and altering a URL. Each needs `--approve MAJOR_VERSION_RULE` and a reinstall, per `docs/forge-deployment.md` §1. This is an argument for choosing the final hostnames **once**: see §9 on why the plan launches on `*.run.app` and what that commits.
 
@@ -235,7 +237,7 @@ Forge calls the remote from Atlassian's own infrastructure, so the endpoint is o
 
 So: **no IP allow-listing.** The access control is the invocation token, which proves the request came from Atlassian *and* was minted for this specific app — which is strictly more than an IP range can prove. Cloud Run's ingress stays `all`, its IAM invoker stays public, and `_verify_forge_token()` is the gate. That is the design `docs/forge-deployment.md` §2 already describes; this section exists to record that the alternative was checked rather than skipped.
 
-An unauthenticated `/healthz` remains public. It returns `{"ok": true, "version": …}` and touches no data.
+The service still serves an unauthenticated `/healthz` returning `{"ok": true, "version": …}`, which touches no data — but on Cloud Run nothing reaches it, because Google's front end answers that exact path itself. Found on the first deploy; §7 has what it means and what the deploy workflow probes instead.
 
 ---
 
