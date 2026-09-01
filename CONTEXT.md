@@ -237,3 +237,9 @@ _Avoid_: Error bars, confidence (which means something else statistically)
 **Sequence**:
 An ordering of competing asks, reported by what each ordering costs the others in delivery terms. The ordering itself remains a human judgement — this project computes no priority score of any kind.
 _Avoid_: Prioritisation, ranking, WSJF, value/effort score
+
+### The machinery
+
+**Calculator**:
+The hosted service that ran `agent/tools/` unchanged on behalf of the Forge app, so that Forge had one implementation of every figure without running Python itself. Retired by [ADR 0031](docs/adr/0031-the-forecast-runs-inside-the-forge-function.md), after which the same Python runs inside the Forge function and nothing is hosted.
+_Avoid_: Backend, API, engine, service (as the general term; it names the hosting, not the thing)

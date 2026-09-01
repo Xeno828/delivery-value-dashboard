@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.75.0
+
+**The app will run its forecast inside the Forge function, and the calculator will be retired.** 1.74.3 corrected [ADR 0008](docs/adr/0008-forge-calls-a-hosted-calculator.md) to say a WebAssembly route existed and left the choice open; the choice is now made, and the answer is yes. [ADR 0031](docs/adr/0031-the-forecast-runs-inside-the-forge-function.md) records it: the existing Python under Pyodide inside the function, one implementation of every figure, no remote, no egress, and the *Runs on Atlassian* badge earned the day the `remotes` block leaves the manifest. The record carries the design reached in three rounds of questions — sequencing becomes an async event polled by the adapter so the page and ADR 0009 stay untouched, the consumer's budget and its two guards against a run that cannot finish, where a result waits and who may collect it, how the eighteen-megabyte runtime travels, and the order in which routes move with the calculator answering until each has moved. It also records what is rejected, because those are the shapes that will be proposed again.
+
+**Nothing in the code changed.** The research behind the async design is `docs/research/2026-09-01-forge-async-events.md`, from Atlassian's documentation only. ADR 0008 gains one pointer sentence; ADR 0012 and ADR 0030 stay true until the remote goes and are marked superseded then, not now. `CONTEXT.md` gains its first entry for *calculator*, the most load-bearing word in five records and, until today, defined in none of them.
+
 ## 1.74.4
 
 **The manifest's badge comment no longer says there is no engineering answer.** 1.74.3 left it stale on purpose, because a manifest edit is a calculator redeploy and an app-id splice; this is that edit, and nothing else in the file moves. The comment now says what [ADR 0008](docs/adr/0008-forge-calls-a-hosted-calculator.md)'s amendment says: egress is the price of reaching one implementation over a remote, a WebAssembly route inside the function exists and was measured, and the badge stays forfeit here as a decision rather than a discovery. The push will redeploy an unchanged calculator image in three regions, which the deploy workflow does every Monday anyway.

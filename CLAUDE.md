@@ -127,6 +127,7 @@ These are product decisions, not style. Violating one is a bug even when the tes
 | Which issue is an ask, and why candidacy is declared rather than inferred | `docs/adr/0028-candidacy-is-a-state-somebody-declares.md` |
 | Why a t-shirt band selects a reference class and asserts no number | `docs/adr/0029-a-t-shirt-band-selects-a-reference-class.md` |
 | Why the calculator keeps its `*.run.app` hostnames, and which realms the manifest declares | `docs/adr/0030-the-manifest-commits-to-its-hostnames-and-realms-once.md` |
+| Why the forecast runs inside the Forge function, how sequencing goes async, and in what order the calculator is retired | `docs/adr/0031-the-forecast-runs-inside-the-forge-function.md` |
 | Which commercial roadmap item something is, and what is done | `docs/roadmap.md` |
 | What the dashboard does for a board with no sprints | `docs/kanban-boards.md` |
 | Finishing the Forge route — the three unfinished pieces | `docs/forge-deployment.md` |

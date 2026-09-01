@@ -1,6 +1,6 @@
 # Decision records
 
-Thirty decisions that explain why the product is shaped the way it is. Each one exists because the alternative was tried, argued for, or nearly shipped — none of them is a statement of general principle.
+Thirty-one decisions that explain why the product is shaped the way it is. Each one exists because the alternative was tried, argued for, or nearly shipped — none of them is a statement of general principle.
 
 Read these before proposing a change that a constraint in `CLAUDE.md` appears to block. The constraint is the rule; the record is the reason, and the reason is what tells you whether your case is the exception.
 
@@ -36,6 +36,7 @@ Read these before proposing a change that a constraint in `CLAUDE.md` appears to
 | [0028](0028-candidacy-is-a-state-somebody-declares.md) | Candidacy is declared, and which field declares it is the organisation's choice | An issue type or a label as the marker, and inferring candidacy from status |
 | [0029](0029-a-t-shirt-band-selects-a-reference-class.md) | A t-shirt band picks which completed epics an ask is compared against | A number typed into a field, ranking by size, and inferring a band |
 | [0030](0030-the-manifest-commits-to-its-hostnames-and-realms-once.md) | The manifest's hostnames and realms are chosen once, before the first install | A custom domain bought as insurance, and a realm discovered from a customer's tenant |
+| [0031](0031-the-forecast-runs-inside-the-forge-function.md) | The forecast runs inside the Forge function under Pyodide, and the calculator is retired | A second implementation, a sequencing tile that refuses above three asks, polling in the page, and a cached result |
 
 ## Writing a new one
 
