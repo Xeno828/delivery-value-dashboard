@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.74.3
+
+**ADR 0008 said the badge or a second forecast, with nothing in between. There is something in between, and it is now measured and recorded.** [ADR 0008](docs/adr/0008-forge-calls-a-hosted-calculator.md) carries a dated amendment: the existing Python in `agent/tools/` runs unchanged under Pyodide — CPython compiled to WebAssembly — inside the Forge function, with no remote and no egress, and every figure byte-identical to native CPython. That was established on a throwaway Forge app on 2026-09-01 rather than from documentation, because the previous version of this claim was written from documentation and turned out to be wrong. The record of how is `docs/research/2026-09-01-runs-on-atlassian-badge.md`; the amendment is what a decision needs from it.
+
+**The decision is unchanged and the terms of the trade are corrected.** The hosted calculator stands. What the amendment removes is the sentence that said there was nothing to decide: the real trade is the *Runs on Atlassian* badge, plus retiring a service somebody carries a pager for, against a forecast about ten times slower on Forge's CPU, a seven-second cold start, and a sequencing route that fits a 25-second resolver timeout on paper and not by a margin anyone should ship — 13.6 s warm, about 21 s cold, for four asks. That is a commercial judgement and it is left where it belongs. Two documented facts are recorded beside it because they change the arithmetic: removing a remote is a minor version, so this carries no reinstall and no September deadline, and an app with no remote is `PINNED` for residency with no configuration.
+
+**Nothing in the code changed, and one comment is now stale.** `forge/manifest.yml`'s closing comment still says egress costs the badge *"with no engineering answer"*; it points at ADR 0008, where the correction is, and it is left as written because a manifest edit is a calculator redeploy and the app id must be spliced out of every commit. It should go with whichever change next touches the manifest.
+
 ## 1.74.2
 
 **The guard added in 1.74.0 did not run on the change it exists for.** It asserts that every realm in `forge/manifest.yml` points at a service the deploy actually produced — and it lives in the deploy workflow, which triggers on `service/**`, `agent/tools/**` and itself. The manifest is none of those. So 1.74.1, the commit that declared `GB`, was the one manifest change in this project's history that most needed checking against reality and was the one the check sat out.

@@ -135,10 +135,10 @@ RSS was 189 MB before the load and 282 to 286 MB after, against the 1,024 MB req
 
 ## What could not be established from primary sources
 
-- Whether Forge's native Node runtime permits `WebAssembly.instantiate` in a function; Atlassian documents nothing either way, and no community report of WebAssembly in a function was found.
-- Whether `@forge/bundler` includes `.wasm` and `.zip` files from `node_modules/pyodide` in the deployed function artifact, and whether Pyodide's loader finds them at its computed `indexURL` inside that artifact.
-- Any maximum size for the function code bundle. Only static resource limits (100 MB per resource) and the manifest file (200 KB) are documented.
-- Cold-start latency for the native runtime, and whether a warm container's module scope survives between invocations reliably enough to keep a loaded Pyodide instance; Atlassian says only that state is no longer guaranteed to be cleared.
+- Whether Forge's native Node runtime permits `WebAssembly.instantiate` in a function. Not documented anywhere; **answered by the experiment in section 6**: it does.
+- Whether `@forge/bundler` includes `.wasm` and `.zip` files from `node_modules/pyodide` in the deployed function artifact. Not documented; **answered in section 6**: it does not, and the base64 workaround there is what ships them.
+- Any maximum size for the function code bundle. Only static resource limits (100 MB per resource) and the manifest file (200 KB) are documented; an 18 MB bundle deployed in section 6, so the limit, if one exists, is above that.
+- Cold-start latency for the native runtime as a documented figure. Section 6 measured a 6.8 s Pyodide load on a cold container and a module-scope instance surviving three invocations over 42 s; how long a container lives is still undocumented.
 - Forge's CPU relative to the machine used for the local measurement, so the 1.3 s figure is a lower bound.
 - Whether Forge serves a static `.wasm` with an `application/wasm` content type.
 - Whether CameliaGao carries the Atlassian Team badge in the two threads cited; the fetched pages did not render badges.
