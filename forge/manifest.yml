@@ -380,10 +380,14 @@ app:
   runtime:
     name: nodejs22.x
 
-# Egress costs the "Runs on Atlassian" badge. That is a real marketing loss
-# with no engineering answer, and it is the price of not having two
-# implementations of the forecast. It is written down in ADR 0008 so the
-# trade is a decision rather than a discovery at listing time.
+# Egress costs the "Runs on Atlassian" badge. It is the price of reaching one
+# implementation of the forecast over a remote — and since 2026-09-01 it is no
+# longer the only way to keep one implementation. The tools run unchanged
+# under WebAssembly inside a Forge function, measured on a throwaway app:
+# byte-identical figures, no egress, at roughly ten times the CPU time and
+# with sequencing on the edge of the resolver timeout. ADR 0008's amendment
+# has the price. The calculator stands until that trade is taken, so the badge
+# is still forfeit here — as a decision, not a discovery at listing time.
 #
 # Deliberately absent from what is committed: an `id`. Running `forge register`
 # writes one, and it ties this manifest to one developer's Atlassian account.

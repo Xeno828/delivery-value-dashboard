@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.74.4
+
+**The manifest's badge comment no longer says there is no engineering answer.** 1.74.3 left it stale on purpose, because a manifest edit is a calculator redeploy and an app-id splice; this is that edit, and nothing else in the file moves. The comment now says what [ADR 0008](docs/adr/0008-forge-calls-a-hosted-calculator.md)'s amendment says: egress is the price of reaching one implementation over a remote, a WebAssembly route inside the function exists and was measured, and the badge stays forfeit here as a decision rather than a discovery. The push will redeploy an unchanged calculator image in three regions, which the deploy workflow does every Monday anyway.
+
 ## 1.74.3
 
 **ADR 0008 said the badge or a second forecast, with nothing in between. There is something in between, and it is now measured and recorded.** [ADR 0008](docs/adr/0008-forge-calls-a-hosted-calculator.md) carries a dated amendment: the existing Python in `agent/tools/` runs unchanged under Pyodide — CPython compiled to WebAssembly — inside the Forge function, with no remote and no egress, and every figure byte-identical to native CPython. That was established on a throwaway Forge app on 2026-09-01 rather than from documentation, because the previous version of this claim was written from documentation and turned out to be wrong. The record of how is `docs/research/2026-09-01-runs-on-atlassian-badge.md`; the amendment is what a decision needs from it.
