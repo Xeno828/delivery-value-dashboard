@@ -1,7 +1,7 @@
 BUNDLE ?= data/demo-intake-bundle.json
 BOARD  ?= 42
 
-.PHONY: build check test test-agent test-a11y test-security test-service perf report intake intake-scale intake-sequence demo serve serve-live serve-calc forge-static forge-deps forge-lint forge-deploy forge-install forge-upgrade forge-uninstall bundle fetch clean
+.PHONY: build check test test-agent test-a11y test-security test-service perf report intake intake-scale intake-sequence demo serve serve-live serve-calc forge-static forge-deps forge-assets forge-lint forge-deploy forge-install forge-upgrade forge-uninstall bundle fetch clean
 
 build:            ## assemble dist/delivery-value-dashboard.html from src/
 	python3 build.py
@@ -101,10 +101,17 @@ forge-static: build forge-deps  ## stage both Forge static resources
 forge-deps:          ## install the Forge SDK (@forge/api, @forge/resolver)
 	cd forge && npm install --no-fund --no-audit
 
-forge-lint: forge-static forge-deps  ## stage, install, then run forge lint
+# The Python runtime the function ships, generated and never committed. It is
+# built from agent/tools/ and service/routes.py as they are *now*, so a deploy
+# that skipped this step would ship the Python of the previous deploy under a
+# manifest that says otherwise — hence forge-deploy depends on it. ADR 0031.
+forge-assets: forge-deps  ## generate forge/src/assets.js: Pyodide, the tools, routes.py and a snapshot
+	cd forge && node build-assets.mjs
+
+forge-lint: forge-static forge-deps forge-assets  ## stage, install, generate, then run forge lint
 	cd forge && forge lint
 
-forge-deploy: forge-static forge-deps ## stage, install, then deploy to development
+forge-deploy: forge-static forge-deps forge-assets ## stage, install, generate, then deploy to development
 	cd forge && forge deploy -e development
 
 # The CLI needs the manifest in the working directory and the manifest lives in

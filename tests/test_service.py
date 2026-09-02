@@ -1966,6 +1966,28 @@ def test_forge_app_dependencies():
     check("and is exempt from the blanket lockfile ignore",
           "!forge/package-lock.json" in gi)
 
+    # The Python runtime the function ships. A development dependency, because
+    # it is read by the generator and travels as a generated module rather
+    # than being resolved at runtime — and pinned to the digit, because a
+    # snapshot made by one Pyodide and loaded by another is undefined, and a
+    # caret would let `npm install` move it under a deploy. ADR 0031.
+    dev = pkg.get("devDependencies") or {}
+    check("the Forge app pins the Python runtime it ships",
+          re.fullmatch(r"\d+\.\d+\.\d+", str(dev.get("pyodide") or "")) is not None,
+          dev.get("pyodide"))
+    runtime = (ROOT / "forge" / "src" / "runtime.js").read_text()
+    code = "\n".join(l for l in runtime.splitlines()
+                     if not l.lstrip().startswith(("*", "//", "/*")))
+    check("the loader depends on node itself and the generated module, nothing else",
+          sorted(set(re.findall(r"require\(\s*'([^']+)'", code)))
+          == ["./assets.js", "node:fs", "node:os", "node:path", "node:zlib"],
+          sorted(set(re.findall(r"require\(\s*'([^']+)'", code))))
+    check("and reaches the runtime through a Function the bundler cannot rewrite",
+          "new Function('u', 'return import(u)')" in code)
+    gen = (ROOT / "forge" / "build-assets.mjs").read_text()
+    check("the generator imports BOOT from the loader rather than carrying a copy",
+          "require('./src/runtime.js')" in gen and "BOOT" in gen and "writeSources" in gen)
+
 
 def test_dockerfile_copies_everything_the_service_imports():
     """Reconstruct the image's filesystem from its COPY lines and boot from it.

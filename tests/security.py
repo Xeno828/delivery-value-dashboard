@@ -267,6 +267,14 @@ def secret_checks():
     gi = (ROOT / ".gitignore").read_text()
     check(".env is git-ignored", ".env" in gi)
     check("fetched data is git-ignored by default", "data/dashboard-data.json" in gi)
+    # Not a credential — a second copy. The generated runtime module holds the
+    # whole of agent/tools/ and service/routes.py as base64, and a committed
+    # copy of the Python is one that drifts from the Python. ADR 0031.
+    check("the generated Forge runtime module is git-ignored", "forge/src/assets.js" in gi)
+    check("and is not in the tree",
+          not (ROOT / "forge" / "src" / "assets.js").exists()
+          or subprocess.run(["git", "check-ignore", "-q", "forge/src/assets.js"],
+                            cwd=ROOT).returncode == 0)
     # Placeholders like a domain are fine; a filled-in secret is not. Only the
     # credential-bearing keys are checked, and they must be empty.
     env = (ROOT / ".env.example").read_text()
