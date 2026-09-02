@@ -181,6 +181,32 @@ const assertAsksCarryNoText = (asks) => {
  * the manifest: a mistyped key fails at runtime, inside a tenant, which is the
  * same failure the egress rule used to be checked for.
  */
+/**
+ * One call to the Python inside this function. ADR 0031.
+ *
+ * The drop-in for `callCalculator` as routes move: the same route names, the
+ * same bodies, and the same two answers — the envelope on success, or
+ * `{available: false, sentence}` with the route's own sentence on a refusal —
+ * so a caller changes one identifier and nothing downstream of it. The
+ * runtime loads from the memory snapshot on this function, 1.3 s cold
+ * against 11 s, because it answers under the adapter's clock.
+ *
+ * Routes move here one per commit, and a route is answered here or by the
+ * calculator, never both: `tests/test_service.py` holds that the set of
+ * routes this is called with and the set `callCalculator` is called with do
+ * not overlap. Git is the switch.
+ */
+const answerHere = async (path, body) => {
+  const { status, payload } = await runtime.answer(path, body, { snapshot: true });
+  if (status !== 200 || !payload || payload.ok === false) {
+    return {
+      available: false,
+      sentence: payload?.error ?? `The calculation returned ${status}.`,
+    };
+  }
+  return payload;
+};
+
 const callCalculator = async (path, body) => {
   const res = await invokeRemote('calculator', {
     path,
@@ -274,7 +300,9 @@ const compute = async (path, { boardId, orgConfig, meta, extra }, as) => {
   const projected = local.map(projectIssue);
   assertNoFreeText(projected);
 
-  const answer = await callCalculator(path, {
+  // In-function since the facts route moved (ADR 0031). Only `facts` reaches
+  // this helper, so the whole of it is answered by the Python in this function.
+  const answer = await answerHere(path, {
     dataset: { issues: projected, meta: meta ?? {}, orgConfig: orgConfig ?? {} },
     ...(extra ?? {}),
   });
@@ -1764,13 +1792,13 @@ resolver.define('probeBoardIssues', async ({ payload }) => {
   };
 });
 
-/* `facts` is the one resolver still wired to compute(). The projection, the
-   free-text assertion, the call and the re-attachment are real and tested
-   (tests/test_service.py); what is missing is a calculator to call and the
-   mapping from a context id to the board a calculation reads. When
-   CALCULATOR_URL names a real deployment, the two refusals above become
-   compute('/v1/forecast', …) and compute('/v1/sequence', …) with that
-   mapping, and nothing else here changes. */
+/* `facts` over a whole board, by board id — the shape the connection check
+   was built around, kept because it is the one resolver that exercises
+   `compute()` end to end: the projection, the free-text assertion, the call
+   and the re-attachment. The page itself never asks it; the dashboard's KPI
+   strip is the page's own mirror of `metrics.facts`, and the scheduled brief
+   reads the same route through `boardFigures`. Since ADR 0031 the route is
+   answered by the Python inside this function, not by the calculator. */
 resolver.define('facts', ({ payload }) => compute('/v1/facts', payload ?? {}));
 
 /* ------------------------------------------------------------------------
@@ -2214,7 +2242,10 @@ const boardFigures = async (boardId) => {
   assertNoFreeText(projected);
   const dataset = { issues: projected, contexts, orgConfig: org, meta: {} };
 
-  const facts = await callCalculator('/v1/facts', { dataset });
+  // In-function since the facts route moved (ADR 0031); the forecast follows
+  // in its own commit. This function loads the runtime too, which is why the
+  // manifest gives it the same memory as the resolver's.
+  const facts = await answerHere('/v1/facts', { dataset });
   if (facts.available === false) return { problems: [facts.sentence] };
 
   // A refusal here is an answer, not a failure: `sectionsFor` carries the

@@ -227,11 +227,16 @@ modules:
     # deploy and no reinstall. docs/forge-deployment.md §4.
     - key: weekly-brief-fn
       handler: index.weeklyBrief
-      # Longer than the default because this one reads a board, calls the
-      # calculator and waits on a model. It currently returns in milliseconds —
-      # it refuses before doing any of that — but the budget is set for the work
-      # it will do rather than the work it does while unfinished.
+      # Longer than the default because this one reads a board, computes the
+      # facts and the forecast, and waits on a model. It currently returns in
+      # milliseconds when it refuses before doing any of that, but the budget
+      # is set for the work it does when it does not.
       timeoutSeconds: 120
+      # It runs the Python inside the function too, since the facts route
+      # moved (ADR 0031): the same memory the resolver function declares, for
+      # the same measured footprint.
+      runtime:
+        memoryMB: 1024
 
   # Roadmap item 3 (scheduled delivery). Declared before it does anything,
   # because the permission is easier to argue for once, at listing time, than to

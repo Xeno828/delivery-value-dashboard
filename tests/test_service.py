@@ -404,6 +404,64 @@ def test_the_routes_module_is_the_whole_answer():
           isinstance(cleaned, dict) and "issues" in cleaned and kept == asks[:2])
 
 
+#: The routes answered by the Python inside the Forge function, in the order
+#: they moved. Everything else `index.js` asks for still goes to the hosted
+#: calculator until its own commit moves it. ADR 0031: git is the switch, and
+#: a route reached both ways in one deploy is a second code path nobody tests.
+IN_FUNCTION_ROUTES = {
+    "/v1/sequence-check",   # 1.77.0 — the sequence resolver's validation
+    "/v1/sequence",         # 1.77.0 — the consumer
+    "/v1/facts",            # 1.77.1 — the facts resolver and the brief
+}
+
+
+def test_routes_move_one_at_a_time():
+    """A route is answered in-function or by the calculator, never both.
+
+    The migration has no runtime switch on purpose: git is the switch, each
+    deploy has one change to blame, and a switch that outlives the migration
+    is a second code path. So the set of routes `index.js` answers through
+    `answerHere` or `runtime.answer` and the set it still sends to
+    `callCalculator` must not overlap, and the first set must be exactly the
+    inventory above — a route that moved without being written down here is
+    a route whose move nobody priced.
+    """
+    idx = _code_only((ROOT / "forge" / "src" / "index.js").read_text())
+    here = set(re.findall(r"(?:answerHere|runtime\.answer)\(\s*'(/v1/[^']+)'", idx))
+    # `CONSUMER_ROUTE` is `/v1/sequence` by name; count it as a literal.
+    if "runtime.answer(CONSUMER_ROUTE" in idx:
+        here.add("/v1/sequence")
+    remote = set(re.findall(r"callCalculator\(\s*'(/v1/[^']+)'", idx))
+    check("every route answered in-function is in the inventory, and every inventoried route moved",
+          here == IN_FUNCTION_ROUTES,
+          {"in code": sorted(here), "inventory": sorted(IN_FUNCTION_ROUTES)})
+    check("no route is answered both in-function and by the calculator",
+          not (here & remote), sorted(here & remote))
+    check("the calculator still answers what has not moved, until it goes",
+          remote <= set(SVC.ROUTES) and "/v1/facts" not in remote, sorted(remote))
+    # Every path either side names is a route the Python has.
+    check("every path named on either side is a route routes.py declares",
+          (here | remote) <= set(SVC.ROUTES), sorted((here | remote) - set(SVC.ROUTES)))
+
+    # `answerHere` is `callCalculator`'s drop-in: same two answers, so a caller
+    # changes one identifier. Its refusal branch carries the route's own error
+    # sentence, as the calculator's did.
+    here_fn = idx.split("const answerHere = ", 1)[1].split("\n};", 1)[0]
+    check("answerHere loads from the snapshot, which is the resolver function's load",
+          "{ snapshot: true }" in here_fn)
+    check("and refuses in the route's own sentence on a non-200 or an ok:false",
+          "payload.ok === false" in here_fn and "payload?.error" in here_fn
+          and "available: false" in here_fn)
+
+    # The brief's function loads the runtime now too, so it declares the
+    # memory the runtime needs; the probe measured 347 MB against a 512 MB
+    # default.
+    man = (ROOT / "forge" / "manifest.yml").read_text()
+    for fn in ("resolver", "weekly-brief-fn", "sequence-fn"):
+        check("%s declares the memory the Python runtime needs" % fn,
+              _manifest_item(man, fn).get("memoryMB") == "1024", _manifest_item(man, fn))
+
+
 def _code_only(js):
     """JavaScript with its comments stripped, so a check about what the code
     does is not answered by the sentence explaining why it must not."""
@@ -5584,6 +5642,8 @@ if __name__ == "__main__":
     test_the_routes_module_is_the_whole_answer()
     print("sequencing is a job")
     test_sequencing_is_a_job()
+    print("routes move one at a time")
+    test_routes_move_one_at_a_time()
     print("the config travels in the payload")
     test_config_travels_in_the_payload()
     print("refusals")
