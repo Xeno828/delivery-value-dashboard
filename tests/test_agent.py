@@ -20,6 +20,7 @@ import pathlib
 import random
 import subprocess
 import sys
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "agent" / "tools"))
@@ -1395,6 +1396,31 @@ def test_intake_sequencing():
 
     one = I.sequence(ds, asks[:1], board="42", as_of="2026-08-10")
     check("sequencing a single ask is refused", not one.get("available"), one.get("sentence"))
+
+    # ---- the cap, and why it is a count ----
+    #
+    # Sequencing is cubic in the ask count — 4 asks 1.1 s, 8 asks 7 s, 12 asks
+    # 21 s, 16 asks 48 s natively, ten times that on Forge — so the cap is the
+    # guard against a run that cannot finish, and it is checked before anything
+    # is read. A cap that let the capacity model run first would still cost a
+    # reader seconds to be told no. ADR 0031.
+    check("the cap is twelve asks, the number ADR 0031 measured and chose",
+          I.MAX_ASKS == 12, I.MAX_ASKS)
+    many = [dict(asks[0], id="A%02d" % i) for i in range(I.MAX_ASKS + 1)]
+    t0 = time.perf_counter()
+    over = I.sequence(ds, many, board="42", as_of="2026-08-10")
+    took = time.perf_counter() - t0
+    check("thirteen asks are refused rather than simulated for minutes",
+          not over.get("available"), over)
+    check("and refused before any simulation ran", took < 1.0, "%.2fs" % took)
+    check("the refusal names the cap and says nothing was sequenced",
+          str(I.MAX_ASKS) in (over.get("sentence") or "")
+          and "Nothing was sequenced" in (over.get("sentence") or ""),
+          over.get("sentence"))
+    check("the sentence is the tool's own, so every transport can quote it",
+          over.get("sentence") == I.too_many_asks(len(many)), over.get("sentence"))
+    check("and exactly twelve are not refused by the cap",
+          I.too_many_asks(I.MAX_ASKS) is None)
 
 
 def test_backtest():

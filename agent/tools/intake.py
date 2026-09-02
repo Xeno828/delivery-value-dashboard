@@ -587,6 +587,41 @@ def forecast_ask(dataset, ask, board=None, as_of=None, start_from=None, trials=T
 # =====================================================================
 # 4. prioritisation — what does sequencing cost?
 # =====================================================================
+#: The most asks one sequencing compares, on every transport.
+#:
+#: Sequencing simulates every ask in every ordering, so its cost grows with
+#: the cube of the count: measured natively, 4 asks take 1.1 s, 8 take 7 s, 12
+#: take 21 s and 16 take 48 s, and Forge's runtime is ten times slower
+#: throughout. Twelve is three and a half minutes there; sixteen would fit the
+#: budget and was declined because eight minutes is longer than a reader
+#: should watch a tile. The fifty the hosted service used to allow was about
+#: twenty-five minutes natively, and nobody had ever run it. ADR 0031, and the
+#: measurements in docs/research/2026-09-02-second-probe-consumer-and-snapshot.md.
+#:
+#: Here rather than in a caller because the file transport, the hosted service
+#: and the Forge function all sequence through this function and must refuse
+#: at the same number in the same sentence. A count is the guard — not a
+#: timing estimate — because the cost shape is known and a count is
+#: deterministic.
+MAX_ASKS = 12
+
+
+def too_many_asks(n):
+    """The refusal sentence for more asks than one sequencing compares, or None.
+
+    A function rather than a bare constant so a caller that validates before
+    computing — the service does, and the Forge resolver will before it starts
+    a job — refuses with this sentence and not a paraphrase of it.
+    """
+    if n <= MAX_ASKS:
+        return None
+    return ("%d asks is more than the %d one sequencing compares. Nothing was "
+            "sequenced: a comparison of some of the asks reads as a comparison "
+            "of all of them, and every ordering of %d already takes minutes to "
+            "simulate — the cost grows with the cube of the count. Mark fewer "
+            "epics as candidates and sequence those." % (n, MAX_ASKS, MAX_ASKS))
+
+
 def sequence(dataset, asks, board=None, as_of=None, trials=8000):
     """For a set of asks against one team, what each ordering costs the others.
 
@@ -597,6 +632,11 @@ def sequence(dataset, asks, board=None, as_of=None, trials=8000):
     the value judgement to whoever owns it, with their own stated basis
     alongside.
     """
+    # Before anything is read or simulated: the guard is a count, and it is
+    # checked first so a refusal costs nothing and a caller can rely on that.
+    over = too_many_asks(len(asks))
+    if over:
+        return {"available": False, "sentence": over}
     issues, ctx = board_issues(dataset, board)
     cfg = OC.from_dataset(dataset)
     as_of = as_of or (ctx or {}).get("asOfDate") or date.today().isoformat()

@@ -178,15 +178,33 @@ labels for equality and the rest is display text passed through.
 
 ## Limits, and why they are loud
 
-`maxIssues` 50,000, `maxAsks` 50, `maxItems` 5,000, `maxBodyBytes` 4 MB. Exceeding one is a `413`
+`maxIssues` 50,000, `maxAsks` 12, `maxItems` 5,000, `maxBodyBytes` 4 MB. Exceeding one is a `413`
 with a sentence, never a truncated calculation: a forecast over half a team's
 history looks exactly like a forecast over all of it.
 
+The ask cap is the tool's, not this service's: it is `intake.MAX_ASKS`, and
+the sentence is `intake.too_many_asks()`, so the file transport and the Forge
+function refuse at the same number in the same words. Twelve because sequencing
+is cubic in the ask count — 21 s natively, three and a half minutes on Forge —
+and the fifty this service used to allow was a computation nobody had run.
+ADR 0031.
+
+## Two files, one of which travels
+
+`service/routes.py` is every answer this service gives: the projection, the
+caps, the refusals and one function per route, ending in `answer(path, body)`.
+`service/app.py` is the socket in front of it — HTTP, the two auth verifiers,
+the body limit — and adds no key to any envelope. The split exists because the
+Forge function runs `routes.py` unchanged under WebAssembly and calls the same
+`answer()`; `tests/test_wasm.py` holds the two byte for byte. Anything added
+to `routes.py` has to import under Pyodide, which means no sockets, no
+environment and no third-party module.
+
 ## Deploying
 
-`service/Dockerfile` copies `agent/tools/` and `service/app.py` and nothing
-else — no `.env`, no `data/`, no `dist/`. Non-root, no writes at runtime, so a
-read-only root filesystem works.
+`service/Dockerfile` copies `agent/tools/`, `service/routes.py` and
+`service/app.py` and nothing else — no `.env`, no `data/`, no `dist/`.
+Non-root, no writes at runtime, so a read-only root filesystem works.
 
 Stateless and sub-second suits scale-to-zero. Where it runs, what it costs and
 in what order: [hosting the calculator](../docs/hosting-the-calculator.md).

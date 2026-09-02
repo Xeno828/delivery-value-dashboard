@@ -118,6 +118,8 @@ NO ORDERING DELIVERS THESE BY THEIR DATE:
 
 That is the highest-value output in the whole feature, because it is the conversation that otherwise happens six weeks late.
 
+**At most twelve asks, on every transport.** Every ask is simulated in every ordering, so the cost is cubic in the count: 4 asks take about a second natively, 8 take 7 s, 12 take 21 s and 16 take 48 s, and Forge's runtime is ten times slower throughout. Above twelve the tool refuses in its own sentence — `intake.MAX_ASKS` and `intake.too_many_asks()` — before reading the board, and the hosted service and the Forge function quote that sentence rather than paraphrasing it. The fifty the service once allowed was about twenty-five minutes natively and had never been run. Twelve rather than sixteen because three and a half minutes is as long as a reader should watch a tile; [ADR 0031](adr/0031-the-forecast-runs-inside-the-forge-function.md) has the measurements.
+
 **No priority score is computed — not WSJF, not weighted value, not anything.** The reasoning is stated in the code and repeated here because it will be asked for: those formulas multiply an unvalidated value estimate by an unvalidated size estimate and present the product as arithmetic. The delivery consequence of an ordering is genuinely computable and is returned. The relative worth of competing asks is a judgement owned by people, and dressing it as a calculation launders the judgement rather than improving it. The tool gives the decision-makers the delivery facts and each ask's stated value basis, side by side, and stops there.
 
 ## 6. The ask format

@@ -43,6 +43,10 @@ RUN pip install --no-cache-dir -r /app/service/requirements.txt
 # Only what the calculation needs. No .env, no data/, no dist/, and nothing
 # that could carry a credential into an image that gets pushed to a registry.
 COPY agent/tools/ /app/agent/tools/
+# Two files, and the second is the one that matters: routes.py is every answer
+# the service gives, and app.py is the socket in front of it. The same
+# routes.py ships inside the Forge function, so a change to it reaches both.
+COPY service/routes.py /app/service/routes.py
 COPY service/app.py /app/service/app.py
 
 # Nothing is written at runtime; the service is stateless by design, and a

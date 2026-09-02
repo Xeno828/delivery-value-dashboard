@@ -265,6 +265,145 @@ def test_service_computes_nothing():
           "working week" in ((facts.get("result") or {}).get("meta", {}).get("calendar") or ""))
 
 
+def _intake_bodies():
+    """The demo intake bundle, projected, and its asks stripped of every word.
+
+    What the Forge resolver sends for sequencing: issues under `CALC_FIELDS`
+    (so `epicKey` travels and `epic` does not — without the key every ask is
+    unsizeable and sequencing refuses before it starts), and asks reduced to
+    `{id, neededBy, sizing{method,size}, valueEstimate{amount,confidence}}`.
+    """
+    full = json.loads((ROOT / "data" / "demo-intake-bundle.json").read_text())
+    # The bundle predates epic keys and carries names. A Forge fetch carries
+    # the key and never the name, so the key is synthesised from the name the
+    # same way `test_epic_sizing_survives_the_projection` does — otherwise no
+    # epic groups, nothing is sizeable and sequencing refuses before it starts.
+    names = sorted({x.get("epic") for x in full["issues"] if x.get("epic")})
+    keyed = [dict(i, epicKey="EPIC-%d" % (names.index(i["epic"]) + 1)) if i.get("epic") else i
+             for i in full["issues"]]
+    ds = {"issues": project(keyed), "contexts": full.get("contexts") or [],
+          "orgConfig": full.get("orgConfig", {})}
+    asks = []
+    for p in sorted((ROOT / "data" / "asks").glob("*.json")):
+        a = json.loads(p.read_text())
+        asks.append({
+            "id": a["id"], "neededBy": a.get("neededBy"),
+            # The method, a band, and the three counts of an explicit sizing.
+            # Numbers travel; the `basis` sentence beside them does not.
+            "sizing": {k: v for k, v in (a.get("sizing") or {}).items()
+                       if k in ("method", "size", "minItems", "likelyItems", "maxItems")},
+            "valueEstimate": {k: v for k, v in (a.get("valueEstimate") or {}).items()
+                              if k in ("amount", "confidence")},
+        })
+    return ds, asks
+
+
+def test_the_routes_module_is_the_whole_answer():
+    """One seam, two doors. ADR 0031.
+
+    `service/routes.py` is what travels into the Forge function; `app.py` is
+    the socket in front of it. The property to hold is that the socket adds
+    nothing: the envelope `handle()` returns after authenticating is the
+    envelope `answer()` returns, byte for byte, on every route — or the hosted
+    service and the in-function path are two implementations of the wire
+    format, and a key one of them adds is a key the page reads on one
+    transport and not the other.
+    """
+    import routes as RT
+    full, team, meta = team_payload()
+    ds = {"issues": project(team), "meta": meta, "orgConfig": full.get("orgConfig", {})}
+    ctx_ds = {"issues": project(team), "contexts": full["contexts"],
+              "orgConfig": full.get("orgConfig", {})}
+    cid = full["contexts"][0]["id"]
+    seq_ds, asks = _intake_bodies()
+    bodies = [
+        ("/v1/facts", {"dataset": ds}),
+        ("/v1/forecast", {"dataset": ds}),
+        ("/v1/forecast-context", {"dataset": ctx_ds, "contextId": cid}),
+        ("/v1/slice", {"dataset": {"contexts": full["contexts"]}, "contextId": cid}),
+        ("/v1/history", {"dataset": ctx_ds, "contextId": cid}),
+        ("/v1/burndown", {"dataset": ds}),
+        ("/v1/sequence", {"dataset": seq_ds, "asks": asks[:2], "board": "42",
+                          "asOf": "2026-08-10"}),
+        # Refusals too: a refusal is an answer, and its sentence has to be the
+        # same sentence over both doors.
+        ("/v1/forecast", {"dataset": {"issues": "not a list"}}),
+        ("/v1/sequence", {"dataset": seq_ds, "asks": []}),
+        ("/v1/nope", {"dataset": ds}),
+    ]
+    for path, body in bodies:
+        via_socket = call("POST", path, json.loads(json.dumps(body)))
+        direct = RT.answer(path, json.loads(json.dumps(body)))
+        check("%s answers the same through the socket as directly" % path,
+              via_socket[0] == direct[0]
+              and json.dumps(via_socket[1], sort_keys=True)
+              == json.dumps(direct[1], sort_keys=True),
+              {"socket": via_socket[0], "direct": direct[0]})
+    status, out = RT.answer("/v1/sequence",
+                            {"dataset": seq_ds, "asks": asks[:2], "board": "42",
+                             "asOf": "2026-08-10"})
+    check("the sequencing body the suite uses really sequences",
+          status == 200 and (out.get("result") or {}).get("available") is True,
+          (status, (out.get("result") or {}).get("sentence") or out.get("error")))
+
+    # The socket defines no route of its own. Every route name the service
+    # exposes is the routes module's object, not a copy of it.
+    for name in ("route_facts", "route_forecast", "route_forecast_context",
+                 "route_slice", "route_ask", "route_sequence", "route_history",
+                 "route_burndown", "clean_dataset", "check_sequence", "answer"):
+        check("app.%s is routes.%s, not a second definition" % (name, name),
+              getattr(SVC, name) is getattr(RT, name))
+    app_src = (ROOT / "service" / "app.py").read_text()
+    check("app.py defines no route and no projection of its own",
+          not re.search(r"^def (route_|clean_dataset|_clean_issue|check_sequence|answer)",
+                        app_src, re.M),
+          re.findall(r"^def \w+", app_src, re.M))
+
+    # And the module that travels imports nothing that only a server has. A
+    # socket or an environment read in routes.py is a deploy that fails inside
+    # a tenant, after the tests here all passed on a machine that has both.
+    rt_src = (ROOT / "service" / "routes.py").read_text()
+    imported = set(re.findall(r"^\s*(?:import|from)\s+([\w.]+)", rt_src, re.M))
+    server_only = sorted(m for m in imported
+                         if m.split(".")[0] in ("http", "urllib", "threading", "hmac",
+                                                "argparse", "socket", "jwt", "os"))
+    check("routes.py imports nothing a WebAssembly runtime lacks", server_only == [],
+          server_only)
+    code = "\n".join(l for l in rt_src.splitlines() if not l.lstrip().startswith("#"))
+    check("and reads no environment variable",
+          "os.environ" not in code and "getenv" not in code)
+
+    # ---- the ask cap is the tool's, consulted and not copied ----
+    check("the cap the service reports is the tool's constant",
+          SVC.meta()["limits"]["maxAsks"] == IN.MAX_ASKS == 12,
+          SVC.meta()["limits"]["maxAsks"])
+    many = [dict(asks[0], id="A%02d" % i) for i in range(IN.MAX_ASKS + 1)]
+    status, out = call("POST", "/v1/sequence",
+                       {"dataset": seq_ds, "asks": many, "board": "42", "asOf": "2026-08-10"})
+    check("thirteen asks are refused with a 413 and the cap named",
+          status == 413 and str(IN.MAX_ASKS) in out.get("error", ""),
+          (status, out.get("error", "")[:80]))
+    check("in the tool's own sentence, not a paraphrase",
+          out.get("error") == IN.too_many_asks(len(many)), out.get("error"))
+    direct = IN.sequence(json.loads(json.dumps(seq_ds)), [dict(a) for a in many],
+                         board="42", as_of="2026-08-10")
+    check("which is the sentence the file transport prints for the same asks",
+          direct.get("available") is False and direct.get("sentence") == out.get("error"),
+          direct.get("sentence"))
+    # `check_sequence` is the resolver's door: it refuses everything the route
+    # refuses and computes nothing, so a job is never started for a body that
+    # would have been refused.
+    try:
+        RT.check_sequence({"dataset": seq_ds, "asks": many})
+        check("check_sequence refuses over the cap", False, "no refusal")
+    except RT.Refused as r:
+        check("check_sequence refuses over the cap with the same status and sentence",
+              r.status == 413 and r.sentence == out.get("error"), (r.status, r.sentence[:60]))
+    cleaned, kept = RT.check_sequence({"dataset": seq_ds, "asks": asks[:2]})
+    check("and hands back the cleaned dataset and the asks for the tool",
+          isinstance(cleaned, dict) and "issues" in cleaned and kept == asks[:2])
+
+
 def test_config_travels_in_the_payload():
     """A different calendar is a different answer — including, sometimes, no answer."""
     # Enough history for both calendars to clear the evidence threshold.
@@ -3713,7 +3852,10 @@ def ask_assembly_checks():
     check("the resolver checks its ask payload as well as its issue payload",
           "assertAsksCarryNoText(asks)" in idx and "assertNoFreeText(projected)" in idx,
           [l.strip() for l in idx.splitlines() if "assertAsks" in l][:2])
-    svc = (ROOT / "service" / "app.py").read_text()
+    # routes.py, not app.py: the refusal has to live in the module that travels
+    # into the Forge function, or the hosted service would refuse a title the
+    # in-function path accepted.
+    svc = (ROOT / "service" / "routes.py").read_text()
     check("and the service refuses an ask carrying words, as it does an issue",
           "_refuse_ask_text" in svc and "ASK_TEXT_FIELDS" in svc,
           [l.strip() for l in svc.splitlines() if "ASK_TEXT_FIELDS" in l][:1])
@@ -5119,6 +5261,8 @@ if __name__ == "__main__":
     test_field_lists_agree()
     print("the service computes nothing")
     test_service_computes_nothing()
+    print("one seam, two doors")
+    test_the_routes_module_is_the_whole_answer()
     print("the config travels in the payload")
     test_config_travels_in_the_payload()
     print("refusals")
