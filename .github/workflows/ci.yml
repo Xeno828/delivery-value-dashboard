@@ -52,6 +52,24 @@ jobs:
           pip install -r service/requirements.txt
           python3 tests/test_service.py
 
+      # The runtime the Forge function ships, which is Node 24 on Forge. The
+      # pinned pyodide package is fourteen megabytes and the lockfile keys the
+      # cache, so it downloads once per pin rather than once per push.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: forge/package-lock.json
+
+      - name: Install the Forge app's dependencies, including the pinned Python runtime
+        run: npm ci --prefix forge --no-fund --no-audit
+
+      # The same Python under WebAssembly, byte for byte against native. This
+      # regenerates forge/src/assets.js from the tree, so it is also the test
+      # that the generator a deploy runs still runs. ADR 0031.
+      - name: WebAssembly parity tests (the tools under Pyodide equal the tools natively)
+        run: python3 tests/test_wasm.py
+
       - name: Python dependency audit
         run: |
           pip install pip-audit

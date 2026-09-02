@@ -11,9 +11,10 @@ Read this before changing anything. Most of what follows is a constraint that wa
 ```bash
 make build         # assemble src/ into dist/delivery-value-dashboard.html
 make check         # fail if dist/ is stale — this is what CI runs
-make test          # all five suites: e2e, agent, a11y, security, service
+make test          # all six suites: e2e, agent, a11y, security, service, wasm
 make test-agent    # agent tools only, no browser needed
 make test-service  # the hosted calculator, no browser needed
+make test-wasm     # the same Python under WebAssembly, byte for byte; needs node and `make forge-deps`
 make report        # facts pack + delivery forecast for the sample data
 make intake ASK=data/asks/INTAKE-2026-014.json
 ```
@@ -24,7 +25,7 @@ The browser suites need Playwright (`pip install playwright && playwright instal
 
 ## Architecture in one paragraph
 
-`src/` is four files assembled by `build.py` into a single self-contained HTML file. `agent/tools/` is five dependency-free Python modules — `metrics.py` (facts), `forecast.py` (Monte Carlo on work that exists), `intake.py` (forecasting an ask before any of it exists), `selection.py` (which issues a forecast reads, and what it is told about them), `orgconfig.py` (the per-organisation assumptions the others read out of the dataset). `agent/SKILL.md` is the agent definition; it narrates what the tools return and computes nothing. `scripts/` fetches and generates data. `service/` is a stateless HTTP wrapper over those same tools, for a Forge build that cannot run Python — it computes nothing of its own. `tests/` is five suites. `forge/` is deployed: the app is registered, the dashboard renders inside the iframe and reads the tenant's own boards over the bridge in `forge/bridge/bridge.js`, and the hosted calculator is provisioned, so the forecast, the history and the burndown are all served by the same Python the file transport runs. Pushing `service/**` or `agent/tools/**` to `main` redeploys that calculator, so a resolver calling a route that only exists locally answers 404 until the push lands.
+`src/` is four files assembled by `build.py` into a single self-contained HTML file. `agent/tools/` is five dependency-free Python modules — `metrics.py` (facts), `forecast.py` (Monte Carlo on work that exists), `intake.py` (forecasting an ask before any of it exists), `selection.py` (which issues a forecast reads, and what it is told about them), `orgconfig.py` (the per-organisation assumptions the others read out of the dataset). `agent/SKILL.md` is the agent definition; it narrates what the tools return and computes nothing. `scripts/` fetches and generates data. `service/` is two files: `routes.py`, the projection, the caps, the refusals and one function per route ending in `answer(path, body)`, which is what the Forge function runs unchanged under WebAssembly (ADR 0031); and `app.py`, the stateless HTTP wrapper in front of it for the hosted calculator — neither computes anything of its own. `forge/build-assets.mjs` packs the Python runtime, `agent/tools/` and `routes.py` into a generated, git-ignored `forge/src/assets.js` at deploy, and `forge/src/runtime.js` unpacks and answers. `tests/` is six suites; `tests/test_wasm.py` holds the WebAssembly answer against the native one byte for byte. `forge/` is deployed: the app is registered, the dashboard renders inside the iframe and reads the tenant's own boards over the bridge in `forge/bridge/bridge.js`, and the hosted calculator is provisioned, so the forecast, the history and the burndown are all served by the same Python the file transport runs. Pushing `service/**` or `agent/tools/**` to `main` redeploys that calculator, so a resolver calling a route that only exists locally answers 404 until the push lands.
 
 ---
 

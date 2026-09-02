@@ -73,7 +73,8 @@ const loadAssets = () => {
 
 /** The directory this bundle unpacks to, keyed by its content digest so a new
  *  deploy never reads a previous bundle's files out of a warm `/tmp`. */
-const baseDir = () => path.join(os.tmpdir(), `shipping-forecast-${loadAssets().digest}`);
+const PREFIX = 'shipping-forecast-';
+const baseDir = () => path.join(os.tmpdir(), PREFIX + loadAssets().digest);
 
 /** Unpack every file once per container. Idempotent: a marker file says it
  *  has been done, and a concurrent unpack writes the same bytes. */
@@ -81,6 +82,15 @@ const unpack = () => {
   const base = baseDir();
   const done = path.join(base, '.unpacked');
   if (fs.existsSync(done)) return base;
+  // Forty-three megabytes per bundle, and the snapshot makes every generated
+  // bundle's digest new. A container only ever runs one bundle, so anything
+  // else under the prefix is a previous deploy's, or on a developer's machine
+  // a previous test run's; either way it is litter, and `/tmp` is 512 MB.
+  for (const entry of fs.readdirSync(os.tmpdir())) {
+    if (entry.startsWith(PREFIX) && entry !== path.basename(base)) {
+      fs.rmSync(path.join(os.tmpdir(), entry), { recursive: true, force: true });
+    }
+  }
   for (const [name, b64] of Object.entries(loadAssets().files)) {
     const target = path.join(base, name);
     fs.mkdirSync(path.dirname(target), { recursive: true });
