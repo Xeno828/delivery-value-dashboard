@@ -385,6 +385,24 @@ def route_sequence(body):
                        as_of=_iso_or_none(body, "asOf"))
 
 
+def route_sequence_check(body):
+    """Everything `/v1/sequence` would refuse, and nothing it would compute.
+
+    The Forge resolver's door. It validates a sequencing request in-function
+    — the same `check_sequence`, the same statuses, the same sentences — and,
+    if nothing refuses, hands the request to a consumer function that runs
+    `/v1/sequence` for minutes. Two validators would be two opinions about one
+    body; this is the one, reached by a route so the parity suite holds it
+    under WebAssembly like every other answer. ADR 0031.
+
+    The answer carries counts of what was checked and no figure: a caller that
+    reads `asks` here reads how many it sent, which is the one number it
+    already knew.
+    """
+    ds, asks = check_sequence(body)
+    return {"checked": True, "asks": len(asks), "issues": len(ds["issues"])}
+
+
 def route_history(body):
     """One row per sprint, for a caller that cannot compute one.
 
@@ -497,6 +515,7 @@ ROUTES = {
     "/v1/slice": route_slice,
     "/v1/ask": route_ask,
     "/v1/sequence": route_sequence,
+    "/v1/sequence-check": route_sequence_check,
     "/v1/history": route_history,
     "/v1/burndown": route_burndown,
 }

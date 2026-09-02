@@ -70,10 +70,61 @@ const withTimeout = (promise, route) =>
     }),
   ]);
 
+/**
+ * Sequencing is a job, and this is the one place the page's side knows it.
+ *
+ * ADR 0031: sequencing runs for minutes on Forge's CPU, so the `sequence`
+ * resolver validates, pushes an event and answers 202 with a job id, and a
+ * consumer function computes. The page still asks one question and still
+ * gets one `{status, body}` back — this adapter is the script permitted to
+ * know what Forge is, so the polling lives here and nowhere in `src/app.js`.
+ * Polling in the page would teach the single file what a job is and carry it
+ * to every reader who never has one.
+ *
+ * Every poll is one ordinary call under the fifteen-second clock. The ceiling
+ * is the reader's, not the consumer's: ten minutes of watching a tile is the
+ * most anyone should, and the job goes on without this page — a reload joins
+ * it rather than starting another. The sentence for the ceiling is a body in
+ * the contract's own shape, so the page prints it where it prints every other
+ * refusal.
+ */
+const SEQUENCE_CEILING_MS = 10 * 60 * 1000;
+const POLL_INTERVALS_MS = [2000, 3000, 5000];
+const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+const collectSequence = async (call, params, opts) => {
+  const ceilingMs = (opts && opts.ceilingMs) || SEQUENCE_CEILING_MS;
+  const wait = (opts && opts.sleep) || sleep;
+  const now = (opts && opts.now) || Date.now;
+  const first = await call('sequence', params);
+  if (!first || first.status !== 202 || !first.body || !first.body.jobId) return first;
+  const { jobId } = first.body;
+  const started = now();
+  for (let i = 0; ; i += 1) {
+    if (now() - started > ceilingMs) {
+      return {
+        status: 200,
+        body: {
+          available: false,
+          sentence: 'Sequencing has been running for ten minutes and this page stopped '
+                  + 'waiting for it. The job continues without the page: reload to '
+                  + 'rejoin it. No result was collected.',
+        },
+      };
+    }
+    await wait(POLL_INTERVALS_MS[Math.min(i, POLL_INTERVALS_MS.length - 1)]);
+    const poll = await call('sequenceResult', { jobId });
+    if (!poll || poll.status !== 202) return poll;
+  }
+};
+
 /* Installed only when there is something to install. A transport whose every
    call fails is worse than no transport: the page would report itself
-   connected and then show nothing. */
-if (invoke) {
+   connected and then show nothing. The `window` guard is for the test suite,
+   which loads this file under Node to drive `collectSequence` with a fake
+   `call` and has no page to install anything on. */
+if (invoke && typeof window !== 'undefined') {
+  const call = (route, params) => withTimeout(invoke(route, params || {}), route);
   window.__DVD_BRIDGE__ = {
     /** Shown in the page footer, so a reader can tell which connection
      *  produced the numbers in front of them. */
@@ -90,6 +141,14 @@ if (invoke) {
      * A resolver that throws rejects here, exactly as a dead server does for
      * the loopback transport, and the page treats both the same way.
      */
-    invoke: (route, params) => withTimeout(invoke(route, params || {}), route),
+    invoke: (route, params) => (route === 'sequence'
+      ? collectSequence(call, params)
+      : call(route, params)),
   };
+}
+
+/* For tests/test_service.py, which drives the poll with a fake `call`. The
+   esbuild iife bundle Forge serves discards this. */
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { SEQUENCE_CEILING_MS, POLL_INTERVALS_MS, collectSequence };
 }

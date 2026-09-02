@@ -404,6 +404,262 @@ def test_the_routes_module_is_the_whole_answer():
           isinstance(cleaned, dict) and "issues" in cleaned and kept == asks[:2])
 
 
+def _code_only(js):
+    """JavaScript with its comments stripped, so a check about what the code
+    does is not answered by the sentence explaining why it must not."""
+    js = re.sub(r"/\*.*?\*/", "", js, flags=re.S)
+    return re.sub(r"//[^\n]*", "", js)
+
+
+def test_sequencing_is_a_job():
+    """Sequencing runs as an async event, and the page cannot tell. ADR 0031.
+
+    Sequencing is cubic in the ask count and runs for minutes on Forge's CPU,
+    so the `sequence` resolver validates, pushes an event and answers 202 with
+    a job id; a consumer function computes under a 900-second budget and
+    writes a row; `sequenceResult` collects it; the adapter polls. Four pieces,
+    and the failure modes are all quiet ones: a queue named twice and spelt
+    once, a consumer that re-runs a doomed job every six minutes for a day, a
+    result collected by an account that did not ask for it, a page that waits
+    for ever. Each is held here — the manifest against the code, the resolver
+    and consumer bodies for the order of their guards, the pure state machine
+    over a matrix of rows under Node, the check route against the route it
+    stands in front of, and the adapter's poll with a fake transport.
+    """
+    import routes as RT
+    man = (ROOT / "forge" / "manifest.yml").read_text()
+    idx = (ROOT / "forge" / "src" / "index.js").read_text()
+    jobs_js = (ROOT / "forge" / "src" / "jobs.js").read_text()
+
+    # ---- the manifest declares what the code assumes ----
+    consumer = _manifest_item(man, "sequence-consumer")
+    fn = _manifest_item(man, "sequence-fn")
+    check("the manifest declares a consumer for sequencing",
+          bool(consumer.get("queue")) and consumer.get("function") == "sequence-fn", consumer)
+    check("its function is the consumer export, under the 900-second ceiling",
+          fn.get("handler") == "index.sequenceConsumer" and fn.get("timeoutSeconds") == "900", fn)
+    check("with the memory the probe measured under",
+          fn.get("memoryMB") == "1024", fn)
+    check("and the resolver's function has the same memory, since it loads the snapshot",
+          _manifest_item(man, "resolver").get("memoryMB") == "1024", _manifest_item(man, "resolver"))
+    check("index.js exports the consumer the manifest names",
+          re.search(r"^export const sequenceConsumer\s*=", idx, re.M) is not None)
+    queue_key = re.search(r"export const QUEUE_KEY = '([^']+)'", jobs_js)
+    check("the queue the manifest names is the one jobs.js exports",
+          queue_key is not None and consumer.get("queue") == queue_key.group(1),
+          {"manifest": consumer.get("queue"), "jobs.js": queue_key and queue_key.group(1)})
+    check("and the resolver pushes to it by that name, never by a second literal",
+          "new Queue({ key: QUEUE_KEY })" in idx and idx.count("new Queue(") == 1)
+
+    # ---- the resolver: validate, refuse, join, push — in that order ----
+    seq = _code_only(idx.split("resolver.define('sequence'", 1)[1].split("\n}));", 1)[0])
+    check("the sequence resolver validates through the tool's own check route, from the snapshot",
+          "'/v1/sequence-check'" in seq and "{ snapshot: true }" in seq)
+    check("and never computes a sequencing itself",
+          "callCalculator(" not in seq and "runtime.answer('/v1/sequence'" not in seq
+          and "runtime.answer(CONSUMER_ROUTE" not in seq)
+    order = [seq.find(s) for s in ("'/v1/sequence-check'", "tooLarge(", "inflightKey(", ".push(")]
+    check("the check, the size guard and the in-flight join all come before the push",
+          all(p >= 0 for p in order) and order == sorted(order), order)
+    check("a reload joins the running job rather than starting another",
+          "joined: true" in seq and "JOB_LIFETIME_MS" in seq)
+    check("it answers 202 with the job id",
+          "status: 202" in seq and "jobId, pending: true" in seq)
+    check("the job row carries the asking account, the words held back and the envelope",
+          all(s in seq for s in ("accountId", "text", "envelope", "jobRow(", "JOB_TTL")))
+    check("a platform refusal of the push is a sentence with the class name, never the message",
+          "err?.name" in seq and "err.message" not in seq and "err?.message" not in seq)
+
+    # ---- the poll ----
+    poll = _code_only(idx.split("resolver.define('sequenceResult'", 1)[1].split("\n}));", 1)[0])
+    check("the poll validates the id before it becomes a storage key",
+          "JOB_ID.test(jobId)" in poll and poll.find("JOB_ID.test") < poll.find("kvs.get"))
+    check("it collects as the asking account", "accountId: context?.accountId" in poll)
+    check("and deletes both rows and the in-flight key when the answer is final",
+          all(s in poll for s in ("kvs.delete(jobKey(jobId))", "kvs.delete(resultKey(jobId))",
+                                  "kvs.delete(job.key)")) and "out.finished" in poll)
+
+    # ---- the consumer: the retry guard first, then a row for every outcome ----
+    cons = _code_only(idx.split("export const sequenceConsumer", 1)[1]
+                      .split("\nexport const handler", 1)[0])
+    check("the consumer reads the retry context before it loads anything",
+          0 <= cons.find("retryContext") < cons.find("runtime.answer"))
+    check("and on a retry writes a refusal and returns without computing",
+          re.search(r"retryRefusal\([^)]*\)[\s\S]*?return;", cons) is not None
+          and cons.find("retryRefusal(") < cons.find("resultRow('started'"))
+    check("it computes on a plain load, not the snapshot",
+          "{ snapshot: false }" in cons and "snapshot: true" not in cons)
+    check("it runs the sequencing route and refuses any other",
+          "CONSUMER_ROUTE" in cons and "wrongRoute(" in cons)
+    check("every outcome is a row, so a throw never becomes a platform retry",
+          "catch (err)" in cons and "resultRow('failed'" in cons)
+    failed = cons.split("resultRow('failed'", 1)[1].split(")", 1)[0]
+    check("and a failure's cause goes to the log, never the row",
+          "sentence: FAILED_SENTENCE" in failed and "err" not in failed and "console.error" in cons,
+          failed)
+
+    # ---- the state machine, under Node ----
+    node = subprocess.run(["node", str(ROOT / "tests" / "jobs_shapes.mjs")],
+                          capture_output=True, text=True, cwd=str(ROOT))
+    if node.returncode != 0:
+        check("the job shapes can be produced (needs node)", False,
+              (node.stderr or node.stdout)[-300:])
+        return
+    js = json.loads(node.stdout)
+    o = js["outcomes"]
+    check("no job is a 404, and there is nothing to delete",
+          o["no job"]["status"] == 404 and not o["no job"]["finished"], o["no job"])
+    check("another account's job is a 403, and it stays theirs",
+          o["another account"]["status"] == 403 and not o["another account"]["finished"],
+          o["another account"])
+    check("and a poll with no account at all is refused the same way",
+          o["no account at all"]["status"] == 403, o["no account at all"])
+    check("a job the consumer has not started is pending, and says so",
+          o["queued"]["status"] == 202 and o["queued"]["body"]["pending"] is True
+          and o["queued"]["body"]["stage"] == "queued", o["queued"])
+    check("a started job is pending and says since when",
+          o["started"]["status"] == 202 and o["started"]["body"]["stage"] == "started"
+          and o["started"]["body"]["since"].startswith("2026-09-02T11:59:50"), o["started"])
+    check("a job older than an hour is gone by its own timestamp, and its rows go",
+          o["expired"]["status"] == 410 and o["expired"]["finished"], o["expired"])
+    d = o["done"]
+    check("a finished job is the tool's answer with the envelope keys around it",
+          d["status"] == 200 and d["finished"] and d["body"]["available"] is True
+          and d["body"]["asks_considered"] == 2 and d["body"]["board"] == "42"
+          and "setup" in d["body"] and "notes" in d["body"] and "orderings" in d["body"],
+          d["body"])
+    first = d["body"]["orderings"][0]["order"][0]
+    check("with the titles and bases joined back on",
+          first.get("title") == "Saved cards" and first.get("valueBasis") == "1,900 abandonments",
+          first)
+    tr = o["done, tool refused"]
+    check("a tool refusal rides through untouched, with the envelope",
+          tr["status"] == 200 and tr["finished"] and tr["body"]["available"] is False
+          and "sizeable" in tr["body"]["sentence"] and tr["body"]["asks_considered"] == 2,
+          tr["body"])
+    rr = o["done, route refused"]
+    check("a route refusal is the route's own sentence",
+          rr["body"]["available"] is False and rr["body"]["sentence"].startswith("13 asks"),
+          rr["body"])
+    check("a retry is a refusal in the row's own words",
+          o["refused on retry"]["body"]["sentence"] == js["retry"]["timeout"]
+          and o["refused on retry"]["finished"], o["refused on retry"])
+    check("a failure says so without the cause",
+          "failed inside the app" in o["failed"]["body"]["sentence"]
+          and "Traceback" not in json.dumps(o["failed"]), o["failed"])
+    check("an unrecognised state refuses rather than pretending",
+          o["unknown state"]["status"] == 200 and o["unknown state"]["body"]["available"] is False
+          and "teleported" in o["unknown state"]["body"]["sentence"], o["unknown state"])
+    check("every final outcome deletes the rows and every pending one keeps them",
+          all(v["finished"] == (v["status"] in (200, 410)) for v in o.values()),
+          {k: (v["status"], v["finished"]) for k, v in o.items()})
+
+    # ---- the guards ----
+    inflight = js["inflight"]
+    check("the in-flight key is stable for one request and differs by account, context and body",
+          all(inflight[k] for k in ("same", "otherAccount", "otherContext", "otherBody")), inflight)
+    check("the event limit is the documented 100 KB per event",
+          js["constants"]["MAX_EVENT_BYTES"] == 100 * 1024, js["constants"])
+    tl = js["tooLarge"]
+    check("a sprint's projection with every field is well inside it",
+          tl["realistic"] is None and tl["realisticBytes"] < 60 * 1024, tl["realisticBytes"])
+    check("a whole large board is refused with the size named, not truncated",
+          tl["big"] is not None and "%d KB" % -(-tl["bigBytes"] // 1024) in tl["big"]
+          and "Nothing was sequenced" in tl["big"], tl["big"])
+    check("a payload exactly at the limit passes and one byte over refuses",
+          tl["exactly"] is None and tl["overByOne"] is not None, {"exactly": tl["exactly"], "over": tl["overByOne"]})
+    check("the retry sentence names the budget and closes by saying nothing was sequenced",
+          "fifteen-minute" in js["retry"]["timeout"]
+          and "Nothing was sequenced" in js["retry"]["timeout"], js["retry"]["timeout"])
+    check("a second retry says it is the second",
+          "2nd time" in js["retry"]["second"], js["retry"]["second"])
+    check("a retry for another reason names the reason",
+          "FUNCTION_OUT_OF_MEMORY" in js["retry"]["other"], js["retry"]["other"])
+    accepted = dict(js["jobIdAccepts"])
+    check("a job id is validated: platform-shaped ids pass, paths, spaces and empties do not",
+          accepted["01234567-89ab-cdef-0123-456789abcdef"] and accepted["a1b2c3-d4"]
+          and not accepted["../x"] and not accepted["x y"] and not accepted[""]
+          and not accepted["a" * 121], accepted)
+    check("the row TTL is one hour and the lifetime the poll checks is the same hour",
+          js["constants"]["JOB_TTL"] == {"value": 1, "unit": "HOURS"}
+          and js["constants"]["JOB_LIFETIME_MS"] == 3600 * 1000, js["constants"])
+
+    # ---- the check route stands in front of the route, exactly ----
+    seq_ds, asks = _intake_bodies()
+    good = {"dataset": seq_ds, "asks": asks[:2], "board": "42", "asOf": "2026-08-10"}
+    many = [dict(asks[0], id="A%02d" % i) for i in range(IN.MAX_ASKS + 1)]
+    titled = [dict(asks[0], title="Saved cards"), asks[1]]
+    leaky = json.loads(json.dumps(seq_ds))
+    leaky["issues"][0]["summary"] = "a title"
+    for name, body in (("no asks", dict(good, asks=[])),
+                       ("more asks than the cap", dict(good, asks=many)),
+                       ("an ask carrying a title", dict(good, asks=titled)),
+                       ("an issue carrying text", dict(good, dataset=leaky)),
+                       ("no dataset", {"asks": asks[:2]})):
+        a = RT.answer("/v1/sequence-check", json.loads(json.dumps(body)))
+        b = RT.answer("/v1/sequence", json.loads(json.dumps(body)))
+        check("sequence-check refuses %s exactly as sequence does" % name,
+              a == b and a[0] >= 400, {"check": a, "sequence": b[0]})
+    status, out = RT.answer("/v1/sequence-check", json.loads(json.dumps(good)))
+    check("and passes a good body with counts and no figure",
+          status == 200 and out["result"] == {"checked": True, "asks": 2,
+                                              "issues": len(seq_ds["issues"])},
+          (status, out.get("result") or out.get("error")))
+
+    # ---- the adapter's poll, with a fake transport ----
+    script = r"""
+    const { collectSequence, POLL_INTERVALS_MS } = require('../forge/bridge/bridge.js');
+    const run = async (answers, opts) => {
+      const calls = [], sleeps = [];
+      let t = 0;
+      const call = async (route, params) => { calls.push([route, params]); return answers.shift(); };
+      const out = await collectSequence(call, { id: 'BLC/42/S24' },
+        { sleep: async (ms) => { sleeps.push(ms); t += ms; }, now: () => t, ...(opts || {}) });
+      return { out, calls, sleeps };
+    };
+    (async () => {
+      const done = { status: 200, body: { available: true, orderings: [] } };
+      const pending = { status: 202, body: { pending: true, jobId: 'j1' } };
+      const res = {
+        immediate: await run([{ status: 200, body: { available: false, sentence: 'nothing marked' } }]),
+        notFound: await run([{ status: 404, body: { error: 'no such context' } }]),
+        polled: await run([{ status: 202, body: { jobId: 'j1', pending: true } }, pending, pending, pending, done]),
+        gone: await run([{ status: 202, body: { jobId: 'j1', pending: true } }, { status: 404, body: { error: 'collected' } }]),
+        ceiling: await run([{ status: 202, body: { jobId: 'j1', pending: true } }, ...Array(200).fill(pending)], { ceilingMs: 12000 }),
+        intervals: POLL_INTERVALS_MS,
+      };
+      console.log(JSON.stringify(res));
+    })();
+    """
+    node = subprocess.run(["node", "-e", script], capture_output=True, text=True,
+                          cwd=str(ROOT / "tests"))
+    if node.returncode != 0:
+        check("the adapter's poll can be driven under Node", False, (node.stderr or node.stdout)[-300:])
+        return
+    br = json.loads(node.stdout.strip().splitlines()[-1])
+    check("a refusal from the resolver is handed straight to the page, with no poll",
+          br["immediate"]["out"]["status"] == 200 and len(br["immediate"]["calls"]) == 1,
+          br["immediate"])
+    check("and so is a 404, with its status intact",
+          br["notFound"]["out"]["status"] == 404 and len(br["notFound"]["calls"]) == 1)
+    p = br["polled"]
+    check("a 202 with a job id is polled until the answer is final",
+          p["out"]["status"] == 200 and p["out"]["body"]["available"] is True
+          and [c[0] for c in p["calls"]] == ["sequence"] + ["sequenceResult"] * 4
+          and all(c[1] == {"jobId": "j1"} for c in p["calls"][1:]), p["calls"])
+    check("with the poll interval backing off and holding at its longest",
+          p["sleeps"] == [2000, 3000, 5000, 5000], p["sleeps"])
+    check("a job that is gone comes back as the 404 it is",
+          br["gone"]["out"]["status"] == 404 and len(br["gone"]["calls"]) == 2)
+    c = br["ceiling"]
+    check("past the ceiling the page gets a refusal in the contract's own shape",
+          c["out"]["status"] == 200 and c["out"]["body"]["available"] is False
+          and "reload" in c["out"]["body"]["sentence"].lower()
+          and "No result was collected" in c["out"]["body"]["sentence"], c["out"])
+    check("and stopped polling when it said it did",
+          sum(c["sleeps"]) > 12000 and len(c["calls"]) < 10, (sum(c["sleeps"]), len(c["calls"])))
+
+
 def test_config_travels_in_the_payload():
     """A different calendar is a different answer — including, sometimes, no answer."""
     # Enough history for both calendars to clear the evidence threshold.
@@ -4209,8 +4465,17 @@ def body_keys_reach_a_reader():
         # resolver passes on a key that survives in a refusal branch and is
         # missing from the answer — which is the shape of the original bug:
         # the panel headed a real table with "Sequencing 0 asks".
-        answer = idx.split("reattachAsks(answer.result", 1)[1][:600]
-        in_idx = re.search(r"\b%s\b" % re.escape(key), answer) is not None
+        #
+        # The success body is assembled on *collection* now, in jobs.js, from
+        # the envelope the resolver wrote into the job row (ADR 0031): the
+        # keys are named where the row is built and spread where it is read.
+        # So both places are checked — the resolver has to put the key in the
+        # envelope, and the collector has to spread the envelope into the body.
+        envelope = idx.split("const envelope = {", 1)[1][:400]
+        jobs_js = (ROOT / "forge" / "src" / "jobs.js").read_text()
+        collected = jobs_js.split("body: { ...reattachAsks(", 1)[1][:200]
+        in_idx = (re.search(r"\b%s\b" % re.escape(key), envelope) is not None
+                  and "job.envelope" in collected)
         in_live = re.search(r"\b%s\b" % re.escape(key), live) is not None
         check("both transports add %s to the answer the tile reads" % key,
               in_idx and in_live, {"resolver answer": in_idx, "serve_live": in_live})
@@ -4600,6 +4865,38 @@ APP_LEVEL_STORES = {
                    "published them, scored for every later reader. Same shape "
                    "as the series. ADR 0018 §2.",
         "mirrors": False,
+    },
+    # Sequencing as a job — ADR 0031. Three rows per job, all with a one-hour
+    # TTL and all deleted when the result is collected. The job row is bound
+    # to the asking account and the poll refuses any other, so a sequencing
+    # computed over one viewer's read is handed back to that viewer only:
+    # mirroring holds by a comparison, not by the entropy of a job id.
+    "seqjob:": {
+        "kvs": True,
+        "authority": "user",
+        "exposes": "who asked for a sequencing, when, the titles and value "
+                   "bases of the asks held back from the payload, and the "
+                   "keys the page's body gets around the answer. Collected by "
+                   "the asking account only; deleted on collection.",
+        "mirrors": True,
+    },
+    "seqresult:": {
+        "kvs": True,
+        "authority": "user",
+        "exposes": "the tool's own sequencing answer — orderings by ask id, "
+                   "dates and item counts, no titles — computed over the "
+                   "asking viewer's read and handed back to that viewer only. "
+                   "Deleted on collection.",
+        "mirrors": True,
+    },
+    "seqinflight:": {
+        "kvs": True,
+        "authority": "user",
+        "exposes": "a job id, under a key that is a hash of the context, the "
+                   "projection and the asking account, so that a reload joins "
+                   "the running job. Nothing derived from an issue; deleted "
+                   "with the job.",
+        "mirrors": True,
     },
 }
 
@@ -5285,6 +5582,8 @@ if __name__ == "__main__":
     test_service_computes_nothing()
     print("one seam, two doors")
     test_the_routes_module_is_the_whole_answer()
+    print("sequencing is a job")
+    test_sequencing_is_a_job()
     print("the config travels in the payload")
     test_config_travels_in_the_payload()
     print("refusals")

@@ -114,6 +114,10 @@ def _cases():
         # Four asks: what the demo bundle records, and about a second natively.
         {"name": "sequence %d asks" % len(asks), "path": "/v1/sequence",
          "body": {"dataset": seq_ds, "asks": asks, "board": "42", "asOf": "2026-08-10"}},
+        # The resolver's door: the same body, validated and not computed. This
+        # is the call the resolver function makes from its snapshot load.
+        {"name": "sequence-check", "path": "/v1/sequence-check",
+         "body": {"dataset": seq_ds, "asks": asks, "board": "42", "asOf": "2026-08-10"}},
         # Refusals are answers, and a refusal sentence that differs between the
         # runtimes is a page that says two things about one board.
         {"name": "refusal: free text", "path": "/v1/forecast",

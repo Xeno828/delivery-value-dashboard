@@ -23,6 +23,17 @@ import Resolver from '@forge/resolver';
 import api, { route, invokeRemote } from '@forge/api';
 import { chat } from '@forge/llm';
 import { kvs } from '@forge/kvs';
+import { Queue } from '@forge/events';
+
+// The Python runtime inside this function — `agent/tools/` and
+// `service/routes.py` under WebAssembly, loaded from a generated module.
+// CommonJS, hence the default import. ADR 0031.
+import runtime from './runtime.js';
+import {
+  CONSUMER_ROUTE, FAILED_SENTENCE, JOB_ID, JOB_LIFETIME_MS, JOB_TTL, QUEUE_KEY,
+  collect, inflightKey, jobKey, jobRow, resultKey, resultRow, retryRefusal,
+  tooLarge, wrongRoute,
+} from './jobs.js';
 
 import {
   CONFIG_PROPERTY_KEY, contextEntry, contextsBody, contextBody, contextId,
@@ -141,29 +152,9 @@ const assertAsksCarryNoText = (asks) => {
   }
 };
 
-/**
- * Put the title and the basis back beside each ordering, by id.
- *
- * The calculator answered with ids because that is all it was given. These are
- * the words that never left, joined on — a lookup, not a calculation, and the
- * only reason a reader sees a basis beside an ordering at all. It is the same
- * move `reattach` makes for item risk, one route along.
- */
-const reattachAsks = (result, text) => {
-  for (const ordering of result?.orderings ?? []) {
-    for (const row of ordering.order ?? []) {
-      const local = text[row.id];
-      if (!local) continue;
-      row.title = local.title;
-      row.valueBasis = local.basis;
-    }
-  }
-  for (const d of result?.deltas ?? []) {
-    const local = text[d.first];
-    if (local) d.title = local.title;
-  }
-  return result;
-};
+/* `reattachAsks` — the title and the basis put back beside each ordering by
+   id — lives in jobs.js now, because the join happens when a sequencing
+   result is *collected* rather than when it is called for. */
 
 /**
  * One call to the calculator.
@@ -1593,41 +1584,95 @@ resolver.define('sequence', answering(async ({ payload, context }) => {
   // watching.
   assertAsksCarryNoText(asks);
 
-  const answer = await callCalculator('/v1/sequence', {
+  // The same keys `scripts/serve_live.py` adds around the tool's answer, held
+  // in the job row so the collector can put them back. ADR 0009 is one set of
+  // body shapes over two transports, and the page reads `asks_considered` for
+  // its own heading — without it the panel says "Sequencing 0 asks" over a
+  // table of two.
+  const envelope = {
+    board: boardId == null ? null : String(boardId),
+    boardName: entry.boardName ?? null,
+    asks_considered: asks.length,
+    setup,
+    notes,
+  };
+  const refuse = (sentence) => ({ status: 200, body: { available: false, ...envelope, sentence } });
+  const request = {
     dataset: { issues: projected, contexts, orgConfig: cfg },
     asks,
     board: parseContextId(asked)?.boardId,
-  });
-  if (answer.available === false) {
-    return {
-      status: 200,
-      body: {
-        available: false,
-        board: boardId == null ? null : String(boardId),
-        boardName: entry.boardName ?? null,
-        asks_considered: asks.length,
-        setup,
-        notes,
-        sentence: answer.sentence,
-      },
-    };
+  };
+
+  // **Sequencing is a job.** ADR 0031. It is cubic in the ask count and runs
+  // for minutes on this CPU, so this resolver does not compute it. It
+  // validates the request through the same Python the consumer will run —
+  // one validator, the tool's own cap and sentences, in this function under
+  // the snapshot load — pushes the projection to a consumer function with a
+  // 900-second budget, and answers with a job id for the adapter to poll.
+  const checked = await runtime.answer('/v1/sequence-check', request, { snapshot: true });
+  if (checked.status !== 200) {
+    return refuse(checked.payload?.error
+      ?? 'The sequencing request was refused before it started. Nothing was sequenced.');
+  }
+  const over = tooLarge(request);
+  if (over) return refuse(over);
+
+  // A reload mid-job joins the running job rather than starting another:
+  // the same context, the same projection, the same account is one
+  // computation with two collectors, not two computations.
+  const accountId = context?.accountId ?? null;
+  const inflight = inflightKey(asked, request, accountId);
+  const running = await kvs.get(inflight);
+  if (running?.jobId) {
+    const job = await kvs.get(jobKey(running.jobId));
+    const fresh = job && Date.now() - Date.parse(job.createdAt) < JOB_LIFETIME_MS;
+    if (fresh) return { status: 202, body: { jobId: running.jobId, pending: true, joined: true } };
   }
 
-  // The same three keys `scripts/serve_live.py` adds around the tool's answer.
-  // ADR 0009 is one set of body shapes over two transports, and the page reads
-  // `asks_considered` for its own heading — without it the panel says
-  // "Sequencing 0 asks" over a table of two.
-  return {
-    status: 200,
-    body: {
-      ...reattachAsks(answer.result, text),
-      board: boardId == null ? null : String(boardId),
-      boardName: entry.boardName ?? null,
-      asks_considered: asks.length,
-      setup,
-      notes,
-    },
-  };
+  let jobId;
+  try {
+    ({ jobId } = await new Queue({ key: QUEUE_KEY }).push({
+      body: { route: CONSUMER_ROUTE, body: request },
+    }));
+  } catch (err) {
+    // The platform's own class name, never its message — a message can carry
+    // the payload it refused, and the payload is a board.
+    return refuse(`The platform did not accept the sequencing job (${err?.name ?? 'error'}). `
+                + 'Nothing was sequenced; try again in a minute.');
+  }
+  await kvs.set(jobKey(jobId), jobRow({
+    jobId, accountId, contextId: asked, key: inflight, text, envelope, now: Date.now(),
+  }), { ttl: JOB_TTL });
+  await kvs.set(inflight, { jobId }, { ttl: JOB_TTL });
+  return { status: 202, body: { jobId, pending: true } };
+}));
+
+/**
+ * One poll of a sequencing job. ADR 0031.
+ *
+ * The adapter asks every few seconds with the job id the `sequence` resolver
+ * handed it, and gets back exactly what `collect` in jobs.js says: 202 while
+ * the consumer is running, the tool's answer when it is done, a refusal when
+ * it was refused, and a 404, 403 or 410 for a job that is gone, another
+ * account's, or older than an hour. The rows are deleted the moment a final
+ * answer is handed over, so a result is never served twice from storage.
+ */
+resolver.define('sequenceResult', answering(async ({ payload, context }) => {
+  const jobId = payload?.jobId;
+  if (typeof jobId !== 'string' || !JOB_ID.test(jobId)) {
+    return { status: 400, body: { error: 'A sequencing job is collected by its id, and that is not one.' } };
+  }
+  const job = await kvs.get(jobKey(jobId));
+  const result = job ? await kvs.get(resultKey(jobId)) : null;
+  const out = collect({ job, result, accountId: context?.accountId ?? null, now: Date.now() });
+  if (out.finished) {
+    await Promise.all([
+      kvs.delete(jobKey(jobId)),
+      kvs.delete(resultKey(jobId)),
+      job?.key ? kvs.delete(job.key) : Promise.resolve(),
+    ]);
+  }
+  return { status: out.status, body: out.body };
 }));
 
 /* ------------------------------------------------------------------------
@@ -2276,6 +2321,55 @@ export const weeklyBrief = async () => {
     });
   }
   return { sent: sent > 0, boards: out };
+};
+
+/**
+ * The consumer: one sequencing, computed under a 900-second budget in its
+ * own container. ADR 0031.
+ *
+ * It reads the retry context before anything else. A consumer killed at its
+ * timeout is re-invoked forty seconds later, and again forty seconds after
+ * the next kill, for a day; without this guard the same doomed job runs every
+ * six minutes for something nobody sees. On any retry it writes a refusal to
+ * the row and returns without loading the runtime.
+ *
+ * Plain load, not the snapshot: on Forge everything computed after a snapshot
+ * load runs 1.65× slower, and this function computes for minutes. The cold
+ * load it pays instead is eleven seconds against a run of three and a half.
+ *
+ * Every outcome is a row. A consumer that threw would be retried, which is
+ * the doomed-job loop above by another door, so nothing escapes: the cause
+ * goes to the log and the row says it failed.
+ */
+export const sequenceConsumer = async (event) => {
+  const jobId = event?.jobId;
+  const key = resultKey(jobId);
+  if (event?.retryContext) {
+    await kvs.set(key, resultRow('refused', {
+      sentence: retryRefusal(event.retryContext),
+      retryCount: event.retryContext.retryCount ?? null,
+      retryReason: event.retryContext.retryReason ?? null,
+    }, Date.now()), { ttl: JOB_TTL });
+    return;
+  }
+  await kvs.set(key, resultRow('started', {}, Date.now()), { ttl: JOB_TTL });
+  const t0 = Date.now();
+  const { route: askedRoute, body } = event?.body ?? {};
+  if (askedRoute !== CONSUMER_ROUTE) {
+    await kvs.set(key, resultRow('refused', { sentence: wrongRoute(askedRoute) }, Date.now()),
+      { ttl: JOB_TTL });
+    return;
+  }
+  try {
+    const { status, payload } = await runtime.answer(CONSUMER_ROUTE, body, { snapshot: false });
+    await kvs.set(key, resultRow('done', {
+      http: status, envelope: payload, ms: Date.now() - t0, load: runtime.state().loadedWith,
+    }, Date.now()), { ttl: JOB_TTL });
+  } catch (err) {
+    console.error('sequence consumer failed', jobId, String((err && err.stack) || err));
+    await kvs.set(key, resultRow('failed', { sentence: FAILED_SENTENCE, ms: Date.now() - t0 },
+      Date.now()), { ttl: JOB_TTL });
+  }
 };
 
 export const handler = resolver.getDefinitions();
