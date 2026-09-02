@@ -1239,7 +1239,7 @@ resolver.define('forecast', answering(async ({ payload, context }) => {
   // Which contexts this forecast samples. Metadata only — this route needs no
   // issues and none are sent, so asking costs one small round trip rather than
   // a board's worth of data going out twice.
-  const slice = await callCalculator('/v1/slice', { dataset: { contexts }, contextId: asked });
+  const slice = await answerHere('/v1/slice', { dataset: { contexts }, contextId: asked });
   if (slice.available === false) return { status: 200, body: noCalculator(slice.sentence) };
   const wanted = new Set(slice.result?.contextIds ?? []);
   if (!wanted.size) {
@@ -1271,7 +1271,7 @@ resolver.define('forecast', answering(async ({ payload, context }) => {
   const logKey = forecastLogKey(board);
   const heldLog = board ? ((await kvs.get(logKey)) ?? []) : [];
 
-  const answer = await callCalculator('/v1/forecast-context', {
+  const answer = await answerHere('/v1/forecast-context', {
     dataset: {
       issues: projected,
       // Every context, not just the sampled ones. The calculator resolves the
@@ -2250,7 +2250,7 @@ const boardFigures = async (boardId) => {
 
   // A refusal here is an answer, not a failure: `sectionsFor` carries the
   // tool's sentence into the brief verbatim.
-  const forecast = await callCalculator('/v1/forecast-context', {
+  const forecast = await answerHere('/v1/forecast-context', {
     dataset, contextId: entry.id,
   });
 
