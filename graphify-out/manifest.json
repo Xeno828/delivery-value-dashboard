@@ -24,10 +24,10 @@
     "semantic_hash": "f698a7c7f2e8c33315709d7db11621a7"
   },
   "agent/tools/metrics.py": {
-    "mtime": 1788204142.602918,
-    "seen": 1788427681.8775811,
-    "ast_hash": "fbd9c4bc36dbc868438561e2d660bea8",
-    "semantic_hash": "fbd9c4bc36dbc868438561e2d660bea8"
+    "mtime": 1788441684.0094461,
+    "seen": 1788444481.828544,
+    "ast_hash": "7b51fab925c61f7d332ac91bb2cc979a",
+    "semantic_hash": "7b51fab925c61f7d332ac91bb2cc979a"
   },
   "agent/tools/orgconfig.py": {
     "mtime": 1788177408.7871916,
@@ -131,12 +131,6 @@
     "ast_hash": "0f4754c88bdaeb7e07958437f5f6de11",
     "semantic_hash": "0f4754c88bdaeb7e07958437f5f6de11"
   },
-  "forge/probe/probe.js": {
-    "mtime": 1787599453.9883635,
-    "seen": 1788427681.87759,
-    "ast_hash": "1b53102e1a6410161ac2832835d54e04",
-    "semantic_hash": "1b53102e1a6410161ac2832835d54e04"
-  },
   "forge/seed.json": {
     "mtime": 1787594608.660192,
     "seen": 1788427681.87759,
@@ -162,10 +156,10 @@
     "semantic_hash": "eff44ea92b3d3d1bf747f39c8b7dfa49"
   },
   "forge/src/index.js": {
-    "mtime": 1788434768.5470443,
-    "seen": 1788439236.713194,
-    "ast_hash": "730cfae230050f8cf8b67d6fdcd19524",
-    "semantic_hash": "730cfae230050f8cf8b67d6fdcd19524"
+    "mtime": 1788441632.3572161,
+    "seen": 1788444481.828558,
+    "ast_hash": "c5ad0a0fa5b53492317b21045edb2d75",
+    "semantic_hash": "c5ad0a0fa5b53492317b21045edb2d75"
   },
   "forge/src/jira.js": {
     "mtime": 1788205235.2180457,
@@ -372,10 +366,10 @@
     "semantic_hash": "7bc381b3b523aa20cfd492c529a1006c"
   },
   "tests/test_service.py": {
-    "mtime": 1788440064.7406466,
-    "seen": 1788441421.563893,
-    "ast_hash": "76ab4e0f1901ae24748ebb814e7d35bb",
-    "semantic_hash": "76ab4e0f1901ae24748ebb814e7d35bb"
+    "mtime": 1788441632.3591468,
+    "seen": 1788444481.8285792,
+    "ast_hash": "63434417d22b60268c832235ddd09bb7",
+    "semantic_hash": "63434417d22b60268c832235ddd09bb7"
   },
   "tests/test_wasm.py": {
     "mtime": 1788340228.1808958,
@@ -408,10 +402,10 @@
     "semantic_hash": "66cba6c0361c57564d082a22fce50e23"
   },
   "CHANGELOG.md": {
-    "mtime": 1788440081.0349355,
-    "seen": 1788441421.563898,
-    "ast_hash": "18612bd5a4540584f64cf6c41295670e",
-    "semantic_hash": "18612bd5a4540584f64cf6c41295670e"
+    "mtime": 1788441851.5835867,
+    "seen": 1788444481.828581,
+    "ast_hash": "16bb5e3e3854238fdc193d0a93f09a4e",
+    "semantic_hash": "16bb5e3e3854238fdc193d0a93f09a4e"
   },
   "CLAUDE.md": {
     "mtime": 1788434644.3228197,
@@ -720,10 +714,10 @@
     "semantic_hash": "b6eefa238fc61a522f7acb10bbb77b94"
   },
   "docs/forge-deployment.md": {
-    "mtime": 1788434644.324708,
-    "seen": 1788439236.713225,
-    "ast_hash": "c55ef190f800cc3da061d9329a3a66f5",
-    "semantic_hash": "c55ef190f800cc3da061d9329a3a66f5"
+    "mtime": 1788441684.0102394,
+    "seen": 1788444481.8285818,
+    "ast_hash": "172ade5e7bc43344a0d18855611c4a1d",
+    "semantic_hash": "172ade5e7bc43344a0d18855611c4a1d"
   },
   "docs/hosting-the-calculator.md": {
     "mtime": 1788433607.223704,
@@ -780,22 +774,16 @@
     "semantic_hash": "bc575cf8908fe1150b50fd2570636810"
   },
   "forge/README.md": {
-    "mtime": 1788434644.3242543,
-    "seen": 1788439236.713227,
-    "ast_hash": "eeee6851aff2cc3c23fa669694cb32f0",
-    "semantic_hash": "eeee6851aff2cc3c23fa669694cb32f0"
+    "mtime": 1788441684.0097806,
+    "seen": 1788444481.8285818,
+    "ast_hash": "e628d73452bcf1b609258eb6433e97f3",
+    "semantic_hash": "e628d73452bcf1b609258eb6433e97f3"
   },
   "forge/manifest.yml": {
-    "mtime": 1788434972.4274015,
-    "seen": 1788439236.713228,
-    "ast_hash": "9bc81f8818b7a3fbd0b6b401add786e8",
-    "semantic_hash": "9bc81f8818b7a3fbd0b6b401add786e8"
-  },
-  "forge/probe/index.html": {
-    "mtime": 1787582306.7709222,
-    "seen": 1788427681.877645,
-    "ast_hash": "9352939ef1dcfdc20a1698100bb0b7a1",
-    "semantic_hash": "9352939ef1dcfdc20a1698100bb0b7a1"
+    "mtime": 1788441941.9762309,
+    "seen": 1788444481.828583,
+    "ast_hash": "2386a4a7ec72d1539ece46c8ea518634",
+    "semantic_hash": "2386a4a7ec72d1539ece46c8ea518634"
   },
   "scripts/requirements.txt": {
     "mtime": 1786911855.6401722,
