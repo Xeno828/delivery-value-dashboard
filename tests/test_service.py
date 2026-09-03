@@ -353,10 +353,11 @@ def test_routes_is_the_whole_service():
           isinstance(cleaned, dict) and "issues" in cleaned and kept == asks[:2])
 
 
-#: The routes answered by the Python inside the Forge function, in the order
-#: they moved. Everything else `index.js` asks for still goes to the hosted
-#: calculator until its own commit moves it. ADR 0031: git is the switch, and
-#: a route reached both ways in one deploy is a second code path nobody tests.
+#: Every route the Python inside the Forge function answers, in the order they
+#: moved there. While the hosted calculator still answered what had not moved,
+#: this set was one half of an overlap check; since 1.78.0 it is the whole
+#: inventory, and the scope block below holds that nothing reaches a remote.
+#: ADR 0031: git was the switch, and the last route moved in 1.77.5.
 IN_FUNCTION_ROUTES = {
     "/v1/sequence-check",   # 1.77.0 — the sequence resolver's validation
     "/v1/sequence",         # 1.77.0 — the consumer
@@ -369,15 +370,16 @@ IN_FUNCTION_ROUTES = {
 
 
 def test_routes_move_one_at_a_time():
-    """A route is answered in-function or by the calculator, never both.
+    """Every route `index.js` answers is in the written inventory, and vice versa.
 
-    The migration has no runtime switch on purpose: git is the switch, each
-    deploy has one change to blame, and a switch that outlives the migration
-    is a second code path. So the set of routes `index.js` answers through
-    `answerHere` or `runtime.answer` and the set it still sends to
-    `callCalculator` must not overlap, and the first set must be exactly the
-    inventory above — a route that moved without being written down here is
-    a route whose move nobody priced.
+    The migration had no runtime switch on purpose: git was the switch, each
+    deploy had one change to blame, and a switch that outlives the migration
+    is a second code path. While it ran, this test also held that the routes
+    still sent to the calculator did not overlap with these; the calculator is
+    gone, the scope block asserts no remote is reached, and an overlap check
+    against an empty set would pass for ever without saying anything. What is
+    left is the inventory: a route answered in-function that is not written
+    down here is a route whose move nobody priced.
     """
     idx = _code_only((ROOT / "forge" / "src" / "index.js").read_text())
     here = set(re.findall(r"(?:answerHere|runtime\.answer)\(\s*'(/v1/[^']+)'", idx))
@@ -386,21 +388,16 @@ def test_routes_move_one_at_a_time():
     jobs_js = (ROOT / "forge" / "src" / "jobs.js").read_text()
     allow = re.search(r"export const CONSUMER_ROUTES = \[(.*?)\];", jobs_js, re.S)
     here |= set(re.findall(r"'(/v1/[^']+)'", allow.group(1))) if allow else set()
-    remote = set(re.findall(r"callCalculator\(\s*'(/v1/[^']+)'", idx))
     check("every route answered in-function is in the inventory, and every inventoried route moved",
           here == IN_FUNCTION_ROUTES,
           {"in code": sorted(here), "inventory": sorted(IN_FUNCTION_ROUTES)})
-    check("no route is answered both in-function and by the calculator",
-          not (here & remote), sorted(here & remote))
-    check("the calculator still answers what has not moved, until it goes",
-          remote <= set(SVC.ROUTES) and "/v1/facts" not in remote, sorted(remote))
-    # Every path either side names is a route the Python has.
-    check("every path named on either side is a route routes.py declares",
-          (here | remote) <= set(SVC.ROUTES), sorted((here | remote) - set(SVC.ROUTES)))
+    # Every path the resolver names is a route the Python has.
+    check("every path the resolver names is a route routes.py declares",
+          here <= set(SVC.ROUTES), sorted(here - set(SVC.ROUTES)))
 
-    # `answerHere` is `callCalculator`'s drop-in: same two answers, so a caller
-    # changes one identifier. Its refusal branch carries the route's own error
-    # sentence, as the calculator's did.
+    # `answerHere` replaced the calculator call with the same two answers, so a
+    # caller changed one identifier. Its refusal branch carries the route's own
+    # error sentence, as the calculator's did.
     here_fn = idx.split("const answerHere = ", 1)[1].split("\n};", 1)[0]
     check("answerHere loads from the snapshot, which is the resolver function's load",
           "{ snapshot: true }" in here_fn)
@@ -525,8 +522,7 @@ def test_simulations_are_jobs():
     check("the sequence resolver validates through the tool's own check route, from the snapshot",
           "'/v1/sequence-check'" in seq and "{ snapshot: true }" in seq)
     check("and hands over rather than computing",
-          "startJob({" in seq and "runtime.answer('/v1/sequence'" not in seq
-          and "callCalculator(" not in seq)
+          "startJob({" in seq and "runtime.answer('/v1/sequence'" not in seq)
     check("the job row carries the asking account, the words held back and the envelope",
           all(s in seq for s in ("accountId", "text", "envelope")))
     fc = _code_only(idx.split("resolver.define('forecast'", 1)[1].split("\n}));", 1)[0])
