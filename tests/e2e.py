@@ -1965,6 +1965,18 @@ def main():
               page.get_attribute("#btn-view", "aria-expanded") == "true")
         check("there is a checkbox per tile",
               page.eval_on_selector_all("[data-tile]", "n => n.length") == len(TIDS))
+        # The button read "Tiles · Everything" on a sprint board while the
+        # popover beneath it said "4 hidden": the flow tiles a sprint board does
+        # not draw. The label names what the preset shows and carries the count
+        # whenever anything is hidden, whoever hid it.
+        btn = " ".join((page.text_content("#btn-view") or "").split())
+        check("the Tiles button does not say Everything while tiles are hidden",
+              "Everything" not in btn, btn)
+        check("it names the set it shows and counts it",
+              "All sprint tiles" in btn and re.search(r"\b\d+ of %d\b" % len(TIDS), btn) is not None, btn)
+        check("the popover's preset carries the same name",
+              "All sprint tiles" in (page.text_content('[data-preset="all"]') or ""),
+              page.text_content('[data-preset="all"]'))
 
         page.click('[data-preset="exec"]')
         page.wait_for_timeout(200)

@@ -5606,7 +5606,17 @@ const PRESET_SETS = {
            "c-forecast", "c-risk"],
   },
 };
+/* Named for what each shows on the board in view. The first was "Everything"
+   and printed as "Tiles · Everything" on a sprint board while the popover
+   beneath it said "4 hidden" — the flow tiles a sprint board does not draw.
+   A label that says what is not so, on the first control in the topbar of a
+   product whose positioning is that it never does. */
 const PRESET_LABEL = { all: "Everything", exec: "Executive", team: "Team" };
+function presetLabel(k) {
+  if (k === "all") return isWindow(S.view && S.view.ctx) ? "All flow tiles" : "All sprint tiles";
+  if (k === "custom") return "Custom";
+  return PRESET_LABEL[k] || k;
+}
 
 /** The preset sets for the board on screen. */
 function PRESETS_NOW() {
@@ -5752,9 +5762,10 @@ function applyTiles() {
   });
   const name = presetOf(S.shown), hidden = TILE_IDS.length - on.length;
   const btn = $("#btn-view");
-  btn.textContent = hidden ? "Tiles · " + (name === "custom" || off.length
-                                             ? on.length + " of " + TILE_IDS.length
-                                             : PRESET_LABEL[name]) : "Tiles";
+  // The count travels with the name whenever anything is hidden, whoever hid it.
+  btn.textContent = hidden
+    ? "Tiles · " + presetLabel(name) + " · " + on.length + " of " + TILE_IDS.length
+    : "Tiles";
   btn.title = hidden ? hidden + " of " + TILE_IDS.length + " tiles hidden in this view" +
                        (off.length ? ", " + off.length + " of them because this board runs no sprints" : "")
                      : "Choose which tiles this view shows";
@@ -5787,7 +5798,7 @@ function buildPicker() {
     '<div class="vp-presets" role="group" aria-label="Preset views">' +
       Object.keys(PRESET_SETS).map(k =>
         '<button type="button" data-preset="' + esc(k) + '" aria-pressed="false">' +
-        esc(PRESET_LABEL[k]) + "</button>").join("") +
+        esc(presetLabel(k)) + "</button>").join("") +
     "</div>" +
     '<ul class="vp-list" id="vp-list"></ul>' +
     '<div class="vp-count" id="vp-count"></div>' +
