@@ -123,6 +123,11 @@ a{color:var(--link)}
   /* Give the tools their own row instead of squeezing them beside the title,
      so a multi-option control has the full card width to wrap into. */
   .card > .card-hd{flex-direction:column;align-items:stretch}
+  /* The title block's 220px flex basis is a width above this breakpoint. Once
+     the header stacks, the main axis is vertical and the same basis is a
+     height: every card on a 375px screen opened with 220px of paper over
+     40-90px of heading, and the first figure sat more than a screen down. */
+  .card > .card-hd > div:first-child{flex-basis:auto}
   .hd-tools{justify-content:flex-start}
 }
 

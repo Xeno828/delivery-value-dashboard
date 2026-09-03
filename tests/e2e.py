@@ -2238,6 +2238,26 @@ def main():
             short = [i for i, n in enumerate(spans) if n != 12]
             check("every tile row fills all 12 columns at %dpx" % width, not short,
                   "rows %s are %s" % (short, [spans[i] for i in short]) if short else "")
+        # ---------- a phone does not open on blank paper ----------
+        # The card header's title block yields to the tools with a 220px flex
+        # basis. Below 760px the header stacks, so a basis written as a width
+        # became a height: every header on a 375px screen was 220px tall over
+        # 40-90px of content, about 1,900px of nothing in a 10,700px page, and
+        # the first figure was more than a screen down. Measured as the gap
+        # between the box and the bottom of its last child, so the check is
+        # about the content and not about a number that moves with the copy.
+        page.set_viewport_size({"width": 375, "height": 812})
+        page.wait_for_timeout(300)
+        slack = page.evaluate("""() => [...document.querySelectorAll('.card > .card-hd > div:first-child')]
+          .filter(e => e.offsetParent !== null && e.children.length)
+          .map(e => {
+            const box = e.getBoundingClientRect();
+            const last = Math.max(...[...e.children].map(k => k.getBoundingClientRect().bottom));
+            return Math.round(box.height - (last - box.top));
+          })""")
+        check("no card header on a phone is taller than what it says",
+              bool(slack) and max(slack) <= 12,
+              "largest gap %spx under a heading, over %d headers" % (max(slack) if slack else None, len(slack)))
         page.set_viewport_size({"width": 1500, "height": 1000})
         page.wait_for_timeout(300)
 
