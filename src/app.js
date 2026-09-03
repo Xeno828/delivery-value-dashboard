@@ -1173,6 +1173,7 @@ function derive(items) {
      through as the working days already passed. agent/tools/metrics.py is
      the mirror — change one, change both. Found by tests/forge_smoke.py. */
   m.sprintNotStarted = wd.length > 0 && now < wd[0];
+  m.sprintStartsOn = m.sprintNotStarted ? wd[0] : null;
   const passed = wd.filter(d => d <= now).length;
   /* Belt as well as braces. `contextWorkingDays()` already withholds the
      calendar from a window, so this would be null anyway — but every reader of
@@ -1228,9 +1229,18 @@ function derive(items) {
      additions"** for a board where the phrase has no referent. That is the
      exact shape ADR 0009 caught the resolver in when it defaulted the field:
      not a silence, a claim that nothing was added. */
+  /* The same fourth cause pace has. Before the first working day nothing can
+     have been added "after the sprint began", and the component scored
+     100/100 for "no mid-sprint additions" on a sprint that had not started —
+     seen in a tenant, beside the pace it had just learned to withhold. With
+     both gone the score falls under half its weight and refuses, which is the
+     honest answer: a sprint that has not started has no sprint health yet. */
   m.scopeUnknown = window
     ? "this board does not use sprints, so there is no point in a period after which " +
       "work counts as added"
+    : m.sprintNotStarted
+    ? "this sprint has not started — it begins on " + fmtD(wd[0]) +
+      ", so nothing can yet have been added after it began"
     : (m.totalU ? null : noVolume);
   /* Said once here, acted on separately by each tile. A tile that refuses has
      to say what *it* in particular cannot show — a shared sentence stamped
@@ -2031,7 +2041,12 @@ function renderKpis(m) {
     /* "Mid-sprint" has no referent on a board with no sprints, so every issue
        carries addedMidSprint false and the tile would read "+0 · 0% growth" —
        the claim that nothing was added, about a period that does not exist. */
-    m.isFlowBoard
+    m.sprintNotStarted
+      ? { lab: "Scope added", val: "—", sub: "not started · sprint starts " + fmtD(m.sprintStartsOn),
+          barPct: 0, barCol: CSSV("--muted"),
+          tt: "Work added after a sprint began. This sprint has not started, so there is no moment yet after which arriving work counts as an addition — and a zero here would read as \u201cnothing was added\u201d about a period that has not happened.",
+          drill: { t: "Work added after a sprint started", items: [] } }
+      : m.isFlowBoard
       ? { lab: "Scope added", val: "—", sub: "no sprint for work to be added to",
           barPct: 0, barCol: CSSV("--muted"),
           tt: "Work added after a sprint began. This board runs no sprints, so there is no moment after which arriving work counts as an addition — and a zero here would read as \u201cnothing was added\u201d rather than as \u201cthere was nothing to add to\u201d.",
@@ -4369,6 +4384,8 @@ function renderRisk(m, items) {
   if (m.isFlowBoard)
     cannot("scope growth", "this board runs no sprints, so there is no point after which " +
       "arriving work counts as an addition");
+  else if (m.sprintNotStarted)
+    cannot("scope growth", "this sprint has not started, so nothing can yet have been added after it began");
   else if (!m.totalU)
     cannot("scope growth", "nothing in this selection carries a figure in " + U().label);
   if (m.isFlowBoard)

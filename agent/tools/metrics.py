@@ -908,7 +908,12 @@ def facts(ds, previous=None, scope="sprint"):
         },
         "scope": {
             "added_items": len(added), "added_points": sp(added),
-            "growth_pct": pct(sp(added), sp(issues) - sp(added)),
+            # Growth is a share of what was committed before the sprint began;
+            # before the first working day there is no "began" yet. The mirror
+            # of scopeUnknown in src/app.js, with the same sentence.
+            "growth_pct": None if not_started else pct(sp(added), sp(issues) - sp(added)),
+            "scope_withheld": (("this sprint has not started — it begins on %s, so nothing can "
+                                "yet have been added after it began") % wdays[0]) if not_started else None,
             "added_keys": [i["key"] for i in added],
         },
         "risk": {

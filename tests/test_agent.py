@@ -152,6 +152,10 @@ def test_a_sprint_that_has_not_started_has_no_pace():
     check("and says why, naming the day the clock starts",
           (d.get("pace_withheld") or "").startswith("this sprint has not started") and
           "2026-08-17" in (d.get("pace_withheld") or ""), d.get("pace_withheld"))
+    s = M.facts(future)["scope"]
+    check("nor a scope growth, because nothing can have been added after a start that has not happened",
+          s["growth_pct"] is None and (s.get("scope_withheld") or "").startswith("this sprint has not started"),
+          (s["growth_pct"], s.get("scope_withheld")))
     sat = json.load(open(ROOT / "data" / "sample-sprint.json"))
     sat["meta"]["asOfDate"] = "2026-08-08"     # a Saturday, five of ten working days in
     d = M.facts(sat)["delivery"]

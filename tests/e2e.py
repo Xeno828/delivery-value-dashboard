@@ -172,7 +172,19 @@ def health_composition(b):
     kpi = " ".join((page.text_content("#kpis .kpi:nth-child(2)") or "").split())
     verdict = " ".join((page.text_content("#exec-verdict") or "").split())
     check("a sprint that has not started drops delivery pace rather than scoring it",
-          "Delivery pace — <b>not measured</b>" in tt and "3 of 4 measures" in chip, chip)
+          "Delivery pace — <b>not measured</b>" in tt, tt[:160])
+    # Scope stability goes with it: nothing can have been added after a start
+    # that has not happened, and it scored 100/100 for "no mid-sprint
+    # additions" on such a sprint, seen in a tenant. Two of four weights gone
+    # is under half, so the score refuses — a sprint that has not started has
+    # no sprint health yet, and the chip says so rather than scoring hygiene.
+    check("and scope stability with it, rather than scoring full marks for no additions",
+          "Scope stability — <b>not measured</b>" in tt, tt[:260])
+    check("so the score refuses rather than scoring the two measures left",
+          "not scored" in chip and "the evidence is absent, not noisy" in tt, chip)
+    added_tile = " ".join((page.text_content("#kpis .kpi:nth-child(5)") or "").split())
+    check("the Scope added tile says the sprint has not started, and states no zero",
+          "not started" in added_tile and not re.search(r"\d+ items? after kickoff|\d+% growth", added_tile), added_tile)
     check("and names the day the clock starts as the cause",
           "has not started" in tt and re.search(r"17 Aug|Aug 17", tt) is not None, tt[:220])
     check("the pace KPI says the sprint has not started, and states no figure",
