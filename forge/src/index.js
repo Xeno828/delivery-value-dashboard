@@ -1396,7 +1396,7 @@ resolver.define('history', answering(async ({ payload, context }) => {
   // this installation has kept, and answers with both: the per-sprint rows, so
   // this resolver can decide what it is entitled to record, and the merged
   // view with its note, so nothing here counts anything a reader will read.
-  const answer = await callCalculator('/v1/history', {
+  const answer = await answerHere('/v1/history', {
     dataset: { issues: projected, contexts: mine, orgConfig },
     stored,
     statuses: fingerprint,
@@ -1470,7 +1470,7 @@ resolver.define('history', answering(async ({ payload, context }) => {
   // note should now say, which is the arithmetic it does not do. Two calls
   // happen only on the panel load after a sprint moves, not on every one.
   await kvs.set(key, next);
-  const again = await callCalculator('/v1/history', {
+  const again = await answerHere('/v1/history', {
     dataset: { issues: projected, contexts: mine, orgConfig },
     stored: next,
     statuses: fingerprint,

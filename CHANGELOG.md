@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.77.4
+
+**The trend series is answered inside the Forge function.** The fifth route to move under [ADR 0031](docs/adr/0031-the-forecast-runs-inside-the-forge-function.md), and a plain call: `/v1/history` is one row of counts per sprint, bounded by the number of sprints, and the `context` resolver's two calls to it — the series for the selected context, and the re-read after a recordable row is stored — now go to `answerHere`. Nothing but the identifier at two call sites changed; the inventory in `tests/test_service.py` gains the route. What remains on the calculator is `burndown`, one call, also from the `context` resolver. Deployed to development as **8.8.0**, a minor version; the sprint trend tile is the click.
+
 ## 1.77.3
 
 **The forecast is a job, because the forecast on a real board does not fit a resolver call.** 1.77.2 moved it in-function synchronously, and the first click on the dev site failed with *"the request to the live server failed"*: the adapter's fifteen seconds ran out. Three instrumented deploys found where the time went — the forecast call alone was 12 to 15 seconds under the snapshot runtime, cold or warm, with memory (already 1,024 MB; the container reports 1,192 MB and two CPUs) and the Node version (24 saves one second) ruled out by deploy — and a native profile found why: the dev board has 906 working-day observations, most of them zero, and 31 open items, so `forecast_completion` walks about 280 days per trial and 20,000 trials is some five million draws, 1.3 s natively against 0.1 s on a dense board. The second probe measured a dense synthetic board, and [ADR 0031](docs/adr/0031-the-forecast-runs-inside-the-forge-function.md)'s *"facts and the forecast stay synchronous"* was wrong for any team with a long, sparse history; the record now carries a dated correction with the figures.

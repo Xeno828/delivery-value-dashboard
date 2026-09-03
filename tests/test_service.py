@@ -413,7 +413,8 @@ IN_FUNCTION_ROUTES = {
     "/v1/sequence",         # 1.77.0 — the consumer
     "/v1/facts",            # 1.77.1 — the facts resolver and the brief
     "/v1/slice",            # 1.77.2 — the forecast resolver asks which contexts to fetch
-    "/v1/forecast-context", # 1.77.2 — the forecast resolver and the brief
+    "/v1/forecast-context", # 1.77.2 — the forecast resolver and the brief; a job since 1.77.3
+    "/v1/history",          # 1.77.4 — the trend series, from the context resolver
 }
 
 
