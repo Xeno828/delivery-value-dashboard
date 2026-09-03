@@ -9,7 +9,10 @@
 </style>
 </head>
 <body>
-<div class="wrap">
+<!-- The first tab stop. Fifty-odd controls stand between the top of the page
+     and the first figure; a keyboard reader should not have to walk them. -->
+<a class="skip" href="#grid">Skip to the report</a>
+<main class="wrap">
 
   <div class="topbar">
     <div class="title">
@@ -19,7 +22,10 @@
     </div>
     <div class="topbar-actions">
       <span class="src-badge" id="t-src"><i class="dot"></i><span></span></span>
-      <span class="health-chip" id="t-health"></span>
+      <!-- Focusable: its tooltip is the score's full working, which ADR 0010 made
+           the disclosure a reader argues with, and a disclosure only a pointer
+           can reach is not one. -->
+      <span class="health-chip" id="t-health" tabindex="0"></span>
       <button class="btn" id="btn-theme" title="Switch light / dark">Dark</button>
       <div class="viewpick">
         <button class="btn" id="btn-view" aria-expanded="false" aria-haspopup="dialog"
@@ -64,7 +70,7 @@
         <button type="button" data-unit="items" aria-pressed="true">Items</button>
         <button type="button" data-unit="points" aria-pressed="false">Points</button>
       </div>
-      <span class="info" data-tip="unit">i</span>
+      <button type="button" class="info" data-tip="unit">i</button>
     </div>
     <div class="active-filters" id="f-chips"></div>
   </div>
@@ -73,7 +79,7 @@
 
     <div class="card span12" id="c-exec">
       <div class="card-hd">
-        <div><h2>What this sprint means <span class="info" data-tip="exec">i</span></h2>
+        <div><h2>What this sprint means <button type="button" class="info" data-tip="exec">i</button></h2>
         <div class="cap" id="exec-cap">Plain-language read of the numbers below. Every point links to the issues behind it.</div></div>
       </div>
       <div class="exec">
@@ -89,9 +95,9 @@
 
     <div class="card span7" id="c-burn">
       <div class="card-hd">
-        <div><h2>Burndown, with scope changes shown <span class="info" data-tip="burn">i</span></h2>
+        <div><h2>Burndown, with scope changes shown <button type="button" class="info" data-tip="burn">i</button></h2>
         <div class="cap">Work left to do each day against the plan. The orange line is total scope — when it rises, work was added mid-sprint.</div></div>
-        <div class="hd-tools"><button class="icon-btn" data-table="burn" aria-pressed="false" title="Show as table">▤</button></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="burn" aria-pressed="false" title="Show as a table: the same figures, readable without the chart">▤</button></div>
       </div>
       <div id="burn-chart"></div>
       <div class="tv-wrap hidden" id="burn-table"></div>
@@ -99,9 +105,9 @@
 
     <div class="card span5" id="c-dist">
       <div class="card-hd">
-        <div><h2>Where each person's work sits <span class="info" data-tip="dist">i</span></h2>
+        <div><h2>Where each person's work sits <button type="button" class="info" data-tip="dist">i</button></h2>
         <div class="cap">Items per person, split by stage. Click any bar to see the issues.</div></div>
-        <div class="hd-tools"><button class="icon-btn" data-table="dist" aria-pressed="false" title="Show as table">▤</button></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="dist" aria-pressed="false" title="Show as a table: the same figures, readable without the chart">▤</button></div>
       </div>
       <div id="dist-chart"></div>
       <div class="tv-wrap hidden" id="dist-table"></div>
@@ -109,9 +115,9 @@
 
     <div class="card span7" id="c-flow">
       <div class="card-hd">
-        <div><h2>How long work takes, and how much of it is waiting <span class="info" data-tip="flowtime">i</span></h2>
+        <div><h2>How long work takes, and how much of it is waiting <button type="button" class="info" data-tip="flowtime">i</button></h2>
         <div class="cap">Each closed item, from raised to done. The pale part is time spent waiting rather than being worked on.</div></div>
-        <div class="hd-tools"><button class="icon-btn" data-table="flowtime" aria-pressed="false" title="Show as table">▤</button></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="flowtime" aria-pressed="false" title="Show as a table: the same figures, readable without the chart">▤</button></div>
       </div>
       <div id="flowtime-chart"></div>
       <div class="tv-wrap hidden" id="flowtime-table"></div>
@@ -119,9 +125,9 @@
 
     <div class="card span5" id="c-age">
       <div class="card-hd">
-        <div><h2>How long open work has been sitting <span class="info" data-tip="age">i</span></h2>
+        <div><h2>How long open work has been sitting <button type="button" class="info" data-tip="age">i</button></h2>
         <div class="cap">Age of everything not yet done, in bands that match a two-week sprint.</div></div>
-        <div class="hd-tools"><button class="icon-btn" data-table="age" aria-pressed="false" title="Show as table">▤</button></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="age" aria-pressed="false" title="Show as a table: the same figures, readable without the chart">▤</button></div>
       </div>
       <div id="age-chart"></div>
       <div class="tv-wrap hidden" id="age-table"></div>
@@ -129,9 +135,9 @@
 
     <div class="card span7" id="c-cycle">
       <div class="card-hd">
-        <div><h2>How long finished work took <span class="info" data-tip="cycle">i</span></h2>
+        <div><h2>How long finished work took <button type="button" class="info" data-tip="cycle">i</button></h2>
         <div class="cap">Every closed item, by the day it finished. The lines are what 50%, 85% and 95% of them came in under.</div></div>
-        <div class="hd-tools"><button class="icon-btn" data-table="cycle" aria-pressed="false" title="Show as table">▤</button></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="cycle" aria-pressed="false" title="Show as a table: the same figures, readable without the chart">▤</button></div>
       </div>
       <div id="cycle-chart"></div>
       <div class="tv-wrap hidden" id="cycle-table"></div>
@@ -139,9 +145,9 @@
 
     <div class="card span5" id="c-wip">
       <div class="card-hd">
-        <div><h2>Work in progress, and how old it is <span class="info" data-tip="wip">i</span></h2>
+        <div><h2>Work in progress, and how old it is <button type="button" class="info" data-tip="wip">i</button></h2>
         <div class="cap">Open work against the same lines. Anything above them is already late, before it is late.</div></div>
-        <div class="hd-tools"><button class="icon-btn" data-table="wip" aria-pressed="false" title="Show as table">▤</button></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="wip" aria-pressed="false" title="Show as a table: the same figures, readable without the chart">▤</button></div>
       </div>
       <div id="wip-chart"></div>
       <div class="tv-wrap hidden" id="wip-table"></div>
@@ -149,9 +155,9 @@
 
     <div class="card span5" id="c-thr">
       <div class="card-hd">
-        <div><h2>How much finishes each week <span class="info" data-tip="thr">i</span></h2>
+        <div><h2>How much finishes each week <button type="button" class="info" data-tip="thr">i</button></h2>
         <div class="cap">The series the forecast samples from. Quiet weeks are part of it, not gaps in it.</div></div>
-        <div class="hd-tools"><button class="icon-btn" data-table="thr" aria-pressed="false" title="Show as table">▤</button></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="thr" aria-pressed="false" title="Show as a table: the same figures, readable without the chart">▤</button></div>
       </div>
       <div id="thr-chart"></div>
       <div class="tv-wrap hidden" id="thr-table"></div>
@@ -159,9 +165,9 @@
 
     <div class="card span7" id="c-cfd">
       <div class="card-hd">
-        <div><h2>Where the work has been sitting <span class="info" data-tip="cfd">i</span></h2>
+        <div><h2>Where the work has been sitting <button type="button" class="info" data-tip="cfd">i</button></h2>
         <div class="cap">Cumulative flow. The height of the middle band is work in progress; the gap between the top two lines is the queue.</div></div>
-        <div class="hd-tools"><button class="icon-btn" data-table="cfd" aria-pressed="false" title="Show as table">▤</button></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="cfd" aria-pressed="false" title="Show as a table: the same figures, readable without the chart">▤</button></div>
       </div>
       <div id="cfd-chart"></div>
       <div class="tv-wrap hidden" id="cfd-table"></div>
@@ -169,9 +175,9 @@
 
     <div class="card span5" id="c-pred">
       <div class="card-hd">
-        <div><h2>Can we trust the forecast? <span class="info" data-tip="pred">i</span></h2>
+        <div><h2>Can we trust the forecast? <button type="button" class="info" data-tip="pred">i</button></h2>
         <div class="cap">Committed against completed, sprint by sprint. Consistency matters more than volume.</div></div>
-        <div class="hd-tools"><button class="icon-btn" data-table="pred" aria-pressed="false" title="Show as table">▤</button></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="pred" aria-pressed="false" title="Show as a table: the same figures, readable without the chart">▤</button></div>
       </div>
       <div id="pred-chart"></div>
       <div class="tv-wrap hidden" id="pred-table"></div>
@@ -179,7 +185,7 @@
 
     <div class="card span7" id="c-forecast">
       <div class="card-hd">
-        <div><h2>Monte Carlo forecast <span class="info" data-tip="forecast">i</span></h2>
+        <div><h2>Monte Carlo forecast <button type="button" class="info" data-tip="forecast">i</button></h2>
         <div class="cap">Run by the same tool the agent uses, over this team's whole recorded history. Follows the project, board and sprint selected above.</div></div>
         <div class="hd-tools">
           <div class="seg" role="group" aria-label="Which forecast question">
@@ -194,7 +200,7 @@
 
     <div class="card span6" id="c-dora">
       <div class="card-hd">
-        <div><h2>Release quality &amp; speed <span class="info" data-tip="dora">i</span></h2>
+        <div><h2>Release quality &amp; speed <button type="button" class="info" data-tip="dora">i</button></h2>
         <div class="cap">Four industry-standard measures of how safely the team ships.</div></div>
       </div>
       <div id="dora-body"></div>
@@ -202,7 +208,7 @@
 
     <div class="card span6" id="c-load">
       <div class="card-hd">
-        <div><h2>Team load <span class="info" data-tip="load">i</span></h2>
+        <div><h2>Team load <button type="button" class="info" data-tip="load">i</button></h2>
         <div class="cap">Started-but-unfinished work, and how much arrived after planning. Both from issue status &mdash; no hours, no timesheets.</div></div>
       </div>
       <div id="load-body"></div>
@@ -210,7 +216,7 @@
 
     <div class="card span8" id="c-value">
       <div class="card-hd">
-        <div><h2>Business value delivered <span class="info" data-tip="value">i</span></h2>
+        <div><h2>Business value delivered <button type="button" class="info" data-tip="value">i</button></h2>
         <div class="cap">Estimated, not booked. Only items with a stated basis are counted.</div></div>
       </div>
       <div id="value-body"></div>
@@ -218,7 +224,7 @@
 
     <div class="card span4" id="c-rel">
       <div class="card-hd">
-        <div><h2>Releases &amp; milestones <span class="info" data-tip="rel">i</span></h2>
+        <div><h2>Releases &amp; milestones <button type="button" class="info" data-tip="rel">i</button></h2>
         <div class="cap">Scope completion against target dates.</div></div>
       </div>
       <div id="rel-body"></div>
@@ -226,7 +232,7 @@
 
     <div class="card span12" id="c-brief">
       <div class="card-hd">
-        <div><h2>Who receives this board&rsquo;s brief <span class="info" data-tip="brief">i</span></h2>
+        <div><h2>Who receives this board&rsquo;s brief <button type="button" class="info" data-tip="brief">i</button></h2>
         <div class="cap">Sent by Jira&rsquo;s own notifications, so nothing leaves your site. Recipients are Jira accounts and groups &mdash; never email addresses. Only a project administrator can change this.</div></div>
       </div>
       <div id="brief-body"></div>
@@ -234,7 +240,7 @@
 
     <div class="card span12" id="c-risk">
       <div class="card-hd">
-        <div><h2>Risks and what to do about them <span class="info" data-tip="risk">i</span></h2>
+        <div><h2>Risks and what to do about them <button type="button" class="info" data-tip="risk">i</button></h2>
         <div class="cap">Generated from the data on this page, not typed by hand. Each links to its issues.</div></div>
       </div>
       <div id="risk-body"></div>
@@ -243,7 +249,7 @@
   </div>
 
   <div class="foot" id="foot"></div>
-</div>
+</main>
 
 <div id="tip" role="tooltip"></div>
 <div id="scrim"></div>
@@ -263,20 +269,20 @@
 </aside>
 
 <div id="modal">
-  <div class="mbox">
+  <div class="mbox" role="dialog" aria-modal="true" aria-labelledby="m-title">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
-      <div><h3>Load your own data</h3>
+      <div><h3 id="m-title">Load your own data</h3>
       <div class="note">Nothing you load leaves your browser. Files are read locally and held in memory only.</div></div>
       <button class="icon-btn" id="m-close" title="Close">&#10005;</button>
     </div>
 
     <div class="tabs" role="tablist">
-      <button role="tab" aria-selected="true" data-tab="file">Upload a file</button>
-      <button role="tab" aria-selected="false" data-tab="jira">Connect Jira / Asana</button>
-      <button role="tab" aria-selected="false" data-tab="schema">Data format</button>
+      <button role="tab" id="tabbtn-file" aria-controls="tab-file" aria-selected="true" data-tab="file">Upload a file</button>
+      <button role="tab" id="tabbtn-jira" aria-controls="tab-jira" aria-selected="false" data-tab="jira">Connect Jira / Asana</button>
+      <button role="tab" id="tabbtn-schema" aria-controls="tab-schema" aria-selected="false" data-tab="schema">Data format</button>
     </div>
 
-    <div id="tab-file">
+    <div id="tab-file" role="tabpanel" aria-labelledby="tabbtn-file">
       <!-- ---------- step 1: choose ---------- -->
       <section id="step-choose">
         <div class="drop" id="drop">
@@ -309,8 +315,8 @@
 
         <div class="tv-wrap" style="max-height:none;margin-top:10px">
           <table class="tv maptable"><thead><tr>
-            <th style="width:26%">Dashboard field</th><th style="width:30%">Your column</th>
-            <th style="width:26%;text-align:left">Example value</th><th style="width:18%;text-align:left">Status</th>
+            <th scope="col" style="width:26%">Dashboard field</th><th scope="col" style="width:30%">Your column</th>
+            <th scope="col" style="width:26%;text-align:left">Example value</th><th scope="col" style="width:18%;text-align:left">Status</th>
           </tr></thead><tbody id="map-body"></tbody></table>
         </div>
 
@@ -349,8 +355,8 @@
       </section>
     </div>
 
-    <div id="tab-jira" class="hidden"></div>
-    <div id="tab-schema" class="hidden"></div>
+    <div id="tab-jira" class="hidden" role="tabpanel" aria-labelledby="tabbtn-jira"></div>
+    <div id="tab-schema" class="hidden" role="tabpanel" aria-labelledby="tabbtn-schema"></div>
   </div>
 </div>
 

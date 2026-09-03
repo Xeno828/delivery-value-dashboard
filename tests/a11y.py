@@ -233,6 +233,14 @@ def main():
                   "n => n.filter(e => !e.labels || !e.labels.length).map(e => e.id)") == [],
               page.eval_on_selector_all(".filters select",
                                         "n => n.map(e => (e.labels||[]).length)"))
+        check("the page has exactly one main landmark",
+              page.eval_on_selector_all("main", "n => n.length") == 1)
+        check("the first thing in the page is a skip link to the report",
+              page.eval_on_selector("body > a.skip", "e => e.getAttribute('href')") == "#grid"
+              and page.eval_on_selector_all("#grid", "n => n.length") == 1)
+        check("every table header declares whether it heads a column or a row",
+              page.eval_on_selector_all("table.tv th", "n => n.length > 0 && n.every(t => ['col', 'row'].includes(t.getAttribute('scope')))"),
+              page.eval_on_selector_all("table.tv th", "n => n.filter(t => !t.getAttribute('scope')).map(t => t.textContent).slice(0, 4)"))
         check("data tables use th for headers",
               page.evaluate("""() => {
                   document.querySelector('[data-table=burn]').click();
@@ -293,6 +301,53 @@ def main():
         check("no control suppresses its focus indicator",
               page.evaluate(FOCUS) == [], page.evaluate(FOCUS)[:4])
 
+        # ---------- 1.3.1 / 2.1.1 the help layer without a pointer ----------
+        # Every "i" was a span that answered mousemove and nothing else, and the
+        # health chip's working — the disclosure ADR 0010 made the thing a
+        # reader argues with — was a data attribute on an unfocusable span. For
+        # anyone without a pointer, every basis on the page was unreachable,
+        # which by the product's own second principle left every figure
+        # unfinished. The marks are named buttons now, focus and click show the
+        # same tooltip hover does, the tooltip is announced as the mark's
+        # description while it shows, and Escape dismisses it.
+        print("help without a pointer")
+        # The inline value the code sets, not the computed one: the tooltip fades
+        # over 80ms and a page that is not compositing never finishes a fade.
+        TIP_ON = "() => document.getElementById('tip').style.opacity === '1'"
+        marks = page.eval_on_selector_all(".info", "n => n.map(e => e.tagName + ':' + (e.getAttribute('aria-label') || ''))")
+        check("every help mark is a button named for what it explains",
+              len(marks) >= 15 and all(m.startswith("BUTTON:About ") for m in marks), marks[:3])
+        page.focus("#c-burn .info")
+        page.wait_for_timeout(250)
+        check("focusing a help mark shows its explanation",
+              page.evaluate(TIP_ON) and "What it is" in (page.text_content("#tip") or ""),
+              (page.text_content("#tip") or "")[:60])
+        check("and the tooltip is announced as the mark's description",
+              page.get_attribute("#c-burn .info", "aria-describedby") == "tip")
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(200)
+        check("Escape dismisses it and drops the description",
+              not page.evaluate(TIP_ON) and not page.get_attribute("#c-burn .info", "aria-describedby"))
+        page.focus("#t-health")
+        page.wait_for_timeout(250)
+        check("the health chip is reachable from the keyboard",
+              page.evaluate("() => document.activeElement.id") == "t-health")
+        check("and explains its score, or its refusal, on focus",
+              page.evaluate(TIP_ON) and "score" in (page.text_content("#tip") or "").lower(),
+              (page.text_content("#tip") or "")[:60])
+        page.keyboard.press("Tab")
+        page.wait_for_timeout(200)
+        check("moving focus on takes the explanation with it",
+              not page.evaluate(TIP_ON) or page.evaluate("() => document.activeElement.hasAttribute('data-tt') || document.activeElement.hasAttribute('data-tip')"))
+        # A tap has no hover either: a click on the mark toggles it.
+        page.click("#c-age .info")
+        page.wait_for_timeout(250)
+        check("a click on a help mark shows its explanation",
+              page.evaluate(TIP_ON) and "What it is" in (page.text_content("#tip") or ""))
+        page.click("#c-age .info")
+        page.wait_for_timeout(250)
+        check("and a second click hides it", not page.evaluate(TIP_ON))
+
         # ---------- 1.4.3 contrast, both themes ----------
         for theme in ("light", "dark"):
             print("1.4.3  contrast — %s theme" % theme)
@@ -345,8 +400,20 @@ def main():
 
         # ---------- the import wizard, a state axe would miss ----------
         print("wizard and dialogs")
-        page.click("#btn-import")
+        page.focus("#btn-import")
+        page.keyboard.press("Enter")
         page.wait_for_timeout(400)
+        check("the import dialog is a labelled modal dialog",
+              page.eval_on_selector(".mbox", "e => e.getAttribute('role') === 'dialog' && "
+                                             "e.getAttribute('aria-modal') === 'true' && "
+                                             "!!document.getElementById(e.getAttribute('aria-labelledby') || '')"))
+        check("the import dialog takes focus when it opens",
+              page.evaluate("() => document.activeElement.closest('.mbox') !== null"),
+              page.evaluate("() => document.activeElement.id"))
+        check("its tabs name the panels they control",
+              page.eval_on_selector_all(".tabs button", "n => n.every(b => "
+                  "document.getElementById(b.getAttribute('aria-controls') || '') !== null && "
+                  "document.getElementById(b.getAttribute('aria-controls')).getAttribute('role') === 'tabpanel')"))
         check("the import dialog's controls are all named",
               page.evaluate(NAMES) == [], page.evaluate(NAMES)[:4])
         check("wizard tabs use tab semantics",
@@ -357,6 +424,11 @@ def main():
                                               "e.getAttribute('aria-modal') === 'true' && "
                                               "!!e.getAttribute('aria-labelledby')"))
         page.keyboard.press("Escape")
+        page.wait_for_timeout(300)
+        check("Escape closes the import dialog and returns focus to Load data",
+              not page.is_visible("#modal.on") and
+              page.evaluate("() => document.activeElement.id") == "btn-import",
+              page.evaluate("() => document.activeElement.id"))
 
         # ---------- the tile picker, the other state a scan would miss ----------
         # The popover is display:none until it is opened, so nothing above this

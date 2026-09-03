@@ -557,8 +557,21 @@ const modal = $("#modal");
 const show = id => ["step-choose", "step-map", "step-preview"]
   .forEach(s => $("#" + s).classList.toggle("hidden", s !== id));
 
-function openModal() { modal.classList.add("on"); show("step-choose"); }
-function closeModal() { modal.classList.remove("on"); }
+/* A dialog takes focus when it opens and gives it back when it closes — the
+   same rule the drill-down panel follows (WCAG 2.4.3). Until it did, "Load
+   data" opened a modal while focus stayed on the button behind the scrim, and
+   a keyboard reader tabbed on through a page they could no longer see. */
+function openModal() {
+  modal.opener = document.activeElement;
+  modal.classList.add("on"); show("step-choose");
+  $("#m-close").focus();
+}
+function closeModal() {
+  if (!modal.classList.contains("on")) return;
+  modal.classList.remove("on");
+  const back = modal.opener; modal.opener = null;
+  if (back && document.contains(back) && back.focus) back.focus();
+}
 $("#btn-import").onclick = openModal;
 $("#m-close").onclick = closeModal;
 modal.addEventListener("click", e => { if (e.target === modal) closeModal(); });
@@ -743,7 +756,7 @@ $("#m-preview").onclick = () => {
 
   const cols = ["key", "summary", "assignee", "status", "storyPoints", "created", "started", "resolved", "flagged"];
   $("#prev-table").innerHTML = "<table class='tv'><thead><tr>" +
-    cols.map(c => "<th>" + c + "</th>").join("") + "</tr></thead><tbody>" +
+    cols.map(c => "<th scope='col'>" + c + "</th>").join("") + "</tr></thead><tbody>" +
     iss.slice(0, 8).map(i => "<tr>" + cols.map(c =>
       "<td>" + esc(c === "summary" ? String(i[c] || "").slice(0, 44) : (i[c] == null ? "—" : String(i[c]))) + "</td>").join("") +
       "</tr>").join("") + "</tbody></table>" +
@@ -813,7 +826,7 @@ $("#tab-schema").innerHTML =
   "column names &mdash; the upload step matches your headings and lets you correct any it gets wrong. These are the " +
   "names used internally and in the templates.</p>" +
   "<pre>" + esc(API.ISSUE_COLS.join(",")) + "</pre>" +
-  "<table class='tv'><thead><tr><th>Field</th><th style='text-align:left'>Meaning</th></tr></thead><tbody>" +
+  "<table class='tv'><thead><tr><th scope='col'>Field</th><th scope='col' style='text-align:left'>Meaning</th></tr></thead><tbody>" +
   FIELDS.map(f => "<tr><td><code>" + f.k + "</code></td><td style='white-space:normal'>" +
     esc(f.lab) + " &mdash; " + esc(f.hint) + (f.req ? " <b>(required)</b>" : "") + "</td></tr>").join("") +
   "</tbody></table>" +

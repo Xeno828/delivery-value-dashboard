@@ -351,7 +351,7 @@ function paintWorkflow() {
     '<h4 id="wf-h">What each status means on this board</h4>' +
     "<p class='note'>Every figure on this page depends on it. Change anything " +
     "that is wrong and the numbers re-derive from the issues underneath.</p>" +
-    "<table><thead><tr><th>Status</th><th>Means</th></tr></thead><tbody>" +
+    "<table><thead><tr><th scope='col'>Status</th><th scope='col'>Means</th></tr></thead><tbody>" +
     boardStatuses().map(n => {
       const inf = inferredOf[normStatus(n)];
       return "<tr><td>" + esc(n) +
@@ -551,6 +551,15 @@ const HELP = {
 
 /* ------------------------------------------------------------------ tooltip */
 const tip = $("#tip");
+/* Which element the tooltip is describing, and whether the pointer or the
+   keyboard asked for it. The pointer path used to be the only one: every "i",
+   the health chip's working and every chart mark explained themselves on
+   mousemove and nowhere else, so for a keyboard, touch or screen-reader user
+   every figure on the page was a figure without a basis. A tooltip opened by
+   focus is not dismissed by a pointer that happens to drift; a tooltip opened
+   by the pointer still follows it. */
+let tipFor = null, tipBy = null;
+const tipHtmlOf = t => (t.dataset.tip ? HELP[t.dataset.tip] : t.dataset.tt) || "";
 function showTip(html, x, y) {
   tip.innerHTML = html;
   tip.style.opacity = "1";
@@ -558,15 +567,61 @@ function showTip(html, x, y) {
   tip.style.left = clamp(x + 14, 8, innerWidth - r.width - 8) + "px";
   tip.style.top = clamp(y + 14, 8, innerHeight - r.height - 8) + "px";
 }
-function hideTip() { tip.style.opacity = "0"; }
+function hideTip() {
+  tip.style.opacity = "0";
+  if (tipFor) tipFor.removeAttribute("aria-describedby");
+  tipFor = tipBy = null;
+}
+/* Anchored to the element rather than the pointer, and named as the element's
+   description for as long as it is showing (WAI-ARIA tooltip pattern). */
+function showTipFor(t, by) {
+  const html = tipHtmlOf(t);
+  if (!html) { hideTip(); return; }
+  if (tipFor && tipFor !== t) tipFor.removeAttribute("aria-describedby");
+  const r = t.getBoundingClientRect();
+  showTip(html, r.left, r.bottom - 8);
+  t.setAttribute("aria-describedby", "tip");
+  tipFor = t; tipBy = by;
+}
+/* Opened by focus or by a click, the tooltip stays until it is dismissed;
+   opened by the pointer, it follows the pointer and leaves with it. */
+const tipSticky = () => tipBy === "focus" || tipBy === "click";
 document.addEventListener("mousemove", e => {
   const t = e.target.closest("[data-tt],[data-tip]");
-  if (!t) { hideTip(); return; }
-  const html = t.dataset.tip ? HELP[t.dataset.tip] : t.dataset.tt;
+  if (!t) { if (!tipSticky()) hideTip(); return; }
+  if (tipSticky() && tipFor === t) return;
+  const html = tipHtmlOf(t);
   if (!html) { hideTip(); return; }
   showTip(html, e.clientX, e.clientY);
+  if (tipFor && tipFor !== t) tipFor.removeAttribute("aria-describedby");
+  t.setAttribute("aria-describedby", "tip");
+  tipFor = t; tipBy = "pointer";
 });
 document.addEventListener("mouseleave", hideTip);
+document.addEventListener("focusin", e => {
+  const t = e.target.closest("[data-tt],[data-tip]");
+  if (t && tipHtmlOf(t)) showTipFor(t, "focus"); else if (tipBy === "focus") hideTip();
+});
+document.addEventListener("focusout", e => { if (tipSticky() && e.target === tipFor) hideTip(); });
+/* A tap or a click on an "i" toggles it, for a touch screen that has no hover.
+   A click arrives after the hover and the focus that showed the tooltip, so
+   it toggles only against a tooltip that a previous click opened; otherwise
+   the first click on a mark would close what the pointer had just shown. */
+document.addEventListener("click", e => {
+  const t = e.target.closest(".info[data-tip]");
+  if (!t) return;
+  if (tipFor === t && tipBy === "click") hideTip(); else showTipFor(t, "click");
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape" && tipFor) hideTip(); });
+/* Each "i" is named for the card it explains. The name is read from the
+   heading rather than written eighteen times, so a renamed card renames its
+   help with it. The one outside a heading explains the measure toggle. */
+$$(".info[data-tip]").forEach(b => {
+  if (b.getAttribute("aria-label")) return;
+  const h = b.closest("h2");
+  const subject = h ? h.textContent.replace(/\s*i\s*$/, "").replace(/[?.]$/, "").trim() : "the measure";
+  b.setAttribute("aria-label", "About " + subject);
+});
 
 /* ------------------------------------------------------------ colour tokens */
 const CSSV = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
@@ -3086,7 +3141,7 @@ function fcRefusal(r) {
 
 function fcRows(rows) {
   return '<div class="tv-wrap"><table class="tv fc-tab"><thead><tr>' +
-    "<th>Confidence</th><th>" + esc(rows.head) + "</th><th></th></tr></thead><tbody>" +
+    "<th scope='col'>Confidence</th><th scope='col'>" + esc(rows.head) + "</th><th scope='col'></th></tr></thead><tbody>" +
     rows.body.map(r =>
       "<tr" + (r[0] === 85 ? ' class="fc-hi"' : "") + "><td>" + r[0] + "%</td><td>" +
       esc(String(r[1])) + "</td><td class=\"note\">" + esc(String(r[2] || "")) + "</td></tr>").join("") +
@@ -3508,7 +3563,7 @@ function auditHtml(r) {
       " been dropped and cannot be recovered." : "") + "</div>" +
     (rows.length
       ? '<div class="tv-wrap"><table class="tv"><tbody>' + rows.map(e =>
-          "<tr><th>" + esc(String(e.at || "").slice(0, 16).replace("T", " ")) +
+          '<tr><th scope="row">' + esc(String(e.at || "").slice(0, 16).replace("T", " ")) +
           "</th><td>" + esc(said[e.event] || e.event) +
           (e.boardId ? " &middot; board " + esc(e.boardId) : "") +
           (detail(e.detail) ? " &middot; " + esc(detail(e.detail)) : "") +
@@ -3640,7 +3695,7 @@ function renderBrief(el) {
                        ["team", "Team", entry.team || {}]];
     const row = (a, label, who) => {
       const groups = who.groups || [];
-      return "<tr><th>" + label + "</th><td>" +
+      return '<tr><th scope="row">' + label + "</th><td>" +
         '<div class="br-names" id="br-ro-' + a + '-names"></div>' +
         (groups.length
           ? '<div class="cap">Group' + (groups.length === 1 ? "" : "s") + ": " +
@@ -3648,7 +3703,7 @@ function renderBrief(el) {
           : "") + "</td></tr>";
     };
     html += '<div class="tv-wrap"><table class="tv"><tbody>' +
-      "<tr><th>Anchor issue</th><td>" + (esc(entry.anchorIssue) || "&mdash;") + "</td></tr>" +
+      '<tr><th scope="row">Anchor issue</th><td>' + (esc(entry.anchorIssue) || "&mdash;") + "</td></tr>" +
       audiences.map(a => row(a[0], a[1], a[2])).join("") + "</tbody></table></div>" +
       '<div class="note">' + esc(r.why || "You cannot change this.") + "</div>";
     el.innerHTML = html;
@@ -4130,8 +4185,8 @@ function renderSequence(el, ctrl) {
   const asks = (firstOrdering && firstOrdering.order) || [];
   if (asks.length) {
     html += '<div class="tv-wrap"><table class="tv fc-tab"><thead><tr>' +
-      "<th>Ask</th><th>Worth</th><th>Why that figure</th><th>Needed by</th>" +
-      "<th>Sized by</th>" +
+      "<th scope='col'>Ask</th><th scope='col'>Worth</th><th scope='col'>Why that figure</th><th scope='col'>Needed by</th>" +
+      "<th scope='col'>Sized by</th>" +
       "</tr></thead><tbody>" +
       asks.map(a => "<tr><td><b>" + esc(a.id) + "</b>" +
         (a.title ? '<br><span class="note">' + esc(a.title) + "</span>" : "") +
@@ -4160,8 +4215,8 @@ function renderSequence(el, ctrl) {
   const cmp = sq.comparison || [];
   if (cmp.length) {
     html += '<div class="tv-wrap"><table class="tv fc-tab"><thead><tr>' +
-      "<th>If this goes first</th><th>It lands (85%)</th><th>Delays the others</th>" +
-      "<th>Misses a date for</th></tr></thead><tbody>" +
+      "<th scope='col'>If this goes first</th><th scope='col'>It lands (85%)</th><th scope='col'>Delays the others</th>" +
+      "<th scope='col'>Misses a date for</th></tr></thead><tbody>" +
       cmp.map(r => "<tr><td>" + esc(r.first) + "</td><td>" + esc(fmtD(r.its_own_p85_date)) +
         "</td><td>" + r.delays_others_by_days + " working days</td><td class=\"note\">" +
         ((r.misses_a_needed_by || []).length ? esc((r.misses_a_needed_by || []).join(", ")) : "—") +
@@ -4328,7 +4383,7 @@ function drawTable(key) {
   const t = S.tables[key], host = $("#" + key + "-table");
   if (!t || !host) return;
   host.innerHTML = "<table class='tv'><thead><tr>" + t.cols.map((c, i) =>
-    "<th" + (i ? ' class="num"' : "") + ">" + esc(c) + "</th>").join("") + "</tr></thead><tbody>" +
+    '<th scope="col"' + (i ? ' class="num"' : "") + ">" + esc(c) + "</th>").join("") + "</tr></thead><tbody>" +
     t.rows.map(r => "<tr>" + r.map((v, i) => "<td" + (i ? ' class="num"' : "") + ">" + esc(v) + "</td>").join("") + "</tr>").join("") +
     "</tbody></table>";
 }
@@ -4379,6 +4434,11 @@ function openDrill(title, sub, items) {
   $("#p-close").focus();
 }
 function closeDrill() {
+  /* Only when it is open. Escape reaches here from anywhere on the page, and
+     with the panel already closed the fallback below used to move focus to
+     the first KPI tile — a keyboard reader pressing Escape to dismiss a
+     tooltip found themselves somewhere else. */
+  if (!$("#panel").classList.contains("on")) return;
   $("#panel").classList.remove("on");
   $("#scrim").classList.remove("on");
   const back = S.drillOpener;
@@ -4387,7 +4447,9 @@ function closeDrill() {
   else { const k = $("#kpis button"); if (k) k.focus(); }
 }
 $("#p-close").onclick = closeDrill; $("#p-done").onclick = closeDrill; $("#scrim").onclick = closeDrill;
-document.addEventListener("keydown", e => { if (e.key === "Escape") { closeDrill(); $("#modal").classList.remove("on"); } });
+// The import dialog closes itself on Escape, in import.js, and gives focus
+// back to whatever opened it; closing it from here as well skipped that.
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrill(); });
 
 /* =====================================================================
    export

@@ -235,8 +235,18 @@ table.tv td.num,table.tv th.num{text-align:right}
 #tip .t-r{display:flex;justify-content:space-between;gap:16px;font-variant-numeric:tabular-nums}
 #tip .t-r span:last-child{font-weight:600}
 #tip .t-f{margin-top:6px;padding-top:6px;border-top:1px solid var(--grid);color:var(--text-secondary);font-size:11.5px}
+/* A button, not a span: the explanation behind it is the reason to trust the
+   figure, and a reason only a pointer can reach is no reason for a keyboard,
+   touch or screen-reader user. Focus and click show the same tooltip hover does. */
 .info{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;
-  border:1px solid var(--axis);color:var(--muted);font-size:9.5px;font-weight:700;cursor:help;flex:none}
+  border:1px solid var(--axis);color:var(--muted);font-size:9.5px;font-weight:700;cursor:help;flex:none;
+  background:transparent;padding:0;line-height:1;vertical-align:middle}
+.info:hover{color:var(--text-primary);border-color:var(--muted)}
+.info:focus-visible,.health-chip:focus-visible{outline:2px solid var(--link);outline-offset:2px}
+/* Off-screen until it is focused, then a button in the top-left corner. */
+.skip{position:absolute;left:8px;top:-60px;z-index:100;background:var(--accent-bg);color:var(--on-accent);
+  padding:8px 12px;border-radius:8px;font-size:12.5px;font-weight:600;text-decoration:none}
+.skip:focus{top:8px;outline:2px solid var(--link);outline-offset:2px}
 
 /* ---------- drill panel ---------- */
 #scrim{position:fixed;inset:0;background:rgba(11,11,11,.35);opacity:0;pointer-events:none;transition:opacity .16s;z-index:90}
@@ -358,7 +368,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
 @media print{
   body{background:#fff}
-  .topbar-actions,.filters,.hd-tools,#panel,#scrim,#modal,.viewpick{display:none !important}
+  .topbar-actions,.filters,.hd-tools,#panel,#scrim,#modal,.viewpick,.skip,#tip{display:none !important}
   .card{break-inside:avoid;box-shadow:none}
   .wrap{max-width:none;padding:0}
 }
@@ -554,7 +564,10 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 </style>
 </head>
 <body>
-<div class="wrap">
+<!-- The first tab stop. Fifty-odd controls stand between the top of the page
+     and the first figure; a keyboard reader should not have to walk them. -->
+<a class="skip" href="#grid">Skip to the report</a>
+<main class="wrap">
 
   <div class="topbar">
     <div class="title">
@@ -564,7 +577,10 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
     </div>
     <div class="topbar-actions">
       <span class="src-badge" id="t-src"><i class="dot"></i><span></span></span>
-      <span class="health-chip" id="t-health"></span>
+      <!-- Focusable: its tooltip is the score's full working, which ADR 0010 made
+           the disclosure a reader argues with, and a disclosure only a pointer
+           can reach is not one. -->
+      <span class="health-chip" id="t-health" tabindex="0"></span>
       <button class="btn" id="btn-theme" title="Switch light / dark">Dark</button>
       <div class="viewpick">
         <button class="btn" id="btn-view" aria-expanded="false" aria-haspopup="dialog"
@@ -609,7 +625,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
         <button type="button" data-unit="items" aria-pressed="true">Items</button>
         <button type="button" data-unit="points" aria-pressed="false">Points</button>
       </div>
-      <span class="info" data-tip="unit">i</span>
+      <button type="button" class="info" data-tip="unit">i</button>
     </div>
     <div class="active-filters" id="f-chips"></div>
   </div>
@@ -618,7 +634,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
     <div class="card span12" id="c-exec">
       <div class="card-hd">
-        <div><h2>What this sprint means <span class="info" data-tip="exec">i</span></h2>
+        <div><h2>What this sprint means <button type="button" class="info" data-tip="exec">i</button></h2>
         <div class="cap" id="exec-cap">Plain-language read of the numbers below. Every point links to the issues behind it.</div></div>
       </div>
       <div class="exec">
@@ -634,9 +650,9 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
     <div class="card span7" id="c-burn">
       <div class="card-hd">
-        <div><h2>Burndown, with scope changes shown <span class="info" data-tip="burn">i</span></h2>
+        <div><h2>Burndown, with scope changes shown <button type="button" class="info" data-tip="burn">i</button></h2>
         <div class="cap">Work left to do each day against the plan. The orange line is total scope — when it rises, work was added mid-sprint.</div></div>
-        <div class="hd-tools"><button class="icon-btn" data-table="burn" aria-pressed="false" title="Show as table">▤</button></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="burn" aria-pressed="false" title="Show as a table: the same figures, readable without the chart">▤</button></div>
       </div>
       <div id="burn-chart"></div>
       <div class="tv-wrap hidden" id="burn-table"></div>
@@ -644,9 +660,9 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
     <div class="card span5" id="c-dist">
       <div class="card-hd">
-        <div><h2>Where each person's work sits <span class="info" data-tip="dist">i</span></h2>
+        <div><h2>Where each person's work sits <button type="button" class="info" data-tip="dist">i</button></h2>
         <div class="cap">Items per person, split by stage. Click any bar to see the issues.</div></div>
-        <div class="hd-tools"><button class="icon-btn" data-table="dist" aria-pressed="false" title="Show as table">▤</button></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="dist" aria-pressed="false" title="Show as a table: the same figures, readable without the chart">▤</button></div>
       </div>
       <div id="dist-chart"></div>
       <div class="tv-wrap hidden" id="dist-table"></div>
@@ -654,9 +670,9 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
     <div class="card span7" id="c-flow">
       <div class="card-hd">
-        <div><h2>How long work takes, and how much of it is waiting <span class="info" data-tip="flowtime">i</span></h2>
+        <div><h2>How long work takes, and how much of it is waiting <button type="button" class="info" data-tip="flowtime">i</button></h2>
         <div class="cap">Each closed item, from raised to done. The pale part is time spent waiting rather than being worked on.</div></div>
-        <div class="hd-tools"><button class="icon-btn" data-table="flowtime" aria-pressed="false" title="Show as table">▤</button></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="flowtime" aria-pressed="false" title="Show as a table: the same figures, readable without the chart">▤</button></div>
       </div>
       <div id="flowtime-chart"></div>
       <div class="tv-wrap hidden" id="flowtime-table"></div>
@@ -664,9 +680,9 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
     <div class="card span5" id="c-age">
       <div class="card-hd">
-        <div><h2>How long open work has been sitting <span class="info" data-tip="age">i</span></h2>
+        <div><h2>How long open work has been sitting <button type="button" class="info" data-tip="age">i</button></h2>
         <div class="cap">Age of everything not yet done, in bands that match a two-week sprint.</div></div>
-        <div class="hd-tools"><button class="icon-btn" data-table="age" aria-pressed="false" title="Show as table">▤</button></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="age" aria-pressed="false" title="Show as a table: the same figures, readable without the chart">▤</button></div>
       </div>
       <div id="age-chart"></div>
       <div class="tv-wrap hidden" id="age-table"></div>
@@ -674,9 +690,9 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
     <div class="card span7" id="c-cycle">
       <div class="card-hd">
-        <div><h2>How long finished work took <span class="info" data-tip="cycle">i</span></h2>
+        <div><h2>How long finished work took <button type="button" class="info" data-tip="cycle">i</button></h2>
         <div class="cap">Every closed item, by the day it finished. The lines are what 50%, 85% and 95% of them came in under.</div></div>
-        <div class="hd-tools"><button class="icon-btn" data-table="cycle" aria-pressed="false" title="Show as table">▤</button></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="cycle" aria-pressed="false" title="Show as a table: the same figures, readable without the chart">▤</button></div>
       </div>
       <div id="cycle-chart"></div>
       <div class="tv-wrap hidden" id="cycle-table"></div>
@@ -684,9 +700,9 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
     <div class="card span5" id="c-wip">
       <div class="card-hd">
-        <div><h2>Work in progress, and how old it is <span class="info" data-tip="wip">i</span></h2>
+        <div><h2>Work in progress, and how old it is <button type="button" class="info" data-tip="wip">i</button></h2>
         <div class="cap">Open work against the same lines. Anything above them is already late, before it is late.</div></div>
-        <div class="hd-tools"><button class="icon-btn" data-table="wip" aria-pressed="false" title="Show as table">▤</button></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="wip" aria-pressed="false" title="Show as a table: the same figures, readable without the chart">▤</button></div>
       </div>
       <div id="wip-chart"></div>
       <div class="tv-wrap hidden" id="wip-table"></div>
@@ -694,9 +710,9 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
     <div class="card span5" id="c-thr">
       <div class="card-hd">
-        <div><h2>How much finishes each week <span class="info" data-tip="thr">i</span></h2>
+        <div><h2>How much finishes each week <button type="button" class="info" data-tip="thr">i</button></h2>
         <div class="cap">The series the forecast samples from. Quiet weeks are part of it, not gaps in it.</div></div>
-        <div class="hd-tools"><button class="icon-btn" data-table="thr" aria-pressed="false" title="Show as table">▤</button></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="thr" aria-pressed="false" title="Show as a table: the same figures, readable without the chart">▤</button></div>
       </div>
       <div id="thr-chart"></div>
       <div class="tv-wrap hidden" id="thr-table"></div>
@@ -704,9 +720,9 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
     <div class="card span7" id="c-cfd">
       <div class="card-hd">
-        <div><h2>Where the work has been sitting <span class="info" data-tip="cfd">i</span></h2>
+        <div><h2>Where the work has been sitting <button type="button" class="info" data-tip="cfd">i</button></h2>
         <div class="cap">Cumulative flow. The height of the middle band is work in progress; the gap between the top two lines is the queue.</div></div>
-        <div class="hd-tools"><button class="icon-btn" data-table="cfd" aria-pressed="false" title="Show as table">▤</button></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="cfd" aria-pressed="false" title="Show as a table: the same figures, readable without the chart">▤</button></div>
       </div>
       <div id="cfd-chart"></div>
       <div class="tv-wrap hidden" id="cfd-table"></div>
@@ -714,9 +730,9 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
     <div class="card span5" id="c-pred">
       <div class="card-hd">
-        <div><h2>Can we trust the forecast? <span class="info" data-tip="pred">i</span></h2>
+        <div><h2>Can we trust the forecast? <button type="button" class="info" data-tip="pred">i</button></h2>
         <div class="cap">Committed against completed, sprint by sprint. Consistency matters more than volume.</div></div>
-        <div class="hd-tools"><button class="icon-btn" data-table="pred" aria-pressed="false" title="Show as table">▤</button></div>
+        <div class="hd-tools"><button class="icon-btn" data-table="pred" aria-pressed="false" title="Show as a table: the same figures, readable without the chart">▤</button></div>
       </div>
       <div id="pred-chart"></div>
       <div class="tv-wrap hidden" id="pred-table"></div>
@@ -724,7 +740,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
     <div class="card span7" id="c-forecast">
       <div class="card-hd">
-        <div><h2>Monte Carlo forecast <span class="info" data-tip="forecast">i</span></h2>
+        <div><h2>Monte Carlo forecast <button type="button" class="info" data-tip="forecast">i</button></h2>
         <div class="cap">Run by the same tool the agent uses, over this team's whole recorded history. Follows the project, board and sprint selected above.</div></div>
         <div class="hd-tools">
           <div class="seg" role="group" aria-label="Which forecast question">
@@ -739,7 +755,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
     <div class="card span6" id="c-dora">
       <div class="card-hd">
-        <div><h2>Release quality &amp; speed <span class="info" data-tip="dora">i</span></h2>
+        <div><h2>Release quality &amp; speed <button type="button" class="info" data-tip="dora">i</button></h2>
         <div class="cap">Four industry-standard measures of how safely the team ships.</div></div>
       </div>
       <div id="dora-body"></div>
@@ -747,7 +763,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
     <div class="card span6" id="c-load">
       <div class="card-hd">
-        <div><h2>Team load <span class="info" data-tip="load">i</span></h2>
+        <div><h2>Team load <button type="button" class="info" data-tip="load">i</button></h2>
         <div class="cap">Started-but-unfinished work, and how much arrived after planning. Both from issue status &mdash; no hours, no timesheets.</div></div>
       </div>
       <div id="load-body"></div>
@@ -755,7 +771,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
     <div class="card span8" id="c-value">
       <div class="card-hd">
-        <div><h2>Business value delivered <span class="info" data-tip="value">i</span></h2>
+        <div><h2>Business value delivered <button type="button" class="info" data-tip="value">i</button></h2>
         <div class="cap">Estimated, not booked. Only items with a stated basis are counted.</div></div>
       </div>
       <div id="value-body"></div>
@@ -763,7 +779,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
     <div class="card span4" id="c-rel">
       <div class="card-hd">
-        <div><h2>Releases &amp; milestones <span class="info" data-tip="rel">i</span></h2>
+        <div><h2>Releases &amp; milestones <button type="button" class="info" data-tip="rel">i</button></h2>
         <div class="cap">Scope completion against target dates.</div></div>
       </div>
       <div id="rel-body"></div>
@@ -771,7 +787,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
     <div class="card span12" id="c-brief">
       <div class="card-hd">
-        <div><h2>Who receives this board&rsquo;s brief <span class="info" data-tip="brief">i</span></h2>
+        <div><h2>Who receives this board&rsquo;s brief <button type="button" class="info" data-tip="brief">i</button></h2>
         <div class="cap">Sent by Jira&rsquo;s own notifications, so nothing leaves your site. Recipients are Jira accounts and groups &mdash; never email addresses. Only a project administrator can change this.</div></div>
       </div>
       <div id="brief-body"></div>
@@ -779,7 +795,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
     <div class="card span12" id="c-risk">
       <div class="card-hd">
-        <div><h2>Risks and what to do about them <span class="info" data-tip="risk">i</span></h2>
+        <div><h2>Risks and what to do about them <button type="button" class="info" data-tip="risk">i</button></h2>
         <div class="cap">Generated from the data on this page, not typed by hand. Each links to its issues.</div></div>
       </div>
       <div id="risk-body"></div>
@@ -788,7 +804,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
   </div>
 
   <div class="foot" id="foot"></div>
-</div>
+</main>
 
 <div id="tip" role="tooltip"></div>
 <div id="scrim"></div>
@@ -808,20 +824,20 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 </aside>
 
 <div id="modal">
-  <div class="mbox">
+  <div class="mbox" role="dialog" aria-modal="true" aria-labelledby="m-title">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
-      <div><h3>Load your own data</h3>
+      <div><h3 id="m-title">Load your own data</h3>
       <div class="note">Nothing you load leaves your browser. Files are read locally and held in memory only.</div></div>
       <button class="icon-btn" id="m-close" title="Close">&#10005;</button>
     </div>
 
     <div class="tabs" role="tablist">
-      <button role="tab" aria-selected="true" data-tab="file">Upload a file</button>
-      <button role="tab" aria-selected="false" data-tab="jira">Connect Jira / Asana</button>
-      <button role="tab" aria-selected="false" data-tab="schema">Data format</button>
+      <button role="tab" id="tabbtn-file" aria-controls="tab-file" aria-selected="true" data-tab="file">Upload a file</button>
+      <button role="tab" id="tabbtn-jira" aria-controls="tab-jira" aria-selected="false" data-tab="jira">Connect Jira / Asana</button>
+      <button role="tab" id="tabbtn-schema" aria-controls="tab-schema" aria-selected="false" data-tab="schema">Data format</button>
     </div>
 
-    <div id="tab-file">
+    <div id="tab-file" role="tabpanel" aria-labelledby="tabbtn-file">
       <!-- ---------- step 1: choose ---------- -->
       <section id="step-choose">
         <div class="drop" id="drop">
@@ -854,8 +870,8 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 
         <div class="tv-wrap" style="max-height:none;margin-top:10px">
           <table class="tv maptable"><thead><tr>
-            <th style="width:26%">Dashboard field</th><th style="width:30%">Your column</th>
-            <th style="width:26%;text-align:left">Example value</th><th style="width:18%;text-align:left">Status</th>
+            <th scope="col" style="width:26%">Dashboard field</th><th scope="col" style="width:30%">Your column</th>
+            <th scope="col" style="width:26%;text-align:left">Example value</th><th scope="col" style="width:18%;text-align:left">Status</th>
           </tr></thead><tbody id="map-body"></tbody></table>
         </div>
 
@@ -894,8 +910,8 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
       </section>
     </div>
 
-    <div id="tab-jira" class="hidden"></div>
-    <div id="tab-schema" class="hidden"></div>
+    <div id="tab-jira" class="hidden" role="tabpanel" aria-labelledby="tabbtn-jira"></div>
+    <div id="tab-schema" class="hidden" role="tabpanel" aria-labelledby="tabbtn-schema"></div>
   </div>
 </div>
 
@@ -1256,7 +1272,7 @@ function paintWorkflow() {
     '<h4 id="wf-h">What each status means on this board</h4>' +
     "<p class='note'>Every figure on this page depends on it. Change anything " +
     "that is wrong and the numbers re-derive from the issues underneath.</p>" +
-    "<table><thead><tr><th>Status</th><th>Means</th></tr></thead><tbody>" +
+    "<table><thead><tr><th scope='col'>Status</th><th scope='col'>Means</th></tr></thead><tbody>" +
     boardStatuses().map(n => {
       const inf = inferredOf[normStatus(n)];
       return "<tr><td>" + esc(n) +
@@ -1456,6 +1472,15 @@ const HELP = {
 
 /* ------------------------------------------------------------------ tooltip */
 const tip = $("#tip");
+/* Which element the tooltip is describing, and whether the pointer or the
+   keyboard asked for it. The pointer path used to be the only one: every "i",
+   the health chip's working and every chart mark explained themselves on
+   mousemove and nowhere else, so for a keyboard, touch or screen-reader user
+   every figure on the page was a figure without a basis. A tooltip opened by
+   focus is not dismissed by a pointer that happens to drift; a tooltip opened
+   by the pointer still follows it. */
+let tipFor = null, tipBy = null;
+const tipHtmlOf = t => (t.dataset.tip ? HELP[t.dataset.tip] : t.dataset.tt) || "";
 function showTip(html, x, y) {
   tip.innerHTML = html;
   tip.style.opacity = "1";
@@ -1463,15 +1488,61 @@ function showTip(html, x, y) {
   tip.style.left = clamp(x + 14, 8, innerWidth - r.width - 8) + "px";
   tip.style.top = clamp(y + 14, 8, innerHeight - r.height - 8) + "px";
 }
-function hideTip() { tip.style.opacity = "0"; }
+function hideTip() {
+  tip.style.opacity = "0";
+  if (tipFor) tipFor.removeAttribute("aria-describedby");
+  tipFor = tipBy = null;
+}
+/* Anchored to the element rather than the pointer, and named as the element's
+   description for as long as it is showing (WAI-ARIA tooltip pattern). */
+function showTipFor(t, by) {
+  const html = tipHtmlOf(t);
+  if (!html) { hideTip(); return; }
+  if (tipFor && tipFor !== t) tipFor.removeAttribute("aria-describedby");
+  const r = t.getBoundingClientRect();
+  showTip(html, r.left, r.bottom - 8);
+  t.setAttribute("aria-describedby", "tip");
+  tipFor = t; tipBy = by;
+}
+/* Opened by focus or by a click, the tooltip stays until it is dismissed;
+   opened by the pointer, it follows the pointer and leaves with it. */
+const tipSticky = () => tipBy === "focus" || tipBy === "click";
 document.addEventListener("mousemove", e => {
   const t = e.target.closest("[data-tt],[data-tip]");
-  if (!t) { hideTip(); return; }
-  const html = t.dataset.tip ? HELP[t.dataset.tip] : t.dataset.tt;
+  if (!t) { if (!tipSticky()) hideTip(); return; }
+  if (tipSticky() && tipFor === t) return;
+  const html = tipHtmlOf(t);
   if (!html) { hideTip(); return; }
   showTip(html, e.clientX, e.clientY);
+  if (tipFor && tipFor !== t) tipFor.removeAttribute("aria-describedby");
+  t.setAttribute("aria-describedby", "tip");
+  tipFor = t; tipBy = "pointer";
 });
 document.addEventListener("mouseleave", hideTip);
+document.addEventListener("focusin", e => {
+  const t = e.target.closest("[data-tt],[data-tip]");
+  if (t && tipHtmlOf(t)) showTipFor(t, "focus"); else if (tipBy === "focus") hideTip();
+});
+document.addEventListener("focusout", e => { if (tipSticky() && e.target === tipFor) hideTip(); });
+/* A tap or a click on an "i" toggles it, for a touch screen that has no hover.
+   A click arrives after the hover and the focus that showed the tooltip, so
+   it toggles only against a tooltip that a previous click opened; otherwise
+   the first click on a mark would close what the pointer had just shown. */
+document.addEventListener("click", e => {
+  const t = e.target.closest(".info[data-tip]");
+  if (!t) return;
+  if (tipFor === t && tipBy === "click") hideTip(); else showTipFor(t, "click");
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape" && tipFor) hideTip(); });
+/* Each "i" is named for the card it explains. The name is read from the
+   heading rather than written eighteen times, so a renamed card renames its
+   help with it. The one outside a heading explains the measure toggle. */
+$$(".info[data-tip]").forEach(b => {
+  if (b.getAttribute("aria-label")) return;
+  const h = b.closest("h2");
+  const subject = h ? h.textContent.replace(/\s*i\s*$/, "").replace(/[?.]$/, "").trim() : "the measure";
+  b.setAttribute("aria-label", "About " + subject);
+});
 
 /* ------------------------------------------------------------ colour tokens */
 const CSSV = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
@@ -3991,7 +4062,7 @@ function fcRefusal(r) {
 
 function fcRows(rows) {
   return '<div class="tv-wrap"><table class="tv fc-tab"><thead><tr>' +
-    "<th>Confidence</th><th>" + esc(rows.head) + "</th><th></th></tr></thead><tbody>" +
+    "<th scope='col'>Confidence</th><th scope='col'>" + esc(rows.head) + "</th><th scope='col'></th></tr></thead><tbody>" +
     rows.body.map(r =>
       "<tr" + (r[0] === 85 ? ' class="fc-hi"' : "") + "><td>" + r[0] + "%</td><td>" +
       esc(String(r[1])) + "</td><td class=\"note\">" + esc(String(r[2] || "")) + "</td></tr>").join("") +
@@ -4413,7 +4484,7 @@ function auditHtml(r) {
       " been dropped and cannot be recovered." : "") + "</div>" +
     (rows.length
       ? '<div class="tv-wrap"><table class="tv"><tbody>' + rows.map(e =>
-          "<tr><th>" + esc(String(e.at || "").slice(0, 16).replace("T", " ")) +
+          '<tr><th scope="row">' + esc(String(e.at || "").slice(0, 16).replace("T", " ")) +
           "</th><td>" + esc(said[e.event] || e.event) +
           (e.boardId ? " &middot; board " + esc(e.boardId) : "") +
           (detail(e.detail) ? " &middot; " + esc(detail(e.detail)) : "") +
@@ -4545,7 +4616,7 @@ function renderBrief(el) {
                        ["team", "Team", entry.team || {}]];
     const row = (a, label, who) => {
       const groups = who.groups || [];
-      return "<tr><th>" + label + "</th><td>" +
+      return '<tr><th scope="row">' + label + "</th><td>" +
         '<div class="br-names" id="br-ro-' + a + '-names"></div>' +
         (groups.length
           ? '<div class="cap">Group' + (groups.length === 1 ? "" : "s") + ": " +
@@ -4553,7 +4624,7 @@ function renderBrief(el) {
           : "") + "</td></tr>";
     };
     html += '<div class="tv-wrap"><table class="tv"><tbody>' +
-      "<tr><th>Anchor issue</th><td>" + (esc(entry.anchorIssue) || "&mdash;") + "</td></tr>" +
+      '<tr><th scope="row">Anchor issue</th><td>' + (esc(entry.anchorIssue) || "&mdash;") + "</td></tr>" +
       audiences.map(a => row(a[0], a[1], a[2])).join("") + "</tbody></table></div>" +
       '<div class="note">' + esc(r.why || "You cannot change this.") + "</div>";
     el.innerHTML = html;
@@ -5035,8 +5106,8 @@ function renderSequence(el, ctrl) {
   const asks = (firstOrdering && firstOrdering.order) || [];
   if (asks.length) {
     html += '<div class="tv-wrap"><table class="tv fc-tab"><thead><tr>' +
-      "<th>Ask</th><th>Worth</th><th>Why that figure</th><th>Needed by</th>" +
-      "<th>Sized by</th>" +
+      "<th scope='col'>Ask</th><th scope='col'>Worth</th><th scope='col'>Why that figure</th><th scope='col'>Needed by</th>" +
+      "<th scope='col'>Sized by</th>" +
       "</tr></thead><tbody>" +
       asks.map(a => "<tr><td><b>" + esc(a.id) + "</b>" +
         (a.title ? '<br><span class="note">' + esc(a.title) + "</span>" : "") +
@@ -5065,8 +5136,8 @@ function renderSequence(el, ctrl) {
   const cmp = sq.comparison || [];
   if (cmp.length) {
     html += '<div class="tv-wrap"><table class="tv fc-tab"><thead><tr>' +
-      "<th>If this goes first</th><th>It lands (85%)</th><th>Delays the others</th>" +
-      "<th>Misses a date for</th></tr></thead><tbody>" +
+      "<th scope='col'>If this goes first</th><th scope='col'>It lands (85%)</th><th scope='col'>Delays the others</th>" +
+      "<th scope='col'>Misses a date for</th></tr></thead><tbody>" +
       cmp.map(r => "<tr><td>" + esc(r.first) + "</td><td>" + esc(fmtD(r.its_own_p85_date)) +
         "</td><td>" + r.delays_others_by_days + " working days</td><td class=\"note\">" +
         ((r.misses_a_needed_by || []).length ? esc((r.misses_a_needed_by || []).join(", ")) : "—") +
@@ -5233,7 +5304,7 @@ function drawTable(key) {
   const t = S.tables[key], host = $("#" + key + "-table");
   if (!t || !host) return;
   host.innerHTML = "<table class='tv'><thead><tr>" + t.cols.map((c, i) =>
-    "<th" + (i ? ' class="num"' : "") + ">" + esc(c) + "</th>").join("") + "</tr></thead><tbody>" +
+    '<th scope="col"' + (i ? ' class="num"' : "") + ">" + esc(c) + "</th>").join("") + "</tr></thead><tbody>" +
     t.rows.map(r => "<tr>" + r.map((v, i) => "<td" + (i ? ' class="num"' : "") + ">" + esc(v) + "</td>").join("") + "</tr>").join("") +
     "</tbody></table>";
 }
@@ -5284,6 +5355,11 @@ function openDrill(title, sub, items) {
   $("#p-close").focus();
 }
 function closeDrill() {
+  /* Only when it is open. Escape reaches here from anywhere on the page, and
+     with the panel already closed the fallback below used to move focus to
+     the first KPI tile — a keyboard reader pressing Escape to dismiss a
+     tooltip found themselves somewhere else. */
+  if (!$("#panel").classList.contains("on")) return;
   $("#panel").classList.remove("on");
   $("#scrim").classList.remove("on");
   const back = S.drillOpener;
@@ -5292,7 +5368,9 @@ function closeDrill() {
   else { const k = $("#kpis button"); if (k) k.focus(); }
 }
 $("#p-close").onclick = closeDrill; $("#p-done").onclick = closeDrill; $("#scrim").onclick = closeDrill;
-document.addEventListener("keydown", e => { if (e.key === "Escape") { closeDrill(); $("#modal").classList.remove("on"); } });
+// The import dialog closes itself on Escape, in import.js, and gives focus
+// back to whatever opened it; closing it from here as well skipped that.
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrill(); });
 
 /* =====================================================================
    export
@@ -6802,8 +6880,21 @@ const modal = $("#modal");
 const show = id => ["step-choose", "step-map", "step-preview"]
   .forEach(s => $("#" + s).classList.toggle("hidden", s !== id));
 
-function openModal() { modal.classList.add("on"); show("step-choose"); }
-function closeModal() { modal.classList.remove("on"); }
+/* A dialog takes focus when it opens and gives it back when it closes — the
+   same rule the drill-down panel follows (WCAG 2.4.3). Until it did, "Load
+   data" opened a modal while focus stayed on the button behind the scrim, and
+   a keyboard reader tabbed on through a page they could no longer see. */
+function openModal() {
+  modal.opener = document.activeElement;
+  modal.classList.add("on"); show("step-choose");
+  $("#m-close").focus();
+}
+function closeModal() {
+  if (!modal.classList.contains("on")) return;
+  modal.classList.remove("on");
+  const back = modal.opener; modal.opener = null;
+  if (back && document.contains(back) && back.focus) back.focus();
+}
 $("#btn-import").onclick = openModal;
 $("#m-close").onclick = closeModal;
 modal.addEventListener("click", e => { if (e.target === modal) closeModal(); });
@@ -6988,7 +7079,7 @@ $("#m-preview").onclick = () => {
 
   const cols = ["key", "summary", "assignee", "status", "storyPoints", "created", "started", "resolved", "flagged"];
   $("#prev-table").innerHTML = "<table class='tv'><thead><tr>" +
-    cols.map(c => "<th>" + c + "</th>").join("") + "</tr></thead><tbody>" +
+    cols.map(c => "<th scope='col'>" + c + "</th>").join("") + "</tr></thead><tbody>" +
     iss.slice(0, 8).map(i => "<tr>" + cols.map(c =>
       "<td>" + esc(c === "summary" ? String(i[c] || "").slice(0, 44) : (i[c] == null ? "—" : String(i[c]))) + "</td>").join("") +
       "</tr>").join("") + "</tbody></table>" +
@@ -7058,7 +7149,7 @@ $("#tab-schema").innerHTML =
   "column names &mdash; the upload step matches your headings and lets you correct any it gets wrong. These are the " +
   "names used internally and in the templates.</p>" +
   "<pre>" + esc(API.ISSUE_COLS.join(",")) + "</pre>" +
-  "<table class='tv'><thead><tr><th>Field</th><th style='text-align:left'>Meaning</th></tr></thead><tbody>" +
+  "<table class='tv'><thead><tr><th scope='col'>Field</th><th scope='col' style='text-align:left'>Meaning</th></tr></thead><tbody>" +
   FIELDS.map(f => "<tr><td><code>" + f.k + "</code></td><td style='white-space:normal'>" +
     esc(f.lab) + " &mdash; " + esc(f.hint) + (f.req ? " <b>(required)</b>" : "") + "</td></tr>").join("") +
   "</tbody></table>" +
