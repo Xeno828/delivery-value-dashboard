@@ -201,6 +201,14 @@ def main():
         if state["refusal"]:
             txt = frame.text_content("#kpis .refusal") or ""
             check("the refusal ends with its clause, untrimmed", CLAUSE in txt, txt[-70:])
+        # The footer said "nothing loaded yet" beside "24 issues across 4
+        # sprints" on the first run of this check: the seed's label had
+        # survived the bridge loading real data.
+        foot = " ".join(state["foot"].split()).lower()
+        if state["kpis"] == 8:
+            check("with issues loaded, nothing on the page says nothing is loaded",
+                  "nothing loaded" not in foot and "nothing loaded" not in
+                  " ".join((frame.text_content("#exec-basis") or "").split()).lower(), foot[:100])
         stray = frame.evaluate("c => [...document.querySelectorAll('.note')].filter(n => n.textContent.includes(c) && !n.closest('.refusal')).length", CLAUSE)
         check("no refusal is set in the note style", stray == 0, stray)
 

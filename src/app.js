@@ -1724,8 +1724,9 @@ function renderContextBar() {
          the rollup's note. Three tiles are missing from the grid below and
          this is the sentence that stops that being a surprise. */
       (isWindow(cur) ? " · rolling window, so no burndown or pace" : "") + "</span>" +
+    // A name, not the source id: it read "Refresh from jira" in a tenant.
     (S.live ? '<button class="btn" id="c-live" style="margin-left:auto">Refresh from ' +
-        esc(S.live.source || "server") + "</button>" : "");
+        esc({ jira: "Jira", asana: "Asana" }[S.live.source] || "the server") + "</button>" : "");
 
   const pick = (proj, board) => {
     if (board === ALL_BOARDS) {
@@ -1884,9 +1885,16 @@ function renderExec(m) {
       { title: "Work added after the sprint started", items: m.added });
   }
   if (m.flowEff != null) {
-    add(m.flowEff < FLOW_EFF_TARGET ? "warning" : "good",
-      "Only " + pct(m.flowEff) + " of elapsed time on closed items was spent actively working.",
-      "The other " + pct(1 - m.flowEff) + " was queuing — waiting for review, for a decision, or for someone to be free. Queue time is the cheapest thing to fix and the least often measured.",
+    /* "Only" belongs to the warning. Above the target it printed "Only 100%
+       of elapsed time … was spent actively working. The other 0% was queuing"
+       over one closed item that never waited — a good finding in the words of
+       a bad one, seen in a tenant. */
+    const queued = 1 - m.flowEff, low = m.flowEff < FLOW_EFF_TARGET;
+    add(low ? "warning" : "good",
+      (low ? "Only " : "") + pct(m.flowEff) + " of elapsed time on closed items was spent actively working.",
+      queued < 0.005
+        ? "None of it was queuing: nothing waited for review, for a decision, or for someone to be free. Rare, and worth knowing why before counting on it."
+        : "The other " + pct(queued) + " was queuing — waiting for review, for a decision, or for someone to be free. Queue time is the cheapest thing to fix and the least often measured.",
       { title: "Closed items, ranked by time spent waiting", items: m.closedTimed.slice().sort((a, b) => (days(a.created, a.resolved) - days(a.started, a.resolved)) < (days(b.created, b.resolved) - days(b.started, b.resolved)) ? 1 : -1) });
   }
   const old = m.ages.filter(a => a.age > 14);

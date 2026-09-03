@@ -690,6 +690,31 @@ def empty_selection(b):
     page.close()
 
 
+def exec_findings(b):
+    """The findings' sentences hold at the edges of their own figures."""
+    print("\n  exec findings")
+    sample = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+    page = b.new_page(viewport={"width": 1500, "height": 1000})
+    page.goto(DIST.as_uri())
+    page.wait_for_timeout(700)
+    # Every closed item started the day it was raised: flow efficiency is 100%.
+    # The finding printed "Only 100% of elapsed time on closed items was spent
+    # actively working. The other 0% was queuing — waiting for review…" — a
+    # good finding in a warning's words, seen in a tenant over one closed item.
+    whole = json.loads(json.dumps(sample))
+    for i in whole["issues"]:
+        if i.get("resolved") and i.get("created"):
+            i["started"] = i["created"]
+    page.evaluate("d => window.DVD.applyDataset(d)", whole)
+    page.wait_for_timeout(500)
+    txt = " ".join((page.text_content("#exec-list") or "").split())
+    check("a flow efficiency of 100% is not introduced with 'Only'",
+          "100% of elapsed time" in txt and "Only 100%" not in txt, txt[:160])
+    check("and does not report that 0% was queuing",
+          "0% was queuing" not in txt and "None of it was queuing" in txt, txt[:220])
+    page.close()
+
+
 def transports(b):
     """The two live-mode transports, and that the page cannot tell them apart.
 
@@ -1109,6 +1134,10 @@ def transports(b):
             page.goto("http://127.0.0.1:%d/dist/.transport-test.html" % port)
             page.wait_for_timeout(2000)
             ids = page.evaluate("() => window.DVD.data.contexts.map(c => c.id)")
+            live_btn = " ".join((page.text_content("#c-live") or "").split())
+            check("the refresh button names its source rather than printing the source id",
+                  live_btn.startswith("Refresh from ") and
+                  re.search(r"from (jira|asana|demo|bundle|server)$", live_btn) is None, live_btn)
             check("an empty file drops its placeholder once the connection answers",
                   "single" not in ids, ids[:3])
             check("and opens on one of the connection's own sprints",
@@ -1118,6 +1147,17 @@ def transports(b):
             check("with that sprint's issues actually loaded",
                   page.evaluate("() => window.DVD.data.issues.length") > 0,
                   page.evaluate("() => window.DVD.data.issues.length"))
+            # The seed's label used to read "this site's Jira — nothing loaded
+            # yet", and nothing replaced it when the connection loaded a sprint:
+            # a tenant's footer read "nothing loaded yet · 24 issues across 4
+            # sprints". The label names the source; the page says the state.
+            foot = " ".join((page.text_content("#foot") or "").split())
+            basis = " ".join((page.text_content("#exec-basis") or "").split())
+            check("once the connection has loaded a sprint, nothing on the page says nothing is loaded",
+                  "nothing loaded" not in foot.lower() and "nothing loaded" not in basis.lower(),
+                  (foot[:90], basis[:90]))
+            check("and the footer names the source the issues came from",
+                  "Generated from this site's Jira" in foot, foot[:90])
             page.close()
         finally:
             seeded.unlink(missing_ok=True)
@@ -2319,6 +2359,7 @@ def main():
 
         empty_selection(b)
         health_composition(b)
+        exec_findings(b)
         transports(b)
         strict_style_csp(b)
 
