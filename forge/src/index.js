@@ -1066,7 +1066,7 @@ const burndownFor = async (entry, issues, cfg) => {
   if (noDays) return { rows: [], note: noDays };
   const projected = issues.map(projectIssue);
   assertNoFreeText(projected);
-  const answer = await callCalculator('/v1/burndown', {
+  const answer = await answerHere('/v1/burndown', {
     dataset: {
       issues: projected,
       meta: {

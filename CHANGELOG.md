@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.77.5
+
+**The burndown is answered inside the Forge function, and nothing reaches the calculator any more.** The last route to move under [ADR 0031](docs/adr/0031-the-forecast-runs-inside-the-forge-function.md): `/v1/burndown` is one sprint's daily series, bounded by the sprint's days, and the `context` resolver's one call to it now goes to `answerHere`. With it, every figure the app shows a tenant is computed by the Python inside the function — facts, the forecast and sequencing as jobs, the trend series, the burndown — and `callCalculator` has no caller left. It stays in the file for exactly one more commit, with the `remotes` block, the `invokeRemote` import and the hosted service's deployment, because retiring a remote is its own change to blame and this one is a route moving. Deployed to development as **8.9.0**, a minor version; the burndown tile on a sprint with days behind it is the click.
+
 ## 1.77.4
 
 **The trend series is answered inside the Forge function.** The fifth route to move under [ADR 0031](docs/adr/0031-the-forecast-runs-inside-the-forge-function.md), and a plain call: `/v1/history` is one row of counts per sprint, bounded by the number of sprints, and the `context` resolver's two calls to it — the series for the selected context, and the re-read after a recordable row is stored — now go to `answerHere`. Nothing but the identifier at two call sites changed; the inventory in `tests/test_service.py` gains the route. What remains on the calculator is `burndown`, one call, also from the `context` resolver. Deployed to development as **8.8.0**, a minor version; the sprint trend tile is the click.
