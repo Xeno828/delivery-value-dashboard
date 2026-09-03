@@ -195,19 +195,21 @@ modules:
       # ceiling, then — the same figure the probe measured under.
       runtime:
         memoryMB: 1024
-    # The sequencing consumer's function. ADR 0031.
+    # The simulations' consumer function. ADR 0031, corrected 2026-09-03.
     #
     # Sequencing is cubic in the ask count — twelve asks is 209 seconds on
-    # this CPU — so the `sequence` resolver validates and pushes an event, and
-    # this function computes it under the platform's ceiling rather than the
+    # this CPU — and the forecast walks every trial day by day until the open
+    # items complete, twelve seconds on a board with a long, sparse history.
+    # So the `sequence` and `forecast` resolvers validate and push an event,
+    # and this function computes under the platform's ceiling rather than the
     # resolver's 25 seconds. 900 is the ceiling and not the need, because
     # Forge bills measured time on a run that finishes, and a slower container
     # than the probe's is the one unknown left; the cap on asks is the guard
     # against a run that cannot finish. A memory of 1,024 MB for the same
-    # reason. Adding this function and the consumer below is a MINOR version,
-    # settled by deploy on the second probe; so is a change to timeoutSeconds.
-    - key: sequence-fn
-      handler: index.sequenceConsumer
+    # reason. Adding a function and a consumer is a MINOR version, settled by
+    # deploy on the second probe; so is a change to timeoutSeconds.
+    - key: simulation-fn
+      handler: index.simulationConsumer
       timeoutSeconds: 900
       runtime:
         memoryMB: 1024
@@ -251,15 +253,16 @@ modules:
       function: weekly-brief-fn
       interval: week
 
-  # The queue the `sequence` resolver pushes to and the function that drains
-  # it. The queue name is `QUEUE_KEY` in forge/src/jobs.js, and
-  # tests/test_service.py holds the two strings together, because a queue
-  # named here and misspelt there is an event pushed to a queue nobody
-  # consumes — accepted by the platform, run by nothing, and invisible.
+  # The queue the `sequence` and `forecast` resolvers push to and the
+  # function that drains it. The queue name is `QUEUE_KEY` in
+  # forge/src/jobs.js, and tests/test_service.py holds the two strings
+  # together, because a queue named here and misspelt there is an event
+  # pushed to a queue nobody consumes — accepted by the platform, run by
+  # nothing, and invisible.
   consumer:
-    - key: sequence-consumer
-      queue: sequence-jobs
-      function: sequence-fn
+    - key: simulation-consumer
+      queue: simulations
+      function: simulation-fn
 
 # Produced by `make forge-static`. Both paths are git-ignored: they are built
 # from sources this repository already commits, and a second copy is a second
@@ -418,7 +421,17 @@ permissions:
 
 app:
   runtime:
-    name: nodejs22.x
+    # nodejs24.x, which Atlassian recommends and which the second probe
+    # measured on. The app ran nodejs22.x until 2026-09-03, when an
+    # in-function forecast took twelve seconds against the probe's three
+    # on the same runtime configuration; the Node version was the one
+    # variable left between the two.
+    name: nodejs24.x
+    # App-wide as well as per function. The three functions each declare
+    # 1,024 MB, and the second probe ran under an app-wide declaration; a
+    # forecast measured at twelve seconds against a predicted three is the
+    # reason to state it here too and let the log say which one held.
+    memoryMB: 1024
 
 # Egress costs the "Runs on Atlassian" badge. It is the price of reaching one
 # implementation of the forecast over a remote — and since 2026-09-01 it is no

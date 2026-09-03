@@ -24,15 +24,18 @@ import api, { route, invokeRemote } from '@forge/api';
 import { chat } from '@forge/llm';
 import { kvs } from '@forge/kvs';
 import { Queue } from '@forge/events';
+import { randomUUID } from 'node:crypto';
+import os from 'node:os';
 
 // The Python runtime inside this function — `agent/tools/` and
 // `service/routes.py` under WebAssembly, loaded from a generated module.
 // CommonJS, hence the default import. ADR 0031.
 import runtime from './runtime.js';
 import {
-  CONSUMER_ROUTE, FAILED_SENTENCE, JOB_ID, JOB_LIFETIME_MS, JOB_TTL, QUEUE_KEY,
-  collect, inflightKey, jobKey, jobRow, resultKey, resultRow, retryRefusal,
-  tooLarge, wrongRoute,
+  CONSUMER_ROUTES, JOB_ID, JOB_LIFETIME_MS, JOB_TTL, KIND_OF, QUEUE_KEY,
+  chunkPayload, collect, failedSentence, forecastRefusal, inflightKey, jobKey, jobRow,
+  joinPayload, payloadKey, resultKey, resultRow, retryRefusal, riskKeys, tooLarge,
+  wrongRoute,
 } from './jobs.js';
 
 import {
@@ -1216,14 +1219,18 @@ resolver.define('context', answering(async ({ payload, context }) => {
  * runs over a narrower history than `sampled_from` reports, with nothing on
  * screen to say so.
  */
-const noCalculator = (sentence) => ({
-  sprint_completion: { available: false, reason: sentence },
-  capacity_to_target: { available: false, reason: sentence },
-  next_commitment: { available: false, reason: sentence },
-  asked: {}, sampled_from: {}, inputs: {},
-});
+// The forecast body for a refusal: the shape is `forecastRefusal` in jobs.js
+// now, because a refusal can arrive at collection as well as here.
+const noCalculator = forecastRefusal;
 
 resolver.define('forecast', answering(async ({ payload, context }) => {
+  // Phase timings, to the log. Milliseconds and phase names only — no key,
+  // no title, no figure — so a forecast that misses the adapter's clock says
+  // which phase spent it. ADR 0031 priced the in-function forecast at about
+  // 6 s cold; this is how that price is checked against a real tenant.
+  const t0 = Date.now();
+  const cold = !runtime.state().loaded;
+  const mark = (label) => console.log(`forecast ${label} +${Date.now() - t0}ms`);
   const asked = payload?.id;
   const projectKey = moduleProjectKey(context);
   if (!projectKey) return NO_PROJECT(context);
@@ -1232,6 +1239,7 @@ resolver.define('forecast', answering(async ({ payload, context }) => {
   }
 
   const { contexts } = await projectContexts(projectKey);
+  mark(`contexts ${contexts.length}`);
   if (!contexts.length) {
     return { status: 404, body: notFound(asked, `project ${projectKey} has nothing to report on`) };
   }
@@ -1240,6 +1248,7 @@ resolver.define('forecast', answering(async ({ payload, context }) => {
   // issues and none are sent, so asking costs one small round trip rather than
   // a board's worth of data going out twice.
   const slice = await answerHere('/v1/slice', { dataset: { contexts }, contextId: asked });
+  mark(`slice ${cold ? 'cold' : 'warm'} ${runtime.state().loadedWith} ${os.cpus().length}cpu ${Math.round(os.totalmem() / 1048576)}MB node${process.version}`);
   if (slice.available === false) return { status: 200, body: noCalculator(slice.sentence) };
   const wanted = new Set(slice.result?.contextIds ?? []);
   if (!wanted.size) {
@@ -1258,24 +1267,23 @@ resolver.define('forecast', answering(async ({ payload, context }) => {
 
   const projected = issues.map(projectIssue);
   assertNoFreeText(projected);
+  mark(`issues ${projected.length} over ${wanted.size} contexts`);
 
-  // The board's forecast log — roadmap item 4c, ADR 0017. Read before the
-  // call and handed over with it, so one round trip both publishes this
-  // forecast's claims and scores everything already resolved. The calculator
-  // computes all of it; this decides only where it is kept.
-  //
-  // A what-if carries no claims (`forecast_for` emits them for the default
-  // forecast alone), so dragging the tile's sliders reads the log and writes
-  // nothing back.
+  // The board's forecast log — roadmap item 4c, ADR 0017. Read here and
+  // handed over with the request, so the job both publishes this forecast's
+  // claims and scores everything already resolved; `jobResult` writes the
+  // log back if it moved. A what-if carries no claims (`forecast_for` emits
+  // them for the default forecast alone), so dragging the tile's sliders
+  // reads the log and writes nothing back.
   const board = parseContextId(asked)?.boardId;
   const logKey = forecastLogKey(board);
   const heldLog = board ? ((await kvs.get(logKey)) ?? []) : [];
 
-  const answer = await answerHere('/v1/forecast-context', {
+  const request = {
     dataset: {
       issues: projected,
-      // Every context, not just the sampled ones. The calculator resolves the
-      // id against this list and a rollup id names sprints by their board, so
+      // Every context, not just the sampled ones. The tool resolves the id
+      // against this list and a rollup id names sprints by their board, so
       // handing it only the slice would make it re-derive a slice from a list
       // that had already been narrowed by one.
       contexts,
@@ -1293,17 +1301,21 @@ resolver.define('forecast', answering(async ({ payload, context }) => {
     // answer, narrowed by the reader and applied by `counted_issues`.
     ...(Array.isArray(payload?.types) && payload.types.length
       ? { types: payload.types } : {}),
+  };
+
+  // **The forecast is a job.** ADR 0031, corrected 2026-09-03: on a board
+  // with a long, sparse history the completion simulation walks hundreds of
+  // days per trial and took twelve seconds here, measured, against the
+  // adapter's fifteen with Jira reads around it. The consumer computes it on
+  // the plain runtime and `jobResult` finishes it — titles back on the
+  // at-risk items, the calibration log written — when the page collects.
+  const started = await startJob({
+    route: '/v1/forecast-context', request, contextId: asked,
+    accountId: context?.accountId ?? null, board: board == null ? null : String(board),
+    text: {}, envelope: {},
   });
-  if (answer.available === false) return { status: 200, body: noCalculator(answer.sentence) };
-
-  // Written only when it moved. This route runs whenever the tile is opened,
-  // and a store rewritten on every read is a write quota spent on nothing.
-  const cal = answer.result?.calibration;
-  if (board && cal && (cal.added || cal.dropped)) {
-    await kvs.set(logKey, cal.log);
-  }
-
-  return { status: 200, body: reattach(answer.result, byKey) };
+  mark(`pushed ${started.status}`);
+  return started;
 }));
 
 /**
@@ -1645,11 +1657,37 @@ resolver.define('sequence', answering(async ({ payload, context }) => {
   const over = tooLarge(request);
   if (over) return refuse(over);
 
+  return startJob({
+    route: '/v1/sequence', request, contextId: asked, accountId: context?.accountId ?? null,
+    board: boardId == null ? null : String(boardId), text, envelope,
+  });
+}));
+
+/**
+ * A simulation as a job — the resolver's half. ADR 0031.
+ *
+ * The projection goes to storage in chunks, the event names it, the job row
+ * records who asked and what the page's body gets around the answer, and the
+ * in-flight key lets a reload join the running job rather than start another.
+ * One path for both kinds: a forecast carries a team's whole history, which
+ * is past the event's 100 KB limit on any real board, and a second path for
+ * the small case is a second path nobody tests.
+ */
+const startJob = async ({ route, request, contextId, accountId, board, text, envelope }) => {
+  const kind = KIND_OF[route];
+  const refuse = (sentence) => ({
+    status: 200,
+    body: kind === 'forecast'
+      ? forecastRefusal(sentence)
+      : { available: false, ...(envelope ?? {}), sentence },
+  });
+  const over = tooLarge(request, kind);
+  if (over) return refuse(over);
+
   // A reload mid-job joins the running job rather than starting another:
   // the same context, the same projection, the same account is one
   // computation with two collectors, not two computations.
-  const accountId = context?.accountId ?? null;
-  const inflight = inflightKey(asked, request, accountId);
+  const inflight = inflightKey(contextId, request, accountId);
   const running = await kvs.get(inflight);
   if (running?.jobId) {
     const job = await kvs.get(jobKey(running.jobId));
@@ -1657,42 +1695,92 @@ resolver.define('sequence', answering(async ({ payload, context }) => {
     if (fresh) return { status: 202, body: { jobId: running.jobId, pending: true, joined: true } };
   }
 
+  // The payload first, under its own id, so it is there before the event
+  // that names it is — the consumer can start within a second of the push.
+  const payloadId = randomUUID();
+  const chunks = chunkPayload(request);
+  for (let n = 0; n < chunks.length; n += 1) {
+    await kvs.set(payloadKey(payloadId, n), { s: chunks[n] }, { ttl: JOB_TTL });
+  }
+
   let jobId;
   try {
     ({ jobId } = await new Queue({ key: QUEUE_KEY }).push({
-      body: { route: CONSUMER_ROUTE, body: request },
+      body: { route, payloadId, chunks: chunks.length },
     }));
   } catch (err) {
     // The platform's own class name, never its message — a message can carry
     // the payload it refused, and the payload is a board.
-    return refuse(`The platform did not accept the sequencing job (${err?.name ?? 'error'}). `
-                + 'Nothing was sequenced; try again in a minute.');
+    await Promise.all(chunks.map((_, n) => kvs.delete(payloadKey(payloadId, n))));
+    return refuse(`The platform did not accept the job (${err?.name ?? 'error'}). `
+                + 'Nothing was computed; try again in a minute.');
   }
   await kvs.set(jobKey(jobId), jobRow({
-    jobId, accountId, contextId: asked, key: inflight, text, envelope, now: Date.now(),
+    jobId, kind, route, accountId, contextId, board, key: inflight, text, envelope, now: Date.now(),
   }), { ttl: JOB_TTL });
   await kvs.set(inflight, { jobId }, { ttl: JOB_TTL });
   return { status: 202, body: { jobId, pending: true } };
-}));
+};
 
 /**
- * One poll of a sequencing job. ADR 0031.
- *
- * The adapter asks every few seconds with the job id the `sequence` resolver
- * handed it, and gets back exactly what `collect` in jobs.js says: 202 while
- * the consumer is running, the tool's answer when it is done, a refusal when
- * it was refused, and a 404, 403 or 410 for a job that is gone, another
- * account's, or older than an hour. The rows are deleted the moment a final
- * answer is handed over, so a result is never served twice from storage.
+ * The titles and assignees of a forecast's at-risk items, by key, read from
+ * Jira as the person collecting. `reattach` needs them and they were never
+ * in the job: a team's history is too many titles to hold in a row, and the
+ * risk list names only a few. The keys are the tool's own echo of keys this
+ * app fetched, validated to Jira's key shape before they go into a query.
  */
-resolver.define('sequenceResult', answering(async ({ payload, context }) => {
+const issuesByKey = async (keys, boardId) => {
+  const byKey = new Map();
+  if (!keys.length || boardId == null) return byKey;
+  for (let i = 0; i < keys.length; i += 100) {
+    const jql = `key in (${keys.slice(i, i + 100).join(',')})`;
+    const res = await api.asUser().requestJira(
+      route`/rest/agile/1.0/board/${boardId}/issue?maxResults=100&fields=summary,assignee&jql=${jql}`,
+    );
+    if (!res.ok) continue; // shown without titles rather than not shown
+    const body = await res.json();
+    for (const raw of body.issues ?? []) {
+      byKey.set(raw.key, {
+        summary: raw.fields?.summary ?? '',
+        assignee: (raw.fields?.assignee || {}).displayName || 'Unassigned',
+      });
+    }
+  }
+  return byKey;
+};
+
+/**
+ * One poll of a job. ADR 0031.
+ *
+ * The adapter asks every few seconds with the job id the `sequence` or
+ * `forecast` resolver handed it, and gets back exactly what `collect` in
+ * jobs.js says: 202 while the consumer is running, the tool's answer when it
+ * is done, a refusal when it was refused, and a 404, 403 or 410 for a job that
+ * is gone, another account's, or older than an hour. A finished forecast has
+ * its at-risk items' titles put back here, from a Jira read as the collector,
+ * and its calibration log written if the log moved — the two things the
+ * forecast resolver did after the call when the call was synchronous. The
+ * rows are deleted the moment a final answer is handed over, so a result is
+ * never served twice from storage.
+ */
+resolver.define('jobResult', answering(async ({ payload, context }) => {
   const jobId = payload?.jobId;
   if (typeof jobId !== 'string' || !JOB_ID.test(jobId)) {
-    return { status: 400, body: { error: 'A sequencing job is collected by its id, and that is not one.' } };
+    return { status: 400, body: { error: 'A job is collected by its id, and that is not one.' } };
   }
   const job = await kvs.get(jobKey(jobId));
   const result = job ? await kvs.get(resultKey(jobId)) : null;
   const out = collect({ job, result, accountId: context?.accountId ?? null, now: Date.now() });
+  if (out.finished && job?.kind === 'forecast' && out.status === 200 && out.body?.item_risk) {
+    reattach(out.body, await issuesByKey(riskKeys(out.body), job.board));
+    // Written only when it moved. This route runs whenever the tile is
+    // opened, and a store rewritten on every read is a write quota spent on
+    // nothing.
+    const cal = out.body.calibration;
+    if (job.board != null && cal && (cal.added || cal.dropped)) {
+      await kvs.set(forecastLogKey(job.board), cal.log);
+    }
+  }
   if (out.finished) {
     await Promise.all([
       kvs.delete(jobKey(jobId)),
@@ -2355,7 +2443,7 @@ export const weeklyBrief = async () => {
 };
 
 /**
- * The consumer: one sequencing, computed under a 900-second budget in its
+ * The consumer: one simulation, computed under a 900-second budget in its
  * own container. ADR 0031.
  *
  * It reads the retry context before anything else. A consumer killed at its
@@ -2365,19 +2453,22 @@ export const weeklyBrief = async () => {
  * the row and returns without loading the runtime.
  *
  * Plain load, not the snapshot: on Forge everything computed after a snapshot
- * load runs 1.65× slower, and this function computes for minutes. The cold
- * load it pays instead is eleven seconds against a run of three and a half.
+ * load runs 1.65× slower, and this function computes for seconds to minutes.
+ * The cold load it pays instead is eleven seconds.
  *
  * Every outcome is a row. A consumer that threw would be retried, which is
  * the doomed-job loop above by another door, so nothing escapes: the cause
- * goes to the log and the row says it failed.
+ * goes to the log and the row says it failed. The payload rows are deleted
+ * as soon as they are read, whatever happens afterwards.
  */
-export const sequenceConsumer = async (event) => {
+export const simulationConsumer = async (event) => {
   const jobId = event?.jobId;
   const key = resultKey(jobId);
+  const { route: askedRoute, payloadId, chunks } = event?.body ?? {};
+  const kind = KIND_OF[askedRoute] ?? 'sequence';
   if (event?.retryContext) {
     await kvs.set(key, resultRow('refused', {
-      sentence: retryRefusal(event.retryContext),
+      sentence: retryRefusal(event.retryContext, kind),
       retryCount: event.retryContext.retryCount ?? null,
       retryReason: event.retryContext.retryReason ?? null,
     }, Date.now()), { ttl: JOB_TTL });
@@ -2385,20 +2476,24 @@ export const sequenceConsumer = async (event) => {
   }
   await kvs.set(key, resultRow('started', {}, Date.now()), { ttl: JOB_TTL });
   const t0 = Date.now();
-  const { route: askedRoute, body } = event?.body ?? {};
-  if (askedRoute !== CONSUMER_ROUTE) {
+  if (!CONSUMER_ROUTES.includes(askedRoute)) {
     await kvs.set(key, resultRow('refused', { sentence: wrongRoute(askedRoute) }, Date.now()),
       { ttl: JOB_TTL });
     return;
   }
   try {
-    const { status, payload } = await runtime.answer(CONSUMER_ROUTE, body, { snapshot: false });
+    const n = Number(chunks) || 0;
+    const rows = [];
+    for (let i = 0; i < n; i += 1) rows.push(await kvs.get(payloadKey(payloadId, i)));
+    await Promise.all(Array.from({ length: n }, (_, i) => kvs.delete(payloadKey(payloadId, i))));
+    const body = joinPayload(rows, n);
+    const { status, payload } = await runtime.answer(askedRoute, body, { snapshot: false });
     await kvs.set(key, resultRow('done', {
       http: status, envelope: payload, ms: Date.now() - t0, load: runtime.state().loadedWith,
     }, Date.now()), { ttl: JOB_TTL });
   } catch (err) {
-    console.error('sequence consumer failed', jobId, String((err && err.stack) || err));
-    await kvs.set(key, resultRow('failed', { sentence: FAILED_SENTENCE, ms: Date.now() - t0 },
+    console.error('simulation consumer failed', jobId, String((err && err.stack) || err));
+    await kvs.set(key, resultRow('failed', { sentence: failedSentence(kind), ms: Date.now() - t0 },
       Date.now()), { ttl: JOB_TTL });
   }
 };

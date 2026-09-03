@@ -430,9 +430,11 @@ def test_routes_move_one_at_a_time():
     """
     idx = _code_only((ROOT / "forge" / "src" / "index.js").read_text())
     here = set(re.findall(r"(?:answerHere|runtime\.answer)\(\s*'(/v1/[^']+)'", idx))
-    # `CONSUMER_ROUTE` is `/v1/sequence` by name; count it as a literal.
-    if "runtime.answer(CONSUMER_ROUTE" in idx:
-        here.add("/v1/sequence")
+    # The consumer runs whatever route the event names, from an allow-list in
+    # jobs.js; those routes are answered in-function too, by the consumer.
+    jobs_js = (ROOT / "forge" / "src" / "jobs.js").read_text()
+    allow = re.search(r"export const CONSUMER_ROUTES = \[(.*?)\];", jobs_js, re.S)
+    here |= set(re.findall(r"'(/v1/[^']+)'", allow.group(1))) if allow else set()
     remote = set(re.findall(r"callCalculator\(\s*'(/v1/[^']+)'", idx))
     check("every route answered in-function is in the inventory, and every inventoried route moved",
           here == IN_FUNCTION_ROUTES,
@@ -459,7 +461,7 @@ def test_routes_move_one_at_a_time():
     # memory the runtime needs; the probe measured 347 MB against a 512 MB
     # default.
     man = (ROOT / "forge" / "manifest.yml").read_text()
-    for fn in ("resolver", "weekly-brief-fn", "sequence-fn"):
+    for fn in ("resolver", "weekly-brief-fn", "simulation-fn"):
         check("%s declares the memory the Python runtime needs" % fn,
               _manifest_item(man, fn).get("memoryMB") == "1024", _manifest_item(man, fn))
 
@@ -471,20 +473,24 @@ def _code_only(js):
     return re.sub(r"//[^\n]*", "", js)
 
 
-def test_sequencing_is_a_job():
-    """Sequencing runs as an async event, and the page cannot tell. ADR 0031.
+def test_simulations_are_jobs():
+    """Sequencing and the forecast run as async events, and the page cannot
+    tell. ADR 0031, corrected 2026-09-03.
 
-    Sequencing is cubic in the ask count and runs for minutes on Forge's CPU,
-    so the `sequence` resolver validates, pushes an event and answers 202 with
-    a job id; a consumer function computes under a 900-second budget and
-    writes a row; `sequenceResult` collects it; the adapter polls. Four pieces,
-    and the failure modes are all quiet ones: a queue named twice and spelt
+    Sequencing is cubic in the ask count and runs for minutes on Forge's CPU;
+    the forecast walks every trial day by day until the open items complete
+    and took twelve seconds on a board with a long, sparse history. So both
+    resolvers validate, write the projection to storage in chunks, push an
+    event and answer 202 with a job id; a consumer function computes under a
+    900-second budget and writes a row; `jobResult` collects it; the adapter
+    polls. The failure modes are all quiet ones: a queue named twice and spelt
     once, a consumer that re-runs a doomed job every six minutes for a day, a
-    result collected by an account that did not ask for it, a page that waits
-    for ever. Each is held here — the manifest against the code, the resolver
-    and consumer bodies for the order of their guards, the pure state machine
-    over a matrix of rows under Node, the check route against the route it
-    stands in front of, and the adapter's poll with a fake transport.
+    result collected by an account that did not ask for it, a payload short a
+    chunk, a page that waits for ever. Each is held here — the manifest
+    against the code, the resolver and consumer bodies for the order of their
+    guards, the pure state machine over a matrix of rows under Node, the
+    check route against the route it stands in front of, and the adapter's
+    poll with a fake transport.
     """
     import routes as RT
     man = (ROOT / "forge" / "manifest.yml").read_text()
@@ -492,18 +498,16 @@ def test_sequencing_is_a_job():
     jobs_js = (ROOT / "forge" / "src" / "jobs.js").read_text()
 
     # ---- the manifest declares what the code assumes ----
-    consumer = _manifest_item(man, "sequence-consumer")
-    fn = _manifest_item(man, "sequence-fn")
-    check("the manifest declares a consumer for sequencing",
-          bool(consumer.get("queue")) and consumer.get("function") == "sequence-fn", consumer)
+    consumer = _manifest_item(man, "simulation-consumer")
+    fn = _manifest_item(man, "simulation-fn")
+    check("the manifest declares a consumer for the simulations",
+          bool(consumer.get("queue")) and consumer.get("function") == "simulation-fn", consumer)
     check("its function is the consumer export, under the 900-second ceiling",
-          fn.get("handler") == "index.sequenceConsumer" and fn.get("timeoutSeconds") == "900", fn)
+          fn.get("handler") == "index.simulationConsumer" and fn.get("timeoutSeconds") == "900", fn)
     check("with the memory the probe measured under",
           fn.get("memoryMB") == "1024", fn)
-    check("and the resolver's function has the same memory, since it loads the snapshot",
-          _manifest_item(man, "resolver").get("memoryMB") == "1024", _manifest_item(man, "resolver"))
     check("index.js exports the consumer the manifest names",
-          re.search(r"^export const sequenceConsumer\s*=", idx, re.M) is not None)
+          re.search(r"^export const simulationConsumer\s*=", idx, re.M) is not None)
     queue_key = re.search(r"export const QUEUE_KEY = '([^']+)'", jobs_js)
     check("the queue the manifest names is the one jobs.js exports",
           queue_key is not None and consumer.get("queue") == queue_key.group(1),
@@ -511,36 +515,58 @@ def test_sequencing_is_a_job():
     check("and the resolver pushes to it by that name, never by a second literal",
           "new Queue({ key: QUEUE_KEY })" in idx and idx.count("new Queue(") == 1)
 
-    # ---- the resolver: validate, refuse, join, push — in that order ----
+    # ---- starting a job: refuse, join, write the payload, push — in that order ----
+    start_fn = _code_only(idx.split("const startJob = ", 1)[1].split("\n};", 1)[0])
+    order = [start_fn.find(s) for s in ("tooLarge(", "inflightKey(", "chunkPayload(", ".push(", "jobRow(")]
+    check("the size guard, the in-flight join and the payload rows all come before the push",
+          all(p >= 0 for p in order) and order == sorted(order), order)
+    check("the payload is written under its own id before the event that names it",
+          "randomUUID()" in start_fn and "payloadId, chunks: chunks.length" in start_fn)
+    check("a reload joins the running job rather than starting another",
+          "joined: true" in start_fn and "JOB_LIFETIME_MS" in start_fn)
+    check("a platform refusal of the push is a sentence with the class name, never the message",
+          "err?.name" in start_fn and "err.message" not in start_fn and "err?.message" not in start_fn)
+    check("and the payload rows are deleted when the push is refused",
+          start_fn.find("kvs.delete(payloadKey(") > start_fn.find("catch (err)"))
+    check("it answers 202 with the job id",
+          "status: 202" in start_fn and "jobId, pending: true" in start_fn)
+
+    # ---- the two resolvers hand over and compute nothing ----
     seq = _code_only(idx.split("resolver.define('sequence'", 1)[1].split("\n}));", 1)[0])
     check("the sequence resolver validates through the tool's own check route, from the snapshot",
           "'/v1/sequence-check'" in seq and "{ snapshot: true }" in seq)
-    check("and never computes a sequencing itself",
-          "callCalculator(" not in seq and "runtime.answer('/v1/sequence'" not in seq
-          and "runtime.answer(CONSUMER_ROUTE" not in seq)
-    order = [seq.find(s) for s in ("'/v1/sequence-check'", "tooLarge(", "inflightKey(", ".push(")]
-    check("the check, the size guard and the in-flight join all come before the push",
-          all(p >= 0 for p in order) and order == sorted(order), order)
-    check("a reload joins the running job rather than starting another",
-          "joined: true" in seq and "JOB_LIFETIME_MS" in seq)
-    check("it answers 202 with the job id",
-          "status: 202" in seq and "jobId, pending: true" in seq)
+    check("and hands over rather than computing",
+          "startJob({" in seq and "runtime.answer('/v1/sequence'" not in seq
+          and "callCalculator(" not in seq)
     check("the job row carries the asking account, the words held back and the envelope",
-          all(s in seq for s in ("accountId", "text", "envelope", "jobRow(", "JOB_TTL")))
-    check("a platform refusal of the push is a sentence with the class name, never the message",
-          "err?.name" in seq and "err.message" not in seq and "err?.message" not in seq)
+          all(s in seq for s in ("accountId", "text", "envelope")))
+    fc = _code_only(idx.split("resolver.define('forecast'", 1)[1].split("\n}));", 1)[0])
+    check("the forecast resolver still chooses the slice synchronously, which is cheap",
+          "answerHere('/v1/slice'" in fc)
+    check("and hands the forecast itself to a job with the log it read",
+          "startJob({" in fc and "route: '/v1/forecast-context'" in fc
+          and "log: Array.isArray(heldLog)" in fc and "answerHere('/v1/forecast-context'" not in fc)
+    check("no forecast log is written by the resolver any more; that moved to collection",
+          "kvs.set(logKey" not in fc)
 
     # ---- the poll ----
-    poll = _code_only(idx.split("resolver.define('sequenceResult'", 1)[1].split("\n}));", 1)[0])
+    poll = _code_only(idx.split("resolver.define('jobResult'", 1)[1].split("\n}));", 1)[0])
     check("the poll validates the id before it becomes a storage key",
           "JOB_ID.test(jobId)" in poll and poll.find("JOB_ID.test") < poll.find("kvs.get"))
     check("it collects as the asking account", "accountId: context?.accountId" in poll)
-    check("and deletes both rows and the in-flight key when the answer is final",
+    check("a finished forecast gets its at-risk titles back from a Jira read, by key",
+          "issuesByKey(riskKeys(" in poll and "reattach(out.body" in poll)
+    check("and its calibration log written only if it moved",
+          "cal.added || cal.dropped" in poll and "forecastLogKey(job.board)" in poll)
+    check("and deletes the rows and the in-flight key when the answer is final",
           all(s in poll for s in ("kvs.delete(jobKey(jobId))", "kvs.delete(resultKey(jobId))",
                                   "kvs.delete(job.key)")) and "out.finished" in poll)
+    by_key = _code_only(idx.split("const issuesByKey = ", 1)[1].split("\n};", 1)[0])
+    check("the re-read is as the user, of summary and assignee only",
+          "api.asUser()" in by_key and "fields=summary,assignee" in by_key and "asApp" not in by_key)
 
     # ---- the consumer: the retry guard first, then a row for every outcome ----
-    cons = _code_only(idx.split("export const sequenceConsumer", 1)[1]
+    cons = _code_only(idx.split("export const simulationConsumer", 1)[1]
                       .split("\nexport const handler", 1)[0])
     check("the consumer reads the retry context before it loads anything",
           0 <= cons.find("retryContext") < cons.find("runtime.answer"))
@@ -549,13 +575,15 @@ def test_sequencing_is_a_job():
           and cons.find("retryRefusal(") < cons.find("resultRow('started'"))
     check("it computes on a plain load, not the snapshot",
           "{ snapshot: false }" in cons and "snapshot: true" not in cons)
-    check("it runs the sequencing route and refuses any other",
-          "CONSUMER_ROUTE" in cons and "wrongRoute(" in cons)
+    check("it runs the allow-listed routes and refuses any other",
+          "CONSUMER_ROUTES.includes(askedRoute)" in cons and "wrongRoute(" in cons)
+    check("it reads the payload rows and deletes them before it computes",
+          0 <= cons.find("joinPayload(") and cons.find("kvs.delete(payloadKey(") < cons.find("runtime.answer"))
     check("every outcome is a row, so a throw never becomes a platform retry",
           "catch (err)" in cons and "resultRow('failed'" in cons)
     failed = cons.split("resultRow('failed'", 1)[1].split(")", 1)[0]
     check("and a failure's cause goes to the log, never the row",
-          "sentence: FAILED_SENTENCE" in failed and "err" not in failed and "console.error" in cons,
+          "sentence: failedSentence(kind" in failed and "err" not in failed and "console.error" in cons,
           failed)
 
     # ---- the state machine, under Node ----
@@ -583,7 +611,7 @@ def test_sequencing_is_a_job():
     check("a job older than an hour is gone by its own timestamp, and its rows go",
           o["expired"]["status"] == 410 and o["expired"]["finished"], o["expired"])
     d = o["done"]
-    check("a finished job is the tool's answer with the envelope keys around it",
+    check("a finished sequencing is the tool's answer with the envelope keys around it",
           d["status"] == 200 and d["finished"] and d["body"]["available"] is True
           and d["body"]["asks_considered"] == 2 and d["body"]["board"] == "42"
           and "setup" in d["body"] and "notes" in d["body"] and "orderings" in d["body"],
@@ -610,6 +638,22 @@ def test_sequencing_is_a_job():
     check("an unrecognised state refuses rather than pretending",
           o["unknown state"]["status"] == 200 and o["unknown state"]["body"]["available"] is False
           and "teleported" in o["unknown state"]["body"]["sentence"], o["unknown state"])
+    # The forecast kind: the tool's answer as computed, and every refusal in
+    # the forecast body's own shape — three questions, one sentence each.
+    fd = o["forecast done"]
+    check("a finished forecast is the tool's answer, as computed, for the collector to finish",
+          fd["status"] == 200 and fd["finished"] and fd["body"]["sprint_completion"]["available"] is True
+          and "calibration" in fd["body"] and "item_risk" in fd["body"], list(fd["body"]))
+    for name in ("forecast route refused", "forecast refused on retry", "forecast failed"):
+        b = o[name]["body"]
+        check("%s is a refusal in the forecast body's shape" % name,
+              o[name]["status"] == 200 and o[name]["finished"]
+              and all(b[k]["available"] is False and b[k]["reason"]
+                      for k in ("sprint_completion", "capacity_to_target", "next_commitment"))
+              and b["sprint_completion"]["reason"] == b["next_commitment"]["reason"], b)
+    check("the forecast's retry refusal says forecast and offers the forecast's remedy",
+          js["retry"]["forecast"].startswith("Forecast") and "shorter period" in js["retry"]["forecast"],
+          js["retry"]["forecast"])
     check("every final outcome deletes the rows and every pending one keeps them",
           all(v["finished"] == (v["status"] in (200, 410)) for v in o.values()),
           {k: (v["status"], v["finished"]) for k, v in o.items()})
@@ -618,19 +662,37 @@ def test_sequencing_is_a_job():
     inflight = js["inflight"]
     check("the in-flight key is stable for one request and differs by account, context and body",
           all(inflight[k] for k in ("same", "otherAccount", "otherContext", "otherBody")), inflight)
-    check("the event limit is the documented 100 KB per event",
-          js["constants"]["MAX_EVENT_BYTES"] == 100 * 1024, js["constants"])
+    check("the consumer's allow-list is the two simulations, with a kind for each",
+          js["constants"]["CONSUMER_ROUTES"] == ["/v1/sequence", "/v1/forecast-context"]
+          and js["constants"]["KIND_OF"] == {"/v1/sequence": "sequence",
+                                             "/v1/forecast-context": "forecast"},
+          js["constants"])
+    check("the payload limit is the hosted service's own body limit",
+          js["constants"]["MAX_PAYLOAD_BYTES"] == 4 * 1024 * 1024, js["constants"])
     tl = js["tooLarge"]
-    check("a sprint's projection with every field is well inside it",
-          tl["realistic"] is None and tl["realisticBytes"] < 60 * 1024, tl["realisticBytes"])
-    check("a whole large board is refused with the size named, not truncated",
-          tl["big"] is not None and "%d KB" % -(-tl["bigBytes"] // 1024) in tl["big"]
-          and "Nothing was sequenced" in tl["big"], tl["big"])
+    check("a sprint's projection and a whole large board both fit",
+          tl["realistic"] is None and tl["big"] is None and tl["bigBytes"] > 100 * 1024,
+          {"realistic": tl["realisticBytes"], "big": tl["bigBytes"]})
+    check("a board past the limit is refused with the size named, not truncated",
+          tl["huge"] is not None and "%d KB" % -(-tl["hugeBytes"] // 1024) in tl["huge"]
+          and "Nothing was computed" in tl["huge"] and tl["huge"].startswith("This forecast"),
+          tl["huge"])
     check("a payload exactly at the limit passes and one byte over refuses",
-          tl["exactly"] is None and tl["overByOne"] is not None, {"exactly": tl["exactly"], "over": tl["overByOne"]})
-    check("the retry sentence names the budget and closes by saying nothing was sequenced",
+          tl["exactly"] is None and tl["overByOne"] is not None,
+          {"exactly": tl["exactly"], "over": tl["overByOne"]})
+    ch = js["chunks"]
+    check("a large board's projection is chunked under the store's 240 KiB per row",
+          ch["bigCount"] >= 2 and ch["bigMaxRow"] < 240 * 1024 and ch["smallCount"] == 1,
+          ch)
+    check("and joins back to the same bytes",
+          ch["roundTrip"] is True, ch)
+    check("a payload short a chunk throws with the gap named rather than computing over part of a board",
+          "6 of 7 chunks" in (ch["shortJoin"] or ""), ch["shortJoin"])
+    check("the at-risk keys re-read at collection are the valid ones, once each",
+          js["riskKeys"] == ["BLC-7", "BLC-9"], js["riskKeys"])
+    check("the retry sentence names the budget and closes by saying nothing was computed",
           "fifteen-minute" in js["retry"]["timeout"]
-          and "Nothing was sequenced" in js["retry"]["timeout"], js["retry"]["timeout"])
+          and "Nothing was computed" in js["retry"]["timeout"], js["retry"]["timeout"])
     check("a second retry says it is the second",
           "2nd time" in js["retry"]["second"], js["retry"]["second"])
     check("a retry for another reason names the reason",
@@ -666,26 +728,30 @@ def test_sequencing_is_a_job():
                                               "issues": len(seq_ds["issues"])},
           (status, out.get("result") or out.get("error")))
 
-    # ---- the adapter's poll, with a fake transport ----
+    # ---- the adapter's poll, with a fake transport, on both routes ----
     script = r"""
-    const { collectSequence, POLL_INTERVALS_MS } = require('../forge/bridge/bridge.js');
-    const run = async (answers, opts) => {
+    const { collectJob, POLL_INTERVALS_MS, JOB_ROUTES } = require('../forge/bridge/bridge.js');
+    const run = async (route, answers, opts) => {
       const calls = [], sleeps = [];
       let t = 0;
-      const call = async (route, params) => { calls.push([route, params]); return answers.shift(); };
-      const out = await collectSequence(call, { id: 'BLC/42/S24' },
+      const call = async (r, params) => { calls.push([r, params]); return answers.shift(); };
+      const out = await collectJob(call, route, { id: 'BLC/42/S24' },
         { sleep: async (ms) => { sleeps.push(ms); t += ms; }, now: () => t, ...(opts || {}) });
       return { out, calls, sleeps };
     };
     (async () => {
       const done = { status: 200, body: { available: true, orderings: [] } };
       const pending = { status: 202, body: { pending: true, jobId: 'j1' } };
+      const first = { status: 202, body: { jobId: 'j1', pending: true } };
       const res = {
-        immediate: await run([{ status: 200, body: { available: false, sentence: 'nothing marked' } }]),
-        notFound: await run([{ status: 404, body: { error: 'no such context' } }]),
-        polled: await run([{ status: 202, body: { jobId: 'j1', pending: true } }, pending, pending, pending, done]),
-        gone: await run([{ status: 202, body: { jobId: 'j1', pending: true } }, { status: 404, body: { error: 'collected' } }]),
-        ceiling: await run([{ status: 202, body: { jobId: 'j1', pending: true } }, ...Array(200).fill(pending)], { ceilingMs: 12000 }),
+        routes: JOB_ROUTES,
+        immediate: await run('sequence', [{ status: 200, body: { available: false, sentence: 'nothing marked' } }]),
+        notFound: await run('sequence', [{ status: 404, body: { error: 'no such context' } }]),
+        polled: await run('sequence', [first, pending, pending, pending, done]),
+        gone: await run('sequence', [first, { status: 404, body: { error: 'collected' } }]),
+        ceiling: await run('sequence', [first, ...Array(200).fill(pending)], { ceilingMs: 12000 }),
+        forecast: await run('forecast', [first, pending, { status: 200, body: { sprint_completion: { available: true } } }]),
+        forecastCeiling: await run('forecast', [first, ...Array(200).fill(pending)], { ceilingMs: 12000 }),
         intervals: POLL_INTERVALS_MS,
       };
       console.log(JSON.stringify(res));
@@ -697,6 +763,8 @@ def test_sequencing_is_a_job():
         check("the adapter's poll can be driven under Node", False, (node.stderr or node.stdout)[-300:])
         return
     br = json.loads(node.stdout.strip().splitlines()[-1])
+    check("the adapter polls exactly the two job routes",
+          br["routes"] == ["sequence", "forecast"], br["routes"])
     check("a refusal from the resolver is handed straight to the page, with no poll",
           br["immediate"]["out"]["status"] == 200 and len(br["immediate"]["calls"]) == 1,
           br["immediate"])
@@ -705,7 +773,7 @@ def test_sequencing_is_a_job():
     p = br["polled"]
     check("a 202 with a job id is polled until the answer is final",
           p["out"]["status"] == 200 and p["out"]["body"]["available"] is True
-          and [c[0] for c in p["calls"]] == ["sequence"] + ["sequenceResult"] * 4
+          and [c[0] for c in p["calls"]] == ["sequence"] + ["jobResult"] * 4
           and all(c[1] == {"jobId": "j1"} for c in p["calls"][1:]), p["calls"])
     check("with the poll interval backing off and holding at its longest",
           p["sleeps"] == [2000, 3000, 5000, 5000], p["sleeps"])
@@ -718,6 +786,15 @@ def test_sequencing_is_a_job():
           and "No result was collected" in c["out"]["body"]["sentence"], c["out"])
     check("and stopped polling when it said it did",
           sum(c["sleeps"]) > 12000 and len(c["calls"]) < 10, (sum(c["sleeps"]), len(c["calls"])))
+    f = br["forecast"]
+    check("a forecast is polled the same way and handed back as the forecast body",
+          f["out"]["status"] == 200 and f["out"]["body"]["sprint_completion"]["available"] is True
+          and [x[0] for x in f["calls"]] == ["forecast", "jobResult", "jobResult"], f["calls"])
+    fcb = br["forecastCeiling"]["out"]["body"]
+    check("and past the ceiling a forecast gets a refusal in the forecast body's shape",
+          fcb["sprint_completion"]["available"] is False
+          and "The forecast" in fcb["sprint_completion"]["reason"]
+          and fcb["next_commitment"]["reason"] == fcb["sprint_completion"]["reason"], fcb)
 
 
 def test_config_travels_in_the_payload():
@@ -4926,30 +5003,40 @@ APP_LEVEL_STORES = {
                    "as the series. ADR 0018 §2.",
         "mirrors": False,
     },
-    # Sequencing as a job — ADR 0031. Three rows per job, all with a one-hour
-    # TTL and all deleted when the result is collected. The job row is bound
-    # to the asking account and the poll refuses any other, so a sequencing
-    # computed over one viewer's read is handed back to that viewer only:
-    # mirroring holds by a comparison, not by the entropy of a job id.
-    "seqjob:": {
+    # Simulations as jobs — ADR 0031. Four rows per job, all with a one-hour
+    # TTL and all deleted when the result is collected or, for the payload,
+    # the moment the consumer has read it. The job row is bound to the asking
+    # account and the poll refuses any other, so a figure computed over one
+    # viewer's read is handed back to that viewer only: mirroring holds by a
+    # comparison, not by the entropy of a job id.
+    "jobpayload:": {
         "kvs": True,
         "authority": "user",
-        "exposes": "who asked for a sequencing, when, the titles and value "
-                   "bases of the asks held back from the payload, and the "
-                   "keys the page's body gets around the answer. Collected by "
-                   "the asking account only; deleted on collection.",
+        "exposes": "the projection a job computes over — dates, statuses and "
+                   "keys, no titles — in chunks, read once by the consumer and "
+                   "deleted as it is read. Held for the seconds between push "
+                   "and start.",
         "mirrors": True,
     },
-    "seqresult:": {
+    "job:": {
         "kvs": True,
         "authority": "user",
-        "exposes": "the tool's own sequencing answer — orderings by ask id, "
-                   "dates and item counts, no titles — computed over the "
-                   "asking viewer's read and handed back to that viewer only. "
-                   "Deleted on collection.",
+        "exposes": "who asked for a simulation, when, its kind, and for a "
+                   "sequencing the titles and value bases of the asks held "
+                   "back from the payload. Collected by the asking account "
+                   "only; deleted on collection.",
         "mirrors": True,
     },
-    "seqinflight:": {
+    "jobresult:": {
+        "kvs": True,
+        "authority": "user",
+        "exposes": "the tool's own answer — orderings by ask id, dates and item "
+                   "counts, at-risk items by key, no titles — computed over "
+                   "the asking viewer's read and handed back to that viewer "
+                   "only. Deleted on collection.",
+        "mirrors": True,
+    },
+    "jobinflight:": {
         "kvs": True,
         "authority": "user",
         "exposes": "a job id, under a key that is a hash of the context, the "
@@ -5642,8 +5729,8 @@ if __name__ == "__main__":
     test_service_computes_nothing()
     print("one seam, two doors")
     test_the_routes_module_is_the_whole_answer()
-    print("sequencing is a job")
-    test_sequencing_is_a_job()
+    print("simulations are jobs")
+    test_simulations_are_jobs()
     print("routes move one at a time")
     test_routes_move_one_at_a_time()
     print("the config travels in the payload")
