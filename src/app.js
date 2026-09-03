@@ -478,6 +478,10 @@ const S = {
    *  case and stays silent, but a connection that exists and refused has a
    *  reason, and a blank dashboard that does not say it is the worst of both. */
   liveError: null,
+  /** Set when one sprint could not be loaded over a connection that works.
+   *  Shown in the context bar, where the reader just acted; cleared by the
+   *  next attempt. It was an alert(). */
+  ctxError: null,
   /** Forecasts from the live-mode tool, cached per context id. Never computed
    *  here: the page renders what forecast.py returned and nothing else. */
   forecasts: {},
@@ -1726,7 +1730,8 @@ function renderContextBar() {
       (isWindow(cur) ? " · rolling window, so no burndown or pace" : "") + "</span>" +
     // A name, not the source id: it read "Refresh from jira" in a tenant.
     (S.live ? '<button class="btn" id="c-live" style="margin-left:auto">Refresh from ' +
-        esc({ jira: "Jira", asana: "Asana" }[S.live.source] || "the server") + "</button>" : "");
+        esc({ jira: "Jira", asana: "Asana" }[S.live.source] || "the server") + "</button>" : "") +
+    (S.ctxError ? '<div class="refusal ctx-refusal" role="alert">' + esc(S.ctxError) + "</div>" : "");
 
   const pick = (proj, board) => {
     if (board === ALL_BOARDS) {
@@ -3447,8 +3452,16 @@ function fetchRecipients() {
   if (!LIVE) { S.recipients = null; return; }
   S.recipients = undefined;
   LIVE.get("recipients").then(r => {
-    S.recipients = r.ok && r.body ? r.body : { available: false,
-      why: "The server did not answer about recipients (" + (r.status || 0) + ")." };
+    /* A refusal from the resolver is printed verbatim. A route that simply is
+       not there — a copy served by a plain static server, which has a
+       transport and no recipient list — is the saved-copy fact in a served
+       copy's words, not an HTTP status offered as a sentence. The status is
+       kept, and printed in the note beneath, because it is still evidence. */
+    S.recipients = r.ok && r.body ? r.body : { available: false, status: r.status || 0,
+      why: (r.body && r.body.error) ? String(r.body.error)
+        : "This copy was served without a recipient list. Who receives this board\u2019s brief " +
+          "is configured in the app, against the site the data came from, and the server " +
+          "this page came from has no route to it." };
     render();
   }).catch(() => { S.recipients = null; render(); });
 }
@@ -3669,7 +3682,9 @@ function renderBrief(el) {
   }
   if (r === null || !r.available) {
     el.innerHTML = '<div class="fc-refusal"><b>No recipient list.</b> ' +
-      esc((r && r.why) || "The server did not answer.") + "</div>";
+      esc((r && r.why) || "The server did not answer.") +
+      (r && r.status ? '<div class="note">The connection answered ' + esc(String(r.status)) +
+        " for the recipients route.</div>" : "") + "</div>";
     return;
   }
 
@@ -5230,6 +5245,7 @@ async function loadContext(id, select = true) {
   const bar = $("#ctxbar");
   bar.classList.add("loading");
   try {
+    S.ctxError = null;
     const r = await LIVE.get("context", { id: id });
     // The refusal, verbatim. "server returned 404" names none of the four
     // quite different things a 404 here means, and they have four different
@@ -5273,8 +5289,13 @@ async function loadContext(id, select = true) {
     render();
   } catch (e) {
     if (!select) throw e;   // the roll-up loader reports its own misses
-    alert("Could not load that sprint:\n\n" + e.message +
-          "\n\nEverything already on this page still works.");
+    /* Said in the context bar, where the reader just acted, in the page's own
+       callout — not alert(), which is a system dialog in a page whose voice is
+       a sentence, and which a screen reader announces as a nameless
+       interruption. The reason is the connection's own, verbatim. */
+    S.ctxError = "Could not load that sprint: " + e.message +
+      " Everything already on this page still works.";
+    render();
   } finally { bar.classList.remove("loading"); }
 }
 

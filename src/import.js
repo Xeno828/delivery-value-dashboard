@@ -563,6 +563,7 @@ const show = id => ["step-choose", "step-map", "step-preview"]
    a keyboard reader tabbed on through a page they could no longer see. */
 function openModal() {
   modal.opener = document.activeElement;
+  clearNotices();
   modal.classList.add("on"); show("step-choose");
   $("#m-close").focus();
 }
@@ -592,6 +593,21 @@ function toast(msg) {
   toastT = setTimeout(() => el.classList.remove("on"), 3200);
 }
 
+/* A failure is said where the reader is looking, in the wizard's own words.
+   Four of these were alert(): a system box in a page whose whole voice is
+   "we say what happened in a sentence", and one a screen reader announces as a
+   nameless interruption. The slot has role="alert", so it is announced; it is
+   cleared by the next thing that works. */
+function notice(step, title, detail) {
+  const el = $("#m-notice-" + step);
+  if (!el) return;
+  el.innerHTML = '<div class="warn err"><span aria-hidden="true">&#9632;</span><span><b>' +
+    esc(title) + ".</b> " + esc(detail || "") + "</span></div>";
+}
+function clearNotices() {
+  ["1", "2"].forEach(s => { const el = $("#m-notice-" + s); if (el) el.innerHTML = ""; });
+}
+
 /* ------------------------------------------------------------- step 1 */
 async function ingest(file) {
   W.filename = file.name || "pasted text";
@@ -606,7 +622,7 @@ async function ingest(file) {
       handleText(text);
     }
     toStep2();
-  } catch (err) { alert("Could not read " + W.filename + ":\n\n" + err.message); }
+  } catch (err) { notice(1, "Could not read " + W.filename, err.message); }
 }
 
 function handleText(text) {
@@ -634,14 +650,15 @@ drop.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) i
 fileInput.onchange = e => { const f = e.target.files[0]; if (f) ingest(f); e.target.value = ""; };
 $("#m-paste").onclick = () => {
   const t = $("#paste").value;
-  if (!t.trim()) return alert("Nothing pasted.");
+  if (!t.trim()) return notice(1, "Nothing pasted", "Paste a JSON dataset, or CSV text with a header row, into the box above.");
   W.filename = "pasted text";
   try { handleText(t); toStep2(); }
-  catch (err) { alert("Could not read that text:\n\n" + err.message); }
+  catch (err) { notice(1, "Could not read that text", err.message); }
 };
 
 /* ------------------------------------------------------------- step 2 */
 function toStep2() {
+  clearNotices();
   const a = autoMap(W.header);
   W.map = a.map; W.extraCols = a.extra;
   Object.keys(INFERABLE).forEach(k => { if (W.map[k] < 0) W.map[k] = -2; });
@@ -701,7 +718,9 @@ $("#m-back2").onclick = () => show("step-map");
 $("#m-preview").onclick = () => {
   const missing = FIELDS.filter(f => f.req && W.map[f.k] < 0);
   if (missing.length)
-    return alert("Pick a column for: " + missing.map(f => f.lab).join(", "));
+    return notice(2, "Pick a column for: " + missing.map(f => f.lab).join(", "),
+      "The dashboard cannot count without " + (missing.length === 1 ? "it" : "them") + ".");
+  clearNotices();
   W.mode = ($('input[name="mergemode"]:checked') || {}).value || "replace";
   W.window = {
     sprintName: $("#w-name").value.trim() || "Imported sprint",

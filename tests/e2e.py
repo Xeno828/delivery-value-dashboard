@@ -715,6 +715,54 @@ def exec_findings(b):
     page.close()
 
 
+def wizard_notices(b):
+    """A failure in the wizard is said in the wizard, never in a browser dialog.
+
+    Four alert() calls: an unreadable file, an empty paste, unreadable text,
+    and a required column left unmapped. A system dialog in a page whose whole
+    voice is a sentence, announced to a screen reader as a nameless
+    interruption, and invisible to any test that did not think to listen for
+    it — Playwright dismisses them silently. Listened for here, so a fifth one
+    cannot arrive unnoticed.
+    """
+    print("\n  wizard notices")
+    page = b.new_page(viewport={"width": 1500, "height": 1000})
+    dialogs = []
+    page.on("dialog", lambda d: (dialogs.append(d.message), d.dismiss()))
+    page.goto(DIST.as_uri())
+    page.wait_for_timeout(700)
+    page.click("#btn-import")
+    page.wait_for_timeout(300)
+    page.evaluate("() => { document.querySelector('#step-choose details').open = true; }")
+    page.click("#m-paste")
+    page.wait_for_timeout(200)
+    n1 = " ".join((page.text_content("#m-notice-1") or "").split())
+    check("an empty paste is answered in the wizard, not a browser dialog",
+          "Nothing pasted" in n1 and not dialogs, (n1[:80], dialogs))
+    page.fill("#paste", '{"issues": [')
+    page.click("#m-paste")
+    page.wait_for_timeout(200)
+    n1 = " ".join((page.text_content("#m-notice-1") or "").split())
+    check("unreadable text says so in the wizard's own callout",
+          "Could not read that text" in n1 and not dialogs, (n1[:120], dialogs))
+    check("and the notice is announced",
+          page.get_attribute("#m-notice-1", "role") == "alert" and
+          page.get_attribute("#m-notice-2", "role") == "alert")
+    page.fill("#paste", "foo,bar\n1,2")
+    page.click("#m-paste")
+    page.wait_for_selector("#step-map:not(.hidden)", timeout=5000)
+    check("a readable paste clears the notice",
+          (page.text_content("#m-notice-1") or "").strip() == "")
+    page.click("#m-preview")
+    page.wait_for_timeout(300)
+    n2 = " ".join((page.text_content("#m-notice-2") or "").split())
+    check("required columns left unmapped are named in the wizard, not a dialog",
+          "Pick a column for" in n2 and not dialogs and page.is_visible("#step-map"),
+          (n2[:120], dialogs))
+    page.keyboard.press("Escape")
+    page.close()
+
+
 def transports(b):
     """The two live-mode transports, and that the page cannot tell them apart.
 
@@ -1464,6 +1512,47 @@ def transports(b):
         check("the refusal is escaped, not parsed",
               page.evaluate("""() => !document.querySelector('#ctxbar').innerHTML
                   .includes('<img')"""))
+        page.close()
+
+        # ---------- a transport that answered, then failed one sprint ----------
+        # `loadContext` reported its failure with alert(): a system dialog in a
+        # page whose voice is a sentence, invisible to a test that did not
+        # listen for it. It is said in the context bar now, where the reader
+        # just acted, in the page's own callout. The same stub serves a
+        # recipients route that is simply not there — a copy served by a plain
+        # static server — which used to print "The server did not answer about
+        # recipients (404)." as if a status code were a sentence.
+        failing = """
+        window.__DVD_BRIDGE__ = { name: 'stub', invoke: (route) => Promise.resolve(
+          route === 'contexts'
+            ? {status: 200, body: {source: 'jira', label: 'stub', contexts: [
+                {id: 'B/1/S1', kind: 'sprint', boardId: '1', boardName: 'Board', projectKey: 'B',
+                 projectName: 'B', sprintName: 'S1', sprintState: 'active',
+                 startDate: '2026-08-03', endDate: '2026-08-14', asOfDate: '2026-08-10', issueCount: 3}]}}
+            : route === 'recipients' ? {status: 404, body: null}
+            : {status: 404, body: {error: 'Sprint S1 could not be read: the board is archived.'}}) };
+        """
+        dialogs = []
+        page = b.new_page(viewport={"width": 1500, "height": 1000})
+        page.on("dialog", lambda d: (dialogs.append(d.message), d.dismiss()))
+        page.add_init_script(failing)
+        page.goto(url)
+        page.wait_for_timeout(1200)
+        # The served copy has data of its own, so the stub's sprint arrives as
+        # an unselected stub rather than replacing a placeholder; selecting it
+        # is what asks the connection for it, and what fails.
+        page.evaluate("() => window.DVD.debug.selectContext('B/1/S1')")
+        page.wait_for_timeout(900)
+        bar = " ".join((page.text_content("#ctxbar") or "").split())
+        check("a sprint that could not be loaded is said in the context bar, in the page's own callout",
+              "Could not load that sprint" in bar and "board is archived" in bar and
+              page.eval_on_selector_all("#ctxbar .refusal", "n => n.length") == 1, bar[:200])
+        check("and not in a browser dialog", not dialogs, dialogs)
+        brief = " ".join((page.text_content("#brief-body") or "").split())
+        check("a served copy with no recipient route says so, not a status code as a sentence",
+              "served without a recipient list" in brief and "(404)" not in brief, brief[:200])
+        check("and the status is still on the page, in the note beneath",
+              "answered 404" in brief, brief[-140:])
         page.close()
 
         # ---------- the real adapter, not the stub ----------
@@ -2360,6 +2449,7 @@ def main():
         empty_selection(b)
         health_composition(b)
         exec_findings(b)
+        wizard_notices(b)
         transports(b)
         strict_style_csp(b)
 

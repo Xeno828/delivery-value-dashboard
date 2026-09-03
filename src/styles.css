@@ -420,6 +420,8 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
   color:var(--text-primary);max-width:230px}
 .ctx-meta{font-size:12px;color:var(--text-secondary)}
 .ctxbar.loading{opacity:.55;pointer-events:none}
+/* A sprint that could not be loaded: its own row under the pickers. */
+.ctx-refusal{flex-basis:100%;margin-top:2px}
 
 /* A tile this board cannot support. Marked, never merely dimmed: ADR 0010
    settled that opacity is the one channel that cannot carry a reason, and

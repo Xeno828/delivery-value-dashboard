@@ -285,6 +285,9 @@
     <div id="tab-file" role="tabpanel" aria-labelledby="tabbtn-file">
       <!-- ---------- step 1: choose ---------- -->
       <section id="step-choose">
+        <!-- A failure is said here, in the wizard's own callout, not in a
+             browser dialog. Announced, because it appears in reply to a click. -->
+        <div id="m-notice-1" role="alert"></div>
         <div class="drop" id="drop">
           <div style="font-size:22px;line-height:1">&#8681;</div>
           <div style="margin-top:6px">Drop a file here, or
@@ -335,6 +338,7 @@
           <label><input type="radio" name="mergemode" value="merge"> <span><b>Merge into what is loaded</b><br><span class="note">Rows with a matching key are updated; new keys are added. Use this to layer a value-estimate file on top of a Jira export.</span></span></label>
         </div>
 
+        <div id="m-notice-2" role="alert"></div>
         <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
           <button class="btn" id="m-back">Back</button>
           <button class="btn primary" id="m-preview">Preview the result</button>
