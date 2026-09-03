@@ -36,6 +36,7 @@ Read these before proposing a change that a constraint in `CLAUDE.md` appears to
 | [0028](0028-candidacy-is-a-state-somebody-declares.md) | Candidacy is declared, and which field declares it is the organisation's choice | An issue type or a label as the marker, and inferring candidacy from status |
 | [0029](0029-a-t-shirt-band-selects-a-reference-class.md) | A t-shirt band picks which completed epics an ask is compared against | A number typed into a field, ranking by size, and inferring a band |
 | [0030](0030-the-manifest-commits-to-its-hostnames-and-realms-once.md) | *Superseded by 0031.* The manifest's hostnames and realms were chosen once, before the first install | A custom domain bought as insurance, and a realm discovered from a customer's tenant |
+| [0032](0032-the-band-comes-before-the-verdict.md) | The KPI band is the first tile and the verdict the second | The executive scans one row of figures before reading a paragraph; the band sat at 717px on a laptop and 1,735px on a phone, fifth in reading order |
 | [0031](0031-the-forecast-runs-inside-the-forge-function.md) | The forecast runs inside the Forge function under Pyodide, and the calculator is retired | A second implementation, a sequencing tile that refuses above three asks, polling in the page, and a cached result |
 
 ## Writing a new one

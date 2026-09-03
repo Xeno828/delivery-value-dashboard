@@ -303,7 +303,7 @@ Dark theme values for every token live in `src/styles.css` under `:root[data-the
 
 A single centred column up to 1560px wide with 16px top and 20px side padding, on a twelve-column grid with a 10px gutter. Cards declare a span (3 to 12) and every row must sum to twelve at every breakpoint; the browser suite asserts it at three widths. Cards stretch to the height of their row and keep their contents top-aligned.
 
-The page stacks in a fixed order: topbar (title, sprint line, goal, badges and actions), the context bar (Project → Board → Sprint), the filter row, the exec summary at span 12, the KPI band (eight tiles in one row, four at 1280px, two at 640px), then chart pairs at 7 + 5, then 6 + 6, 8 + 4, and two full-width rows for the brief recipients and the risk register. The risk register flows into two columns from 1000px and three from 1500px.
+The page stacks in a fixed order: topbar (title, sprint line, goal, badges and actions), the context bar (Project → Board → Sprint), the filter row, the KPI band (eight tiles in one row, four at 1280px, two at 640px), the exec summary at span 12 beneath it — the band is the executive's scan line and comes before the paragraph that explains it — then chart pairs at 7 + 5, then 6 + 6, 8 + 4, and two full-width rows for the brief recipients and the risk register. The risk register flows into two columns from 1000px and three from 1500px.
 
 Below 1180px every span from 3 to 8 becomes 6 and span 9 becomes 12, so the grid halves rather than promoting wide tiles to full width and stranding their partners. Below 760px everything is span 12 and card tools drop under the title onto their own row. Below 900px the exec summary collapses from a 1.15fr / 2fr pair to one column.
 

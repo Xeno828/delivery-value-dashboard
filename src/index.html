@@ -77,6 +77,11 @@
 
   <div class="grid" id="grid">
 
+    <!-- The band first. The executive scans one row of figures before reading
+         anything; the verdict is the working under them, not the headline over
+         them. ADR 0032. -->
+    <div class="span12" id="c-kpis"><div class="kpis" id="kpis"></div></div>
+
     <div class="card span12" id="c-exec">
       <div class="card-hd">
         <div><h2>What this sprint means <button type="button" class="info" data-tip="exec">i</button></h2>
@@ -90,8 +95,6 @@
         <ul class="narr" id="exec-list"></ul>
       </div>
     </div>
-
-    <div class="span12" id="c-kpis"><div class="kpis" id="kpis"></div></div>
 
     <div class="card span7" id="c-burn">
       <div class="card-hd">

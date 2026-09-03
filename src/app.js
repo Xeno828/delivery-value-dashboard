@@ -4552,8 +4552,10 @@ if (matchMedia("(prefers-color-scheme: dark)").matches) {
    included, which is why they are not written out here either.
    ================================================================== */
 const TILES = [
-  { id: "c-exec",  label: "What this sprint means" },
+  // The band before the verdict: the source order is the default order, and
+  // the executive scans a row of figures before reading a paragraph. ADR 0032.
   { id: "c-kpis",  label: "Headline numbers" },
+  { id: "c-exec",  label: "What this sprint means" },
   { id: "c-burn",  label: "Burndown, with scope changes" },
   { id: "c-dist",  label: "Where each person's work sits" },
   { id: "c-flow",  label: "How long work takes, and what waits" },
@@ -4660,17 +4662,17 @@ const PRESET_SETS = {
     flow: TILE_IDS.slice(),
   },
   exec: {
-    sprint: ["c-exec", "c-kpis", "c-pred", "c-forecast", "c-dora", "c-value", "c-rel", "c-risk"],
+    sprint: ["c-kpis", "c-exec", "c-pred", "c-forecast", "c-dora", "c-value", "c-rel", "c-risk"],
     // No commitment history on a flow board, and cycle time is the sentence an
     // executive can actually use: "85% of what we start, we finish within N days".
-    flow: ["c-exec", "c-kpis", "c-cycle", "c-forecast", "c-dora", "c-value", "c-rel", "c-risk"],
+    flow: ["c-kpis", "c-exec", "c-cycle", "c-forecast", "c-dora", "c-value", "c-rel", "c-risk"],
   },
   team: {
-    sprint: ["c-exec", "c-kpis", "c-burn", "c-dist", "c-flow", "c-age", "c-pred", "c-forecast",
+    sprint: ["c-kpis", "c-exec", "c-burn", "c-dist", "c-flow", "c-age", "c-pred", "c-forecast",
              "c-load", "c-risk"],
     // Ageing work in progress leads, because it is the only tile on the page
     // that describes work a stand-up can still change.
-    flow: ["c-exec", "c-kpis", "c-wip", "c-cycle", "c-thr", "c-cfd", "c-flow", "c-age",
+    flow: ["c-kpis", "c-exec", "c-wip", "c-cycle", "c-thr", "c-cfd", "c-flow", "c-age",
            "c-forecast", "c-risk"],
   },
 };

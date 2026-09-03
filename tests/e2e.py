@@ -1970,7 +1970,7 @@ def main():
         page.wait_for_timeout(200)
         ex = vis()
         check("the executive view is the agent's exec-brief shape",
-              ex == ["c-exec", "c-kpis", "c-pred", "c-forecast", "c-dora",
+              ex == ["c-kpis", "c-exec", "c-pred", "c-forecast", "c-dora",
                      "c-value", "c-rel", "c-risk"], ex)
         check("the executive view keeps the narrative",
               "c-exec" in ex and len(page.text_content("#exec-list").strip()) > 40)
@@ -1983,7 +1983,7 @@ def main():
         page.wait_for_timeout(200)
         tm = vis()
         check("the team view is the agent's team-report shape",
-              tm == ["c-exec", "c-kpis", "c-burn", "c-dist", "c-flow", "c-age",
+              tm == ["c-kpis", "c-exec", "c-burn", "c-dist", "c-flow", "c-age",
                      "c-pred", "c-forecast", "c-load", "c-risk"], tm)
         check("the team view keeps the narrative too", "c-exec" in tm)
 
@@ -2047,6 +2047,13 @@ def main():
         dom_order = lambda: page.eval_on_selector_all("#grid > *", "n => n.map(e => e.id)")
         order = lambda: page.evaluate("() => window.DVD.debug.order()")
         check("the default order is the source order", order() == TIDS, order()[:3])
+        # ADR 0032: the executive scans a row of figures before reading a
+        # paragraph. The band was second, under a 437px verdict card, and sat
+        # at y=717 on a 1440-wide screen and y=1735 on a phone.
+        check("the KPI band is the first tile, before the verdict",
+              TIDS[:2] == ["c-kpis", "c-exec"], TIDS[:2])
+        band_y = page.evaluate("() => document.getElementById('c-kpis').getBoundingClientRect().top + scrollY")
+        check("and it starts inside the first screen at 1500 wide", band_y < 420, band_y)
         check("the tiles sit in the DOM in that order", dom_order() == TIDS, dom_order()[:3])
 
         open_picker(page)
@@ -2068,7 +2075,7 @@ def main():
               page.text_content("#kpis") == kpi_pre_order)
         check("a custom order is named in the picker, not left to be noticed",
               "Custom order" in page.text_content("#vp-count"), page.text_content("#vp-count")[-40:])
-        check("the order travels in the URL", "order=c-exec" in page.url, page.url[-70:])
+        check("the order travels in the URL", "order=c-kpis" in page.url, page.url[-70:])
 
         page.click("#vp-order-reset")
         page.wait_for_timeout(300)
