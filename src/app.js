@@ -1931,7 +1931,7 @@ function renderExec(m) {
     add("warning", "Work in progress has risen from " + n1(wipSeries[0]) + " to " + n1(wipSeries[2]) +
       " items over three sprints while completion has not.",
       "More work is being started than finished. Every extra item in flight slows the ones already there, " +
-      "so the fix is a work-in-progress cap rather than more effort.", null);
+      "so the fix is a work-in-progress cap rather than more effort. This reads the sprint record, not the filtered issues.", null);
 
   const ico = { critical: ["--critical", "!"], warning: ["--warning", "▲"], serious: ["--serious", "▲"], good: ["--good", "✓"], info: ["--s1", "i"] };
   $("#exec-list").innerHTML = pts.slice(0, 6).map((p, ix) => {
@@ -5061,7 +5061,15 @@ function render() {
     // selection a search had emptied was a count of what the filter had
     // been applied to, printed as if it were the count of what survived it.
     " · showing " + items.length +
-    (items.length !== S.view.issues.length ? " of " + S.view.issues.length + " after filters" : "") +
+    /* Which tiles a filter does not move, said beside the count it did move.
+       Under a search that emptied the selection, ten tiles refused while the
+       burndown still said "10 left" and the releases still said "9/14",
+       because those read the sprint's record rather than the issues on
+       screen; nothing on the page said which was which. */
+    (items.length !== S.view.issues.length
+      ? " of " + S.view.issues.length + " after filters (the burndown, predictability, release quality, " +
+        "team load and releases tiles read the sprint\u2019s record and do not follow the filters)"
+      : "") +
     " · measured in " + U().label +
     " · rendered " + new Date().toLocaleString() +
     // Sprint elapsed-percentage, the ideal burndown line and the forecast are

@@ -683,6 +683,16 @@ def empty_selection(b):
     foot = " ".join((page.text_content("#foot") or "").split())
     check("the footer shows the filtered count against the loaded one",
           re.search(r"showing 0 of \d+ after filters", foot) is not None, foot[:120])
+    # Which tiles a filter does not move. Under this same search ten tiles
+    # refused while the burndown still said "10 left" and the releases still
+    # said "9/14 issues", from the sprint's record; nothing said which was which.
+    check("and names the tiles that read the record rather than the filtered issues",
+          "do not follow the filters" in foot and "burndown" in foot, foot[-200:])
+    caps = page.eval_on_selector_all("#c-burn .cap, #c-pred .cap, #c-dora .cap, #c-load .cap, #c-rel .cap",
+                                     "n => n.map(e => e.textContent)")
+    check("each record-fed tile's caption says it does not follow the filters",
+          len(caps) == 5 and all("not the filtered issues" in c for c in caps),
+          [c[-60:] for c in caps if "not the filtered issues" not in c])
     page.evaluate("() => window.DVD.debug.setFilter('q', '')")
     page.wait_for_timeout(400)
 
