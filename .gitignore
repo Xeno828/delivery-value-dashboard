@@ -63,3 +63,10 @@ dist/.transport-test.html
 # and the values the cloud teardown in CHANGELOG 1.78.0 needs — so it stays
 # ignored until Google Cloud project calculator-506614 is emptied, then goes.
 .gcp-deploy.env
+
+# Written by graphify at build: the absolute path of the interpreter and of
+# the scan root on the machine that ran it. graphify-out/ itself is committed
+# (graph.json, graph.html, GRAPH_REPORT.md, the manifest and the extraction
+# cache) so a clone can query or --update the graph without rebuilding it.
+graphify-out/.graphify_python
+graphify-out/.graphify_root
