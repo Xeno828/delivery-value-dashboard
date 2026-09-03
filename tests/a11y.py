@@ -259,6 +259,13 @@ def main():
             rows.append(page.eval_on_selector_all(f"#{k}-table tbody tr", "n => n.length"))
             page.click(f"[data-table={k}]")
         check("every table view has rows", all(r > 0 for r in rows), rows)
+        # The ▤ toggle produced an unnamed table: headers, and nothing saying
+        # what they were the headers of. Named from the card's own heading.
+        names = page.eval_on_selector_all(".card [id$='-table'] table.tv", "n => n.map(t => t.getAttribute('aria-label') || '')")
+        check("every table view is named for its card",
+              len(names) > 0 and all(n.startswith("Table view: ") and len(n) > 15 for n in names), names[:3])
+        check("the KPI band is a named group",
+              page.eval_on_selector("#kpis", "e => e.getAttribute('role') === 'group' && !!e.getAttribute('aria-label')"))
         check("decorative svg is not announced",
               page.eval_on_selector_all("svg", "n => n.every(s => s.getAttribute('role') === 'img')"))
 

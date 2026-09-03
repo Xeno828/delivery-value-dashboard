@@ -650,7 +650,9 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
     <!-- The band first. The executive scans one row of figures before reading
          anything; the verdict is the working under them, not the headline over
          them. ADR 0032. -->
-    <div class="span12" id="c-kpis"><div class="kpis" id="kpis"></div></div>
+    <!-- A named group: eight buttons in a row, each announced by its whole
+         text, need a landmark that says what the row is before the first. -->
+    <div class="span12" id="c-kpis"><div class="kpis" id="kpis" role="group" aria-label="Headline numbers"></div></div>
 
     <div class="card span12" id="c-exec">
       <div class="card-hd">
@@ -2422,7 +2424,11 @@ function renderHeader(m) {
     " (" + Math.round(m.health * 100) + "/100" +
     // No silent caps. A score built from three of four measures is a different
     // quantity from one built from all four, and the chip is where it is read.
-    (partial ? ", " + m.healthTaken + " of " + m.healthParts.length + " measures" : "") + ")";
+    (partial ? ", " + m.healthTaken + " of " + m.healthParts.length + " measures" : "") + ")" +
+    // The two volume components move with the measure, so the score does:
+    // 52/100 in items and 57/100 in points for the same sprint. Said on the
+    // chip when the reader has left the default, which is when it moved.
+    (U().isItems ? "" : " · in " + U().label);
   hc.dataset.tt = "<b>How this score is built</b><br>" + partLines +
     (partial ? "<br><br><b>Scored from " + m.healthTaken + " of the " + m.healthParts.length +
       " measures.</b> The ones that could be taken are re-weighted to sum to 100, so this is the " +
@@ -5380,7 +5386,13 @@ function renderRisk(m, items) {
 function drawTable(key) {
   const t = S.tables[key], host = $("#" + key + "-table");
   if (!t || !host) return;
-  host.innerHTML = "<table class='tv'><thead><tr>" + t.cols.map((c, i) =>
+  /* Named for the card it belongs to. The ▤ toggle produced an unnamed
+     eight-column table; a screen reader arriving in it heard the headers and
+     not what they were the headers of. The name is read from the card's own
+     heading, so a renamed card renames its table with it. */
+  const card = host.closest(".card"), h = card && card.querySelector("h2");
+  const name = h ? h.textContent.replace(/\s*i\s*$/, "").trim() : key;
+  host.innerHTML = "<table class='tv' aria-label='" + esc("Table view: " + name) + "'><thead><tr>" + t.cols.map((c, i) =>
     '<th scope="col"' + (i ? ' class="num"' : "") + ">" + esc(c) + "</th>").join("") + "</tr></thead><tbody>" +
     t.rows.map(r => "<tr>" + r.map((v, i) => "<td" + (i ? ' class="num"' : "") + ">" + esc(v) + "</td>").join("") + "</tr>").join("") +
     "</tbody></table>";

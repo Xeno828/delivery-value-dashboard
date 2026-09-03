@@ -358,7 +358,7 @@ Refined and restrained: every control looks like the browser's own, only tidier.
 - **Variants:** good, warn, serious, critical, info, each ink on its wash. The glyph is part of the chip: ● for good, ▲ for warn and serious, ■ for critical.
 - **Filter chip:** 11.5px on info wash with an inline × in secondary ink.
 - **Source badge:** a pill on plane with an 8px status dot and 12px secondary text.
-- **Health pill:** 13px at 650, 7px 14px, on the severity wash with matching ink.
+- **Health pill:** 13px at 650, 7px 14px, on the severity wash with matching ink. Says "· in story points" after the score when the measure has left the default, because the score moves with it.
 
 ### Cards / Containers
 - **Corner Style:** 12px.

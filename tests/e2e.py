@@ -1775,6 +1775,12 @@ def main():
         pts_tile = page.text_content("#kpis .kpi:nth-child(1)")
         check("switching to points changes the delivered tile", pts_tile != items_tile)
         check("points tile reads in story points", "83 story points" in pts_tile, pts_tile[:60])
+        # The score moved from 52 to 57 with the toggle and the chip did not say
+        # which measure it was scored in; it says so when the reader has left
+        # the default, which is when it moved.
+        chip_pts = " ".join((page.text_content("#t-health") or "").split())
+        check("the health chip says it is scored in points once the measure is points",
+              "/100" in chip_pts and "in story points" in chip_pts, chip_pts)
         # The per-person caption said "Story points per person" whichever
         # measure was selected, over bars that read "6 items".
         check("the per-person caption follows the measure into points",
@@ -1793,6 +1799,9 @@ def main():
         page.click("[data-unit=items]"); page.wait_for_timeout(500)
         check("switching back restores items",
               page.text_content("#kpis .kpi:nth-child(1)") == items_tile)
+        check("and the chip drops the measure again in the default",
+              "in story points" not in (page.text_content("#t-health") or ""),
+              page.text_content("#t-health"))
 
         # ---------- the dashboard agrees with the agent's facts pack ----------
         agent = json.load(open(ROOT / "tests" / "agent-facts.json"))
