@@ -58,12 +58,6 @@ tests/wiz-*.png
 # here so a crashed run cannot leave it looking like a committed artefact.
 dist/.transport-test.html
 
-# Written by the retired calculator's provisioning script: a project id, two
-# service account emails and a federation path. Not secret, but one person's,
-# and the values the cloud teardown in CHANGELOG 1.78.0 needs — so it stays
-# ignored until Google Cloud project calculator-506614 is emptied, then goes.
-.gcp-deploy.env
-
 # Written by graphify at build: the absolute path of the interpreter and of
 # the scan root on the machine that ran it. graphify-out/ itself is committed
 # (graph.json, graph.html, GRAPH_REPORT.md, the manifest and the extraction
