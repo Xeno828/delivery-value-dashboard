@@ -69,8 +69,8 @@ serve: build      ## preview at http://localhost:8000/dist/
 serve-live: build ## serve with the live-mode API backed by the demo bundle
 	python3 scripts/serve_live.py --bundle data/sample-bundle.json
 
-forge-static: build forge-deps  ## stage both Forge static resources
-	@mkdir -p forge/static/dashboard/build forge/static/probe
+forge-static: build forge-deps  ## stage the Forge static resource
+	@mkdir -p forge/static/dashboard/build
 	@# Not a copy of dist/, and it does not carry dist/'s data.
 	@#
 	@# A Forge iframe's CSP blocks inline style and script, so the same sources
@@ -81,20 +81,16 @@ forge-static: build forge-deps  ## stage both Forge static resources
 	@# without importing anything.
 	python3 build.py --split forge/static/dashboard/build \
 	  --data forge/seed.json --bridge bridge.js
-	@cp forge/probe/index.html forge/probe/probe.css forge/static/probe/
 	@# @forge/bridge is CommonJS, so anything calling invoke() has to be bundled
 	@# rather than copied. esbuild is a forge/ devDependency; the dashboard
 	@# still has none.
 	@#
-	@# The probe is its own page and can be a module. The bridge adapter cannot:
-	@# app.js is a classic script, a module is deferred, and an adapter that
-	@# runs after the page has already decided it has no transport is an adapter
-	@# that never ran.
-	cd forge && npx --no-install esbuild probe/probe.js \
-	  --bundle --format=esm --target=es2020 --outfile=static/probe/probe.js
+	@# The bridge adapter cannot be a module: app.js is a classic script, a
+	@# module is deferred, and an adapter that runs after the page has already
+	@# decided it has no transport is an adapter that never ran.
 	cd forge && npx --no-install esbuild bridge/bridge.js \
 	  --bundle --format=iife --target=es2020 --outfile=static/dashboard/build/bridge.js
-	@echo "staged forge/static/dashboard/build/index.html and forge/static/probe/"
+	@echo "staged forge/static/dashboard/build/index.html"
 
 # Staging and linting as one target, because forgetting the first makes the
 # second report a broken manifest rather than an unbuilt one — and because the

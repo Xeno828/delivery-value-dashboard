@@ -129,27 +129,9 @@ The dashboard reaches live data through a transport it discovers rather than one
 
 It proves the manifest is valid, the bundle builds and the static resources exist. It proves **nothing about permissions**, because at that point nothing has called Jira. A scope that is wrong fails at runtime, in a tenant.
 
-### So there is a second page: the connection check
+### There was a second page: the connection check — deleted 2026-09-03
 
-It was written to be deleted once the real bridge existed. It has been kept, and the reason changed rather than the plan being forgotten: it is the only thing that shows the outbound payload for one issue, and it now names which field this site calls story points. That used to be the diagnosis for a burndown that had flattened for no visible reason; it is a confirmation now, since the field is resolved by name rather than assumed — but a site whose field is called something else entirely still shows up here and nowhere else.
-
-**Shipping Forecast — connection check** appears under Jira settings → Apps. It is not the product; it makes the calls a deploy leaves untested:
-
-| | Answers |
-|---|---|
-| **1 Bridge** | Can a static resource reach a resolver at all — touches no Jira API, so a failure is the manifest or the bundle, never a scope |
-| **2 Board read** | The exact call the product makes. Enter a board id; a 403 is a scope problem, a 404 is the wrong id |
-| **3 Projection** | Shows the exact payload one issue would become. No summary, no assignee — the claim the architecture rests on, displayed rather than asserted |
-
-A 403 after a scope change usually means the install needs re-running: Jira does not widen an existing consent on its own.
-
-It is an **admin** page, not a second project page, for two reasons. Forge permits only one `jira:projectPage` per app — `forge lint` rejects a second. And a page that dumps board contents and outbound payloads belongs behind the admin gate rather than in front of every project's team.
-
-**It asks for a board id rather than listing boards.** An earlier version offered them as buttons, and `forge lint` refused it: `GET /rest/agile/1.0/board` needs `read:project:jira`, which nothing else in this app requires. The scope was removed rather than granted — it would have existed purely to make a diagnostic more convenient, and it would have appeared on the consent screen of every install, in an app whose pitch is that it asks for almost nothing. If the real context picker ever needs to enumerate boards, that is the price, and it is a decision to take on its own merits.
-
-It also degrades honestly. Outside a Forge iframe `invoke()` neither resolves nor rejects — it waits — so every call has a fifteen-second timeout and says so. The first version sat on *checking* indefinitely, which is the least useful thing a diagnostic can do.
-
-Kept rather than deleted, per the note above. If it does go, take `forge/probe/`, the `connection-check` module and the two probe resolvers together.
+An admin page, **Shipping Forecast — connection check**, made the three calls a deploy leaves untested: a resolver reached from a static resource, one board read with the product's own scopes, and the projection of one issue shown rather than asserted. It was written to be deleted once the real bridge existed and was kept for two versions longer because it was the only thing that showed an outbound payload. With the calculator retired there is no outbound payload, the projection is held by `tests/test_service.py` against the same fixtures the resolver uses, and the two failures it diagnosed — a scope the install has not consented to, and a site with no story-point field — are reported by the product page itself in its footer. `forge/probe/`, the `connection-check` module, the `probe` resource, the `ping`, `probeBoardIssues` and `facts` resolvers and the `compute` helper went together, as the note here said they should.
 
 ### A scope change needs approving at deploy, and the CLI needs the right directory
 
@@ -181,7 +163,7 @@ Adding the context picker added `read:project:jira`, `read:sprint:jira-software`
 
 ### Done when
 
-`forge install` succeeds, all four sections of the connection check are green, and the project page shows **your** boards in the picker rather than a placeholder. That is the point at which the declared scopes are known to be sufficient.
+`forge install` succeeds and the project page shows **your** boards in the picker rather than a placeholder. That is the point at which the declared scopes are known to be sufficient.
 
 Reached, on a dev site. Getting there took three deploys, and all three were the same lesson: every failure between the page and Jira was silent. A board whose sprints could not be read was reported as a board with no sprints; a resolver that threw was indistinguishable from a loopback server nobody had started; and a 404 said "server returned 404" for four situations with four different fixes. None of that was visible from the outside, and each cost a deploy cycle to find. The page says the reason now, in the context bar, and that is worth more here than anywhere else in this product — the deploy loop is slow and there is no console you can reach on a customer's tenant.
 

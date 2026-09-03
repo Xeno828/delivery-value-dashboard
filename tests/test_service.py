@@ -997,8 +997,7 @@ def test_forge_manifest_matches_the_code():
     # so a page that renders perfectly in a browser is rejected at deploy with
     # "Invalid index.html file" — which names the file and not the reason.
     for path in declared:
-        src_dir = {"forge/static/dashboard/build": ROOT / "src",
-                   "forge/static/probe": ROOT / "forge" / "probe"}.get(path)
+        src_dir = {"forge/static/dashboard/build": ROOT / "src"}.get(path)
         if src_dir is None:
             continue
         html = src_dir / "index.html"
@@ -1907,11 +1906,10 @@ def test_forge_app_dependencies():
     foreign = sorted(d for d in deps if not d.startswith("@forge/"))
     check("every Forge dependency is an Atlassian SDK package", foreign == [], foreign)
 
-    # Both source trees: the resolver and the Custom UI probe import different
+    # Both source trees: the resolver and the bridge adapter import different
     # SDK packages, and a missing one fails at bundle time with an error that
     # names the module rather than the omission.
-    sources = [ROOT / "forge" / "src" / "index.js", ROOT / "forge" / "probe" / "probe.js",
-               ROOT / "forge" / "bridge" / "bridge.js"]
+    sources = [ROOT / "forge" / "src" / "index.js", ROOT / "forge" / "bridge" / "bridge.js"]
     # Both spellings. The bridge adapter is CommonJS on purpose — it has to
     # catch the SDK failing to connect, which an `import` evaluated before any
     # of its code cannot — so a check that only knew about `from '…'` would
@@ -3003,8 +3001,6 @@ def test_every_jira_read_states_whose_authority_it_uses():
     edit = code.split("const editabilityFor", 1)[-1].split("};", 1)[0]
     check("the permission check asks as the user, in so many words",
           "api.asUser()" in edit and "jira(" not in edit, edit[:140])
-    check("and the connection probe does too",
-          "asUser()" in code.split("probeBoardIssues", 1)[-1][:900])
 
     # The trigger's own reads are the app's, stated at the call site rather
     # than inherited. ADR 0013's addendum is the record for that.

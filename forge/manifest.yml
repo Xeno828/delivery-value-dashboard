@@ -25,18 +25,6 @@ modules:
       title: Delivery & Value
 
 
-  # Connection check, not the product. Delete this module and forge/probe/ once
-  # the real bridge exists. It is an adminPage rather than a second projectPage
-  # because Forge permits only one of the latter — and because a page that dumps
-  # board contents and outbound payloads belongs behind Jira's admin gate rather
-  # than in front of every project's team.
-  jira:adminPage:
-    - key: connection-check
-      resource: probe
-      resolver:
-        function: resolver
-      title: Shipping Forecast — connection check
-
   # The brief is written by an Atlassian-hosted model, in Atlassian's runtime,
   # with no egress. That is the whole reason roadmap item 3 does not send the
   # tenant's issue titles to a third party to get a paragraph back: the obvious
@@ -273,11 +261,6 @@ modules:
 resources:
   - key: main
     path: static/dashboard/build
-  # Bundled by `make forge-static`: @forge/bridge is CommonJS, so a Custom UI
-  # resource that calls invoke() has to be built rather than copied. That is the
-  # platform's model, not a choice this repository made.
-  - key: probe
-    path: static/probe
 
 permissions:
   scopes:

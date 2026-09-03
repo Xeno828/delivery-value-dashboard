@@ -92,8 +92,8 @@ scope in the end, which is what made it a patch rather than a decision.
 
 A site with no such field reports `null` rather than `0`. An estimate nobody
 recorded and an estimate nobody could read are different facts about a sprint,
-and only one of them belongs in a burndown. The connection check names the
-field it resolved, and the page's footer says so when there is none.
+and only one of them belongs in a burndown. The page's footer names the field
+it resolved, or says there is none.
 
 **Absent on purpose from what is committed:** the app `id`. `forge register`
 writes one and it ties the manifest to a single Atlassian account. Having one

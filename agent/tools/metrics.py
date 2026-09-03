@@ -120,8 +120,9 @@ def burndown(issues, meta, cfg=None):
 
     Story points absent read as zero **for the purpose of this sum only**. A
     site with no story-point field at all flattens the points series to a flat
-    line, which is why `probeBoardIssues` names the field it resolved: the page
-    you land on when a burndown has flattened and nothing has said why. The item
+    line, which is why the Forge build's footer names the field it resolved, or
+    says there is none — for the reader whose burndown has flattened with
+    nothing to say why. The item
     series is unaffected and is the one the forecaster reads.
     """
     # `working_days_iso` and not `working_days`: this module's `working_days`
