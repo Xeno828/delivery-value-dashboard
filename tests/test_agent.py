@@ -99,6 +99,40 @@ def test_facts():
     check("no change section without a previous snapshot", f["changes"] is None)
 
 
+def test_demo_file_is_self_consistent():
+    """The demo file's row for its own sprint agrees with its own issues.
+
+    The last row of `history` is the current sprint, and everything else in
+    the file is that sprint's issues — so the row must be what `history_row`
+    derives from them, or the page carries two answers to one question. It
+    did: the row said 13 items done, 39 points, 7 in progress and a flow
+    efficiency of 0.34, the issues said 12, 41, 6 and 0.22, and the KPI band
+    printed "12 of 22 items" with "+63% vs last sprint" beneath it, a ratio
+    of the row's 13 to the previous row's 8. The percentage hid it; naming
+    the counts (1.79.3) exposed it. CONTRIBUTING rule 6 is that derived data
+    is recomputed, never inherited, and the demo file was the one place the
+    rule had not been applied to itself.
+    """
+    ds = json.load(open(ROOT / "data" / "sample-sprint.json"))
+    row = M.history_row(ds["issues"], ds["meta"]["sprintName"], ds["meta"]["asOfDate"],
+                        OC.from_dataset(ds))
+    last = ds["history"][-1]
+    check("the demo file's last history row is its own sprint",
+          last["sprint"] == ds["meta"]["sprintName"], (last["sprint"], ds["meta"]["sprintName"]))
+    for k in ("committedItems", "completedItems", "throughput", "wipItems", "unplannedItems",
+              "committedSP", "completedSP", "valueDelivered"):
+        check("the demo file's recorded %s agrees with its issues" % k,
+              near(last.get(k), row.get(k), 0.5), (last.get(k), row.get(k)))
+    check("the demo file's recorded flow efficiency agrees with its issues",
+          near(last.get("flowEfficiency"), row.get("flowEfficiency"), 0.005),
+          (last.get("flowEfficiency"), row.get("flowEfficiency")))
+    # The twelve-week file tells the same sprint's story to the forecaster and
+    # carries the same rows; the two must not disagree about Sprint 24.
+    many = json.load(open(ROOT / "data" / "sample-multi-sprint.json"))
+    check("the twelve-week demo file carries the same row for the sprint",
+          many["history"][-1] == last, (many["history"][-1], last))
+
+
 def test_reporting_scope():
     """The facts pack reports the sprint; the forecaster uses all history.
     Conflating them puts '89% complete' on a report about a sprint that is
@@ -1741,6 +1775,7 @@ def test_history_row_is_as_of_a_moment():
 if __name__ == "__main__":
     print("facts pack vs the dashboard")
     test_facts()
+    test_demo_file_is_self_consistent()
     print("reporting scope vs forecasting scope")
     test_reporting_scope()
     print("change detection")

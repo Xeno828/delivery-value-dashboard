@@ -640,14 +640,14 @@
   },
   {
    "sprint": "Sprint 24",
-   "committedSP": 77,
-   "completedSP": 39,
-   "throughput": 13,
-   "flowEfficiency": 0.34,
+   "committedSP": 74,
+   "completedSP": 41,
+   "throughput": 12,
+   "flowEfficiency": 0.22,
    "valueDelivered": 87000,
    "committedItems": 18,
-   "completedItems": 13,
-   "wipItems": 7,
+   "completedItems": 12,
+   "wipItems": 6,
    "unplannedItems": 4
   }
  ],
