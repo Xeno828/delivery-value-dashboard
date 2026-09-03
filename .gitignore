@@ -4,6 +4,9 @@
 *.token
 # the OAuth grant: an access token and a rotating refresh token, mode 0600
 .jira-oauth.json
+# the browser profile tests/forge_smoke.py signs in with: it holds the
+# Atlassian session cookies for the dev site, mode 0700
+.forge-smoke-profile/
 
 # generated data pulled from Jira/Asana (contains issue titles)
 data/dashboard-data.json
@@ -44,6 +47,7 @@ forge/src/assets.js
 
 # test output
 tests/last-run.png
+tests/forge-last-run.png
 tests/*.tmp.*
 
 # os

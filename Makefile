@@ -1,7 +1,7 @@
 BUNDLE ?= data/demo-intake-bundle.json
 BOARD  ?= 42
 
-.PHONY: build check test test-agent test-a11y test-security test-service test-wasm perf report intake intake-scale intake-sequence demo serve serve-live forge-static forge-deps forge-assets forge-lint forge-deploy forge-install forge-upgrade forge-uninstall bundle fetch clean
+.PHONY: build check test test-agent test-a11y test-security test-service test-wasm perf report intake intake-scale intake-sequence demo serve serve-live forge-static forge-deps forge-assets forge-lint forge-deploy forge-install forge-upgrade forge-uninstall forge-smoke bundle fetch clean
 
 build:            ## assemble dist/delivery-value-dashboard.html from src/
 	python3 build.py
@@ -123,6 +123,11 @@ forge-upgrade:    ## re-consent after a module or scope change
 
 forge-uninstall:  ## remove it; a development installation is disposable
 	cd forge && forge uninstall
+
+# Not in `make test`: it needs a deployed environment and a person's session.
+# The first run opens a browser window to sign in; later runs are headless.
+forge-smoke:      ## open the deployed app inside the dev site and check the page from inside its iframe
+	python3 tests/forge_smoke.py
 
 bundle:           ## regenerate the demo bundles (delivery + intake reference class)
 	python3 scripts/make_sample_bundle.py

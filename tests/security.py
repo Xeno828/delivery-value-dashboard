@@ -314,6 +314,9 @@ def server_checks():
     # chmod-ed afterwards, and never printed.
     gi_all = (ROOT / ".gitignore").read_text()
     check("the OAuth grant is git-ignored", ".jira-oauth.json" in gi_all)
+    # The browser profile the Forge smoke check signs in with holds the dev
+    # site's session cookies: a credential in everything but name.
+    check("the Forge smoke check's browser profile is git-ignored", ".forge-smoke-profile/" in gi_all)
     check("the grant file is created 0600, not widened later",
           "0o600" in auth_src and "os.O_CREAT" in auth_src)
     check("no token is ever printed",

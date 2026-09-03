@@ -17,6 +17,7 @@ make test-service  # the routes and the Forge resolver, no browser needed
 make test-wasm     # the same Python under WebAssembly, byte for byte; needs node and `make forge-deps`
 make report        # facts pack + delivery forecast for the sample data
 make intake ASK=data/asks/INTAKE-2026-014.json
+make forge-smoke   # after a deploy: open the app inside the dev site and check the page from inside its iframe
 ```
 
 The browser suites need Playwright (`pip install playwright && playwright install chromium`). `make test-agent` needs nothing but Python 3.
