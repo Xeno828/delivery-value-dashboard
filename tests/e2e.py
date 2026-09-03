@@ -602,6 +602,9 @@ def empty_selection(b):
     # banner over the whole grid would pass every check above and lose both.
     check("the footer still reports the count it is refusing to score",
           "showing 0" in page.text_content("#foot"), page.text_content("#foot")[:80])
+    basis = " ".join((page.text_content("#exec-basis") or "").split())
+    check("with nothing loaded the basis line names the source as the cause",
+          "Nothing loaded" in basis and "filters" not in basis, basis[:100])
     check("the tiles that already refused keep their own sentences",
           "No burndown series" in page.text_content("#burn-chart"),
           page.text_content("#burn-chart")[:80])
@@ -630,6 +633,20 @@ def empty_selection(b):
     check("and the KPI strip refuses with it",
           page.eval_on_selector_all("#kpis .kpi", "n => n.length") == 0,
           " ".join((page.text_content("#kpis") or "").split())[:90])
+    # Same refusal, different cause, and the basis line has to say which. It
+    # said "Nothing loaded from …" over a file with issues in it that a search
+    # had excluded, which sends a reader to check the connection when the fix
+    # is a click away in the filter row; and the footer said "showing 22" for
+    # a selection with nothing in it, because it counted what the filter was
+    # applied to rather than what survived it.
+    basis = " ".join((page.text_content("#exec-basis") or "").split())
+    check("a filter that matches nothing is named as the cause, not the source",
+          "match the current filters" in basis and "Nothing loaded" not in basis, basis[:120])
+    check("and the basis line says how many issues the filter excluded",
+          re.search(r"among the \d+ loaded", basis) is not None, basis[:120])
+    foot = " ".join((page.text_content("#foot") or "").split())
+    check("the footer shows the filtered count against the loaded one",
+          re.search(r"showing 0 of \d+ after filters", foot) is not None, foot[:120])
     page.evaluate("() => window.DVD.debug.setFilter('q', '')")
     page.wait_for_timeout(400)
 
@@ -1559,6 +1576,11 @@ def main():
         pts_tile = page.text_content("#kpis .kpi:nth-child(1)")
         check("switching to points changes the delivered tile", pts_tile != items_tile)
         check("points tile reads in story points", "83 story points" in pts_tile, pts_tile[:60])
+        # The per-person caption said "Story points per person" whichever
+        # measure was selected, over bars that read "6 items".
+        check("the per-person caption follows the measure into points",
+              "Story points per person" in page.text_content("#c-dist .cap"),
+              page.text_content("#c-dist .cap")[:50])
         check("the burndown still renders in points",
               page.eval_on_selector_all("#burn-chart polyline", "n => n.length") == burn_items)
         check("the footer states the active measure",

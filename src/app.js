@@ -532,8 +532,8 @@ function U() {
 const HELP = {
   unit: "<b>Items or story points?</b><br>Everything denominated in work volume on this page &mdash; the burndown, the delivered figure, pace against the clock, scope added, the distribution and the commitment history &mdash; switches with this control.<br><br><b>Why items is the default</b><br>It is the unit the forecaster uses. Six sprints gives six story-point observations, which cannot support a distribution; the same six sprints gives sixty-odd item observations, which can. It also cannot be inflated by estimating generously.<br><br><b>When to switch to points</b><br>Item counts treat a one-line copy change and an eight-point hotfix as equal. If you are arguing about whether scope growth mattered, look at points. If you are forecasting, look at items.",
   exec: "<b>What it is</b><br>A plain-English reading of every chart below, written from the data rather than typed by hand.<br><br><b>How to improve it</b><br>If a line here surprises you, click through to the issues. A summary you cannot trace back to issues is a summary nobody trusts.",
-  burn: "<b>What it is</b><br>Story points still outstanding on each day, against the straight-line plan. The orange line is total committed scope.<br><br><b>Why the orange line matters</b><br>A classic burndown hides mid-sprint additions — the line just flattens and the team looks slow. Showing scope separately splits 'we were slow' from 'we were given more'.<br><br><b>How to improve it</b><br>Agree a scope-change rule at planning: anything added mid-sprint displaces something of equal size, and that swap is recorded.",
-  dist: "<b>What it is</b><br>Story points per person, split into done, in progress and not started.<br><br><b>How to read it</b><br>Look for one person carrying a tall in-progress block — that is work in progress piling up, which slows the whole team down more than an uneven total would.<br><br><b>How to improve it</b><br>Cap how many items one person has in progress at once (two is a common limit) and finish before starting.",
+  burn: "<b>What it is</b><br>Work still outstanding on each day, in the measure selected in the filter row, against the straight-line plan. The orange line is total committed scope.<br><br><b>Why the orange line matters</b><br>A classic burndown hides mid-sprint additions — the line just flattens and the team looks slow. Showing scope separately splits 'we were slow' from 'we were given more'.<br><br><b>How to improve it</b><br>Agree a scope-change rule at planning: anything added mid-sprint displaces something of equal size, and that swap is recorded.",
+  dist: "<b>What it is</b><br>Each person's work, in the measure selected in the filter row, split into done, in progress and not started.<br><br><b>How to read it</b><br>Look for one person carrying a tall in-progress block — that is work in progress piling up, which slows the whole team down more than an uneven total would.<br><br><b>How to improve it</b><br>Cap how many items one person has in progress at once (two is a common limit) and finish before starting.",
   flowtime: "<b>What it is</b><br>For each closed item: total time from being raised to being done (lead time), split into time actively worked (cycle time) and time waiting in a queue.<br><br><b>How to read it</b><br>Long pale bars are the real problem. Waiting is invisible in most reports and is usually the majority of elapsed time.<br><br><b>How to improve it</b><br>Attack the queues, not the coding. Refine sooner, review faster, and stop starting work you cannot immediately progress.",
   age: "<b>What it is</b><br>How long each unfinished item has existed, in bands sized for a two-week sprint.<br><br><b>Why these bands</b><br>Monthly bands are useless at sprint scale — everything lands in the first bucket. Anything past 14 days has already survived a full sprint.<br><br><b>How to improve it</b><br>Review the oldest item first at every stand-up. Age, not priority, is the best predictor of an item never finishing.",
   cycle: "<b>What it is</b><br>Every closed item plotted on the day it finished, against how many calendar days it took from being started. The three lines are the 50th, 85th and 95th percentiles of that set.<br><br><b>How to read it</b><br>The 85th percentile is the sentence to take outward: <i>85% of what we finish, we finish within N days</i>. It is a statement about the system rather than a promise about any one item, which is exactly why it survives contact with a stakeholder.<br><br><b>Watch the dots, not the line</b><br>A cluster drifting upward is the distribution changing. A single dot far above it is one item worth naming &mdash; click it.<br><br><b>How to improve it</b><br>Shrink the spread before you chase the median. A team whose 85th percentile is close to its median can be relied on; one with a long tail cannot, however fast its typical item is.",
@@ -1726,9 +1726,19 @@ function renderExec(m) {
     // one of them is about the team.
     $("#exec-verdict").innerHTML = rollupLead() +
       '<div class="refusal"><strong>' + esc(noItems("there is nothing to summarise")) + "</strong></div>";
-    $("#exec-basis").innerHTML = "Nothing loaded from " + esc(meta.sourceLabel || "the loaded dataset") +
-      ", as at " + fmtD(asOf()) + ". The findings below are generated from the issues on this page, " +
-      "so they are absent rather than clear.";
+    /* Two causes, two sentences. A search that matches nothing and a file
+       with nothing in it reach the same refusal, and the basis line said
+       "Nothing loaded" for both — over twenty-two loaded issues that a filter
+       had excluded, which sends a reader to check the connection when the
+       fix is one click away in the filter row. A basis that names the wrong
+       cause is the failure ADR 0010 describes for the health score's
+       disclosure, one card up. */
+    const loaded = S.view.issues.length, src = esc(meta.sourceLabel || "the loaded dataset");
+    $("#exec-basis").innerHTML = (loaded && Object.values(S.filters).some(Boolean)
+      ? "No issues match the current filters among the " + loaded + " loaded from " + src +
+        ", as at " + fmtD(asOf()) + ". Clear a filter to bring them back. "
+      : "Nothing loaded from " + src + ", as at " + fmtD(asOf()) + ". ") +
+      "The findings below are generated from the issues on this page, so they are absent rather than clear.";
     $("#exec-list").innerHTML = "";
     $("#exec-list").onclick = null;
     return;
@@ -2079,6 +2089,11 @@ function renderBurn(m) {
    ================================================================== */
 function renderDist(m, items) {
   const host = $("#dist-chart"), st = STAGE();
+  /* The bars already read "6 items" or "6 pts" with the measure; the caption
+     said "Story points per person" whichever was selected. */
+  const cap = $("#c-dist .cap");
+  if (cap) cap.textContent = (U().isItems ? "Items" : "Story points") +
+    " per person, split by stage. Click any bar to see the issues.";
   const people = uniq(items.map(i => i.assignee));
   if (!people.length) {
     host.innerHTML = m.empty
@@ -4910,7 +4925,12 @@ function render() {
   const nctx = (S.data.contexts || []).length;
   $("#foot").innerHTML = "Generated from " + esc(S.data.meta.sourceLabel || "loaded data") + " · " +
     S.data.issues.length + " issues across " + nctx + " sprint" + (nctx === 1 ? "" : "s") +
-    " · showing " + S.view.issues.length + " · measured in " + U().label +
+    // The filtered count against the loaded one. "showing 22" beside a
+    // selection a search had emptied was a count of what the filter had
+    // been applied to, printed as if it were the count of what survived it.
+    " · showing " + items.length +
+    (items.length !== S.view.issues.length ? " of " + S.view.issues.length + " after filters" : "") +
+    " · measured in " + U().label +
     " · rendered " + new Date().toLocaleString() +
     // Sprint elapsed-percentage, the ideal burndown line and the forecast are
     // all shares of working days. Which days those were belongs on the page,
