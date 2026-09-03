@@ -372,10 +372,10 @@
     "semantic_hash": "7bc381b3b523aa20cfd492c529a1006c"
   },
   "tests/test_service.py": {
-    "mtime": 1788434727.676977,
-    "seen": 1788439236.713218,
-    "ast_hash": "f98fa39656e067919639e2accd75ca11",
-    "semantic_hash": "f98fa39656e067919639e2accd75ca11"
+    "mtime": 1788440064.7406466,
+    "seen": 1788441421.563893,
+    "ast_hash": "76ab4e0f1901ae24748ebb814e7d35bb",
+    "semantic_hash": "76ab4e0f1901ae24748ebb814e7d35bb"
   },
   "tests/test_wasm.py": {
     "mtime": 1788340228.1808958,
@@ -408,10 +408,10 @@
     "semantic_hash": "66cba6c0361c57564d082a22fce50e23"
   },
   "CHANGELOG.md": {
-    "mtime": 1788434644.3256416,
-    "seen": 1788439236.7132201,
-    "ast_hash": "4999bcc838683e6357365226337bded3",
-    "semantic_hash": "4999bcc838683e6357365226337bded3"
+    "mtime": 1788440081.0349355,
+    "seen": 1788441421.563898,
+    "ast_hash": "18612bd5a4540584f64cf6c41295670e",
+    "semantic_hash": "18612bd5a4540584f64cf6c41295670e"
   },
   "CLAUDE.md": {
     "mtime": 1788434644.3228197,
