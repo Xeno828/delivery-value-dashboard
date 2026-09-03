@@ -6,7 +6,7 @@ repository, which meant every session that tried to progress it began by asking
 where it was. This file ends that.
 
 **The prose original is an artifact — *From File to Product*, drafted 17 August
-2026, revised 19 August, against v1.12.3.** It carries the argument: why the
+2026, revised 19 August against v1.12.3 and 3 September against v1.78.4.** It carries the argument: why the
 Marketplace and not a desktop store, why the service produces the file rather
 than replacing it, what the plan will not do and what that refusal costs. Read
 it for the reasoning. This file is the part the code needs: the numbering, and
