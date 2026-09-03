@@ -1,0 +1,953 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-03T14:29:40+00:00",
+  "title": "Design System: Delivery Value Dashboard",
+  "extensions": {
+    "colorMeta": {
+      "ledger-paper": {
+        "role": "neutral",
+        "displayName": "Ledger Paper",
+        "canonical": "#fcfcfb",
+        "tonalRamp": [
+          "#2c2c21",
+          "#4d4d3a",
+          "#6e6e53",
+          "#90906c",
+          "#a9a98d",
+          "#c2c2ae",
+          "#dbdbcf",
+          "#f4f4f0"
+        ]
+      },
+      "desk-plane": {
+        "role": "neutral",
+        "displayName": "Desk Plane",
+        "canonical": "#f3f3f0",
+        "tonalRamp": [
+          "#2a2a22",
+          "#4b4b3c",
+          "#6b6b56",
+          "#8c8c70",
+          "#a6a690",
+          "#c0c0b0",
+          "#dadad0",
+          "#f4f4f1"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#0b0b0b",
+        "tonalRamp": [
+          "#262626",
+          "#434343",
+          "#616161",
+          "#7e7e7e",
+          "#9b9b9b",
+          "#b8b8b8",
+          "#d5d5d5",
+          "#f2f2f2"
+        ]
+      },
+      "ink-secondary": {
+        "role": "neutral",
+        "displayName": "Ink Secondary",
+        "canonical": "#52514e",
+        "tonalRamp": [
+          "#272725",
+          "#454442",
+          "#63625e",
+          "#817f7b",
+          "#9d9c98",
+          "#bab9b6",
+          "#d6d6d4",
+          "#f3f2f2"
+        ]
+      },
+      "ink-muted": {
+        "role": "neutral",
+        "displayName": "Ink Muted",
+        "canonical": "#6f6d67",
+        "tonalRamp": [
+          "#282725",
+          "#464541",
+          "#64625d",
+          "#828079",
+          "#9f9d97",
+          "#bbb9b5",
+          "#d7d6d4",
+          "#f3f2f2"
+        ]
+      },
+      "rule-grid": {
+        "role": "neutral",
+        "displayName": "Rule Grid",
+        "canonical": "#e1e0d9",
+        "tonalRamp": [
+          "#2b2a22",
+          "#4b493b",
+          "#6c6955",
+          "#8c896f",
+          "#a7a48f",
+          "#c0beb0",
+          "#dad9d0",
+          "#f4f3f1"
+        ]
+      },
+      "rule-axis": {
+        "role": "neutral",
+        "displayName": "Rule Axis",
+        "canonical": "#c3c2b7",
+        "tonalRamp": [
+          "#2a2923",
+          "#4a483d",
+          "#696858",
+          "#898772",
+          "#a4a292",
+          "#bebdb2",
+          "#d9d8d1",
+          "#f3f3f1"
+        ]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "rgba(11,11,11,0.10)",
+        "tonalRamp": []
+      },
+      "link-blue": {
+        "role": "primary",
+        "displayName": "Link Blue",
+        "canonical": "#256abf",
+        "tonalRamp": [
+          "#0c2440",
+          "#163f71",
+          "#1f5aa2",
+          "#2975d3",
+          "#5794de",
+          "#88b3e8",
+          "#b9d2f1",
+          "#eaf1fb"
+        ]
+      },
+      "accent-blue": {
+        "role": "primary",
+        "displayName": "Accent Blue",
+        "canonical": "#256abf",
+        "tonalRamp": [
+          "#0c2440",
+          "#163f71",
+          "#1f5aa2",
+          "#2975d3",
+          "#5794de",
+          "#88b3e8",
+          "#b9d2f1",
+          "#eaf1fb"
+        ]
+      },
+      "info-ink": {
+        "role": "primary",
+        "displayName": "Info Ink",
+        "canonical": "#256abf",
+        "tonalRamp": [
+          "#0c2440",
+          "#163f71",
+          "#1f5aa2",
+          "#2975d3",
+          "#5794de",
+          "#88b3e8",
+          "#b9d2f1",
+          "#eaf1fb"
+        ]
+      },
+      "on-accent": {
+        "role": "primary",
+        "displayName": "On Accent",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#262626",
+          "#434343",
+          "#616161",
+          "#7e7e7e",
+          "#9b9b9b",
+          "#b8b8b8",
+          "#d5d5d5",
+          "#f2f2f2"
+        ]
+      },
+      "on-status-dark": {
+        "role": "neutral",
+        "displayName": "On Status (dark ink)",
+        "canonical": "#141414",
+        "tonalRamp": [
+          "#262626",
+          "#434343",
+          "#616161",
+          "#7e7e7e",
+          "#9b9b9b",
+          "#b8b8b8",
+          "#d5d5d5",
+          "#f2f2f2"
+        ]
+      },
+      "delivery-blue": {
+        "role": "primary",
+        "displayName": "Delivery Blue",
+        "canonical": "#2a78d6",
+        "tonalRamp": [
+          "#0c2440",
+          "#163f71",
+          "#1f5aa2",
+          "#2976d3",
+          "#5795df",
+          "#88b3e8",
+          "#b9d2f1",
+          "#eaf1fb"
+        ]
+      },
+      "scope-orange": {
+        "role": "secondary",
+        "displayName": "Scope Orange",
+        "canonical": "#eb6834",
+        "tonalRamp": [
+          "#461907",
+          "#7b2c0c",
+          "#b03e11",
+          "#e55117",
+          "#ed7749",
+          "#f29f7e",
+          "#f7c6b3",
+          "#fdeee8"
+        ]
+      },
+      "done-green": {
+        "role": "secondary",
+        "displayName": "Done Green",
+        "canonical": "#1baf7a",
+        "tonalRamp": [
+          "#0a422e",
+          "#127551",
+          "#1aa775",
+          "#22da98",
+          "#51e4b0",
+          "#84ecc7",
+          "#b6f4de",
+          "#e9fcf5"
+        ]
+      },
+      "signal-amber": {
+        "role": "secondary",
+        "displayName": "Signal Amber",
+        "canonical": "#eda100",
+        "tonalRamp": [
+          "#4c3400",
+          "#875c00",
+          "#c18300",
+          "#fbab00",
+          "#ffbf37",
+          "#ffd171",
+          "#ffe4ab",
+          "#fff7e6"
+        ]
+      },
+      "contrast-pink": {
+        "role": "secondary",
+        "displayName": "Contrast Pink",
+        "canonical": "#e87ba4",
+        "tonalRamp": [
+          "#410b20",
+          "#731438",
+          "#a41d50",
+          "#d62568",
+          "#e15489",
+          "#ea86ac",
+          "#f3b8ce",
+          "#fbe9f0"
+        ]
+      },
+      "deep-green": {
+        "role": "secondary",
+        "displayName": "Deep Green",
+        "canonical": "#008300",
+        "tonalRamp": [
+          "#004c00",
+          "#008700",
+          "#00c100",
+          "#00fb00",
+          "#37ff37",
+          "#71ff71",
+          "#abffab",
+          "#e6ffe6"
+        ]
+      },
+      "indigo": {
+        "role": "secondary",
+        "displayName": "Indigo",
+        "canonical": "#4a3aa7",
+        "tonalRamp": [
+          "#191439",
+          "#2c2364",
+          "#3f328f",
+          "#5341bb",
+          "#796acb",
+          "#a096da",
+          "#c7c1e9",
+          "#eeecf8"
+        ]
+      },
+      "alert-red": {
+        "role": "secondary",
+        "displayName": "Alert Red",
+        "canonical": "#e34948",
+        "tonalRamp": [
+          "#420b0a",
+          "#751312",
+          "#a71b1a",
+          "#da2321",
+          "#e45251",
+          "#ec8484",
+          "#f4b7b6",
+          "#fce9e9"
+        ]
+      },
+      "delivery-blue-100": {
+        "role": "primary",
+        "displayName": "delivery-blue-100",
+        "canonical": "#cde2fb",
+        "tonalRamp": [
+          "#062347",
+          "#0a3e7d",
+          "#0e59b3",
+          "#1374e9",
+          "#4593f0",
+          "#7bb3f4",
+          "#b1d2f9",
+          "#e7f1fd"
+        ]
+      },
+      "delivery-blue-250": {
+        "role": "primary",
+        "displayName": "delivery-blue-250",
+        "canonical": "#86b6ef",
+        "tonalRamp": [
+          "#092444",
+          "#103f77",
+          "#175aab",
+          "#1d75de",
+          "#4e94e8",
+          "#82b3ee",
+          "#b5d2f5",
+          "#e8f1fc"
+        ]
+      },
+      "delivery-blue-350": {
+        "role": "primary",
+        "displayName": "delivery-blue-350",
+        "canonical": "#5598e7",
+        "tonalRamp": [
+          "#092443",
+          "#113f76",
+          "#185ba9",
+          "#1f76dc",
+          "#4f95e6",
+          "#83b4ed",
+          "#b6d3f5",
+          "#e9f1fc"
+        ]
+      },
+      "delivery-blue-450": {
+        "role": "primary",
+        "displayName": "delivery-blue-450",
+        "canonical": "#2a78d6",
+        "tonalRamp": [
+          "#0c2440",
+          "#163f71",
+          "#1f5aa2",
+          "#2976d3",
+          "#5795df",
+          "#88b3e8",
+          "#b9d2f1",
+          "#eaf1fb"
+        ]
+      },
+      "delivery-blue-600": {
+        "role": "primary",
+        "displayName": "delivery-blue-600",
+        "canonical": "#184f95",
+        "tonalRamp": [
+          "#0b2342",
+          "#133e74",
+          "#1b58a6",
+          "#2373d8",
+          "#5292e3",
+          "#85b2eb",
+          "#b7d1f3",
+          "#e9f1fb"
+        ]
+      },
+      "status-good": {
+        "role": "tertiary",
+        "displayName": "Status Good",
+        "canonical": "#0ca30c",
+        "tonalRamp": [
+          "#054705",
+          "#097e09",
+          "#0db40d",
+          "#11ea11",
+          "#44f144",
+          "#7bf57b",
+          "#b1f9b1",
+          "#e7fde7"
+        ]
+      },
+      "status-warning": {
+        "role": "tertiary",
+        "displayName": "Status Warning",
+        "canonical": "#fab219",
+        "tonalRamp": [
+          "#4b3302",
+          "#845b03",
+          "#bd8204",
+          "#f6a905",
+          "#fbbd3b",
+          "#fcd074",
+          "#fde4ad",
+          "#fef7e6"
+        ]
+      },
+      "status-serious": {
+        "role": "tertiary",
+        "displayName": "Status Serious",
+        "canonical": "#ec835a",
+        "tonalRamp": [
+          "#451908",
+          "#792c0e",
+          "#ad3f14",
+          "#e1521a",
+          "#ea784b",
+          "#f09f80",
+          "#f6c7b4",
+          "#fceee8"
+        ]
+      },
+      "status-critical": {
+        "role": "tertiary",
+        "displayName": "Status Critical",
+        "canonical": "#d03b3b",
+        "tonalRamp": [
+          "#3e0f0f",
+          "#6d1a1a",
+          "#9c2525",
+          "#cb3131",
+          "#d85d5d",
+          "#e48c8c",
+          "#efbbbb",
+          "#faeaea"
+        ]
+      },
+      "good-ink": {
+        "role": "tertiary",
+        "displayName": "Good Ink",
+        "canonical": "#006300",
+        "tonalRamp": [
+          "#004c00",
+          "#008700",
+          "#00c100",
+          "#00fb00",
+          "#37ff37",
+          "#71ff71",
+          "#abffab",
+          "#e6ffe6"
+        ]
+      },
+      "warn-ink": {
+        "role": "tertiary",
+        "displayName": "Warn Ink",
+        "canonical": "#8a5a00",
+        "tonalRamp": [
+          "#4c3200",
+          "#875800",
+          "#c17e00",
+          "#fba400",
+          "#ffb937",
+          "#ffce71",
+          "#ffe2ab",
+          "#fff6e6"
+        ]
+      },
+      "serious-ink": {
+        "role": "tertiary",
+        "displayName": "Serious Ink",
+        "canonical": "#9a4419",
+        "tonalRamp": [
+          "#421d0b",
+          "#743313",
+          "#a6491b",
+          "#d85f23",
+          "#e38353",
+          "#eba785",
+          "#f3cbb7",
+          "#fbefe9"
+        ]
+      },
+      "crit-ink": {
+        "role": "tertiary",
+        "displayName": "Critical Ink",
+        "canonical": "#a02b2b",
+        "tonalRamp": [
+          "#3c1010",
+          "#6a1d1d",
+          "#982929",
+          "#c63535",
+          "#d56161",
+          "#e18f8f",
+          "#edbdbd",
+          "#faebeb"
+        ]
+      },
+      "good-wash": {
+        "role": "tertiary",
+        "displayName": "Good Wash",
+        "canonical": "#eaf7ea",
+        "tonalRamp": [
+          "#153715",
+          "#256225",
+          "#358c35",
+          "#45b645",
+          "#6ec86e",
+          "#98d898",
+          "#c2e8c2",
+          "#edf8ed"
+        ]
+      },
+      "warn-wash": {
+        "role": "tertiary",
+        "displayName": "Warn Wash",
+        "canonical": "#fdf4e0",
+        "tonalRamp": [
+          "#483305",
+          "#7f5a08",
+          "#b5810c",
+          "#eca80f",
+          "#f3bc43",
+          "#f6d07a",
+          "#fae3b0",
+          "#fdf7e7"
+        ]
+      },
+      "serious-wash": {
+        "role": "tertiary",
+        "displayName": "Serious Wash",
+        "canonical": "#fcefe8",
+        "tonalRamp": [
+          "#441d09",
+          "#773410",
+          "#ab4a16",
+          "#de611d",
+          "#e8844e",
+          "#efa881",
+          "#f5cbb5",
+          "#fcefe8"
+        ]
+      },
+      "crit-wash": {
+        "role": "tertiary",
+        "displayName": "Critical Wash",
+        "canonical": "#fbecec",
+        "tonalRamp": [
+          "#3f0d0d",
+          "#6f1717",
+          "#9f2222",
+          "#d02c2c",
+          "#dc5959",
+          "#e68a8a",
+          "#f0baba",
+          "#fbeaea"
+        ]
+      },
+      "info-wash": {
+        "role": "tertiary",
+        "displayName": "Info Wash",
+        "canonical": "#eaf1fc",
+        "tonalRamp": [
+          "#0a2043",
+          "#113876",
+          "#1850a9",
+          "#1f69dc",
+          "#508ae6",
+          "#83aced",
+          "#b6cef5",
+          "#e9f0fc"
+        ]
+      }
+    },
+    "darkTheme": {
+      "selector": ":root[data-theme=\"dark\"]",
+      "source": "src/styles.css",
+      "colors": {
+        "ledger-paper": "#1a1a19",
+        "desk-plane": "#0d0d0d",
+        "ink": "#ffffff",
+        "ink-secondary": "#c3c2b7",
+        "ink-muted": "#898781",
+        "rule-grid": "#2c2c2a",
+        "rule-axis": "#383835",
+        "hairline": "rgba(255,255,255,0.10)",
+        "delivery-blue": "#3987e5",
+        "scope-orange": "#d95926",
+        "done-green": "#199e70",
+        "signal-amber": "#c98500",
+        "contrast-pink": "#d55181",
+        "deep-green": "#008300",
+        "indigo": "#9085e9",
+        "alert-red": "#e66767",
+        "delivery-blue-100": "#184f95",
+        "delivery-blue-250": "#256abf",
+        "delivery-blue-350": "#2a78d6",
+        "delivery-blue-450": "#3987e5",
+        "delivery-blue-600": "#86b6ef",
+        "good-ink": "#0ca30c",
+        "warn-ink": "#fab219",
+        "serious-ink": "#ec835a",
+        "crit-ink": "#e66767",
+        "good-wash": "#122712",
+        "warn-wash": "#2b2312",
+        "serious-wash": "#2b1d15",
+        "crit-wash": "#2b1414",
+        "info-wash": "#12203a",
+        "link-blue": "#7fb2f0",
+        "accent-blue": "#256abf",
+        "info-ink": "#5598e7",
+        "on-accent": "#ffffff",
+        "on-status-dark": "#141414"
+      }
+    },
+    "cssVariableMap": {
+      "ledger-paper": "--surface-1",
+      "desk-plane": "--plane",
+      "ink": "--text-primary",
+      "ink-secondary": "--text-secondary",
+      "ink-muted": "--muted",
+      "rule-grid": "--grid",
+      "rule-axis": "--axis",
+      "hairline": "--border",
+      "link-blue": "--link",
+      "accent-blue": "--accent-bg",
+      "info-ink": "--info-ink",
+      "on-accent": "--on-accent",
+      "on-status-dark": "--on-status-dark",
+      "delivery-blue": "--s1",
+      "scope-orange": "--s2",
+      "done-green": "--s3",
+      "signal-amber": "--s4",
+      "contrast-pink": "--s5",
+      "deep-green": "--s6",
+      "indigo": "--s7",
+      "alert-red": "--s8",
+      "delivery-blue-100": "--seq-100",
+      "delivery-blue-250": "--seq-250",
+      "delivery-blue-350": "--seq-350",
+      "delivery-blue-450": "--seq-450",
+      "delivery-blue-600": "--seq-600",
+      "status-good": "--good",
+      "status-warning": "--warning",
+      "status-serious": "--serious",
+      "status-critical": "--critical",
+      "good-ink": "--good-ink",
+      "warn-ink": "--warn-ink",
+      "serious-ink": "--serious-ink",
+      "crit-ink": "--crit-ink",
+      "good-wash": "--good-wash",
+      "warn-wash": "--warn-wash",
+      "serious-wash": "--serious-wash",
+      "crit-wash": "--crit-wash",
+      "info-wash": "--info-wash"
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The value hero figure only; one per page."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "The eight KPI values and, at 20px, the page title."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Card headings phrased as questions; panel and modal titles step to 16 and 17px."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Verdict paragraph, findings, issue summaries."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Card captions, the why under a finding, control text, the forecast basis in italic."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Uppercase tracked labels beside filters and in table headers."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Account ids, pasted JSON and code only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "card-rest",
+        "value": "0 1px 2px rgba(11,11,11,.05), 0 6px 18px rgba(11,11,11,.05)",
+        "purpose": "Every card, tile, topbar, filter row and popover; incidental softening, never structural. Dark: 0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.35)."
+      },
+      {
+        "name": "tile-hover",
+        "value": "0 2px 4px rgba(11,11,11,.06), 0 10px 24px rgba(11,11,11,.09)",
+        "purpose": "KPI tiles on hover, with a 1px translate."
+      },
+      {
+        "name": "float",
+        "value": "0 6px 24px rgba(0,0,0,.18)",
+        "purpose": "The tooltip."
+      },
+      {
+        "name": "panel",
+        "value": "-8px 0 34px rgba(0,0,0,.18)",
+        "purpose": "The drill-in panel sliding from the right."
+      },
+      {
+        "name": "modal",
+        "value": "0 20px 60px rgba(0,0,0,.3)",
+        "purpose": "The import dialog."
+      }
+    ],
+    "motion": [
+      {
+        "name": "tile-lift",
+        "value": "transform .08s ease, box-shadow .12s ease",
+        "purpose": "KPI hover."
+      },
+      {
+        "name": "tooltip-fade",
+        "value": "opacity .08s",
+        "purpose": "Tooltip in and out."
+      },
+      {
+        "name": "scrim",
+        "value": "opacity .16s",
+        "purpose": "Scrim behind the panel."
+      },
+      {
+        "name": "panel-slide",
+        "value": "transform .2s ease",
+        "purpose": "Drill-in panel from translateX(100%)."
+      },
+      {
+        "name": "toast",
+        "value": "opacity .18s, transform .18s",
+        "purpose": "Toast rising 12px into place."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "@media (prefers-reduced-motion: reduce) { * { transition: none !important } }",
+        "purpose": "Every transition is removed when the reader asks."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "kpi-4",
+        "value": "1280px",
+        "purpose": "KPI band from eight columns to four."
+      },
+      {
+        "name": "halve",
+        "value": "1180px",
+        "purpose": "Spans 3 to 8 become 6; span 9 becomes 12."
+      },
+      {
+        "name": "risk-2col",
+        "value": "1000px",
+        "purpose": "Risk register flows into two columns above this; three above 1500px."
+      },
+      {
+        "name": "exec-stack",
+        "value": "900px",
+        "purpose": "Exec summary collapses to one column."
+      },
+      {
+        "name": "value-stack",
+        "value": "820px",
+        "purpose": "Value tile grid collapses."
+      },
+      {
+        "name": "stack",
+        "value": "760px",
+        "purpose": "Everything span 12; card tools drop under the title."
+      },
+      {
+        "name": "kpi-2",
+        "value": "640px",
+        "purpose": "KPI band to two columns."
+      }
+    ],
+    "grid": {
+      "columns": 12,
+      "gap": "10px",
+      "maxWidth": "1560px",
+      "pagePadding": "16px 20px 80px",
+      "rule": "Every row sums to twelve at every breakpoint; cards stretch to their row."
+    }
+  },
+  "components": [
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "The default action: paper, hairline, ink. Hover fills with the plane.",
+      "html": "<button class=\"ds-btn ds-btn-secondary\">Export CSV</button>",
+      "css": ".ds-btn{font:550 12.5px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;border:1px solid var(--border,rgba(11,11,11,.10));border-radius:8px;padding:7px 12px;cursor:pointer}.ds-btn-secondary{background:var(--surface-1,#fcfcfb);color:var(--text-primary,#0b0b0b)}.ds-btn-secondary:hover{background:var(--plane,#f3f3f0)}.ds-btn-secondary:focus-visible{outline:2px solid var(--link,#256abf);outline-offset:2px}"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "One per surface. Accent blue fill, white text, brightens on hover.",
+      "html": "<button class=\"ds-btn ds-btn-primary\">Load data</button>",
+      "css": ".ds-btn{font:550 12.5px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;border:1px solid var(--border,rgba(11,11,11,.10));border-radius:8px;padding:7px 12px;cursor:pointer}.ds-btn-primary{background:var(--accent-bg,#256abf);border-color:var(--accent-bg,#256abf);color:var(--on-accent,#fff)}.ds-btn-primary:hover{filter:brightness(1.08)}.ds-btn-primary:focus-visible{outline:2px solid var(--link,#256abf);outline-offset:2px}"
+    },
+    {
+      "name": "Icon Button",
+      "kind": "button",
+      "refersTo": "button-icon",
+      "description": "26px square for card tools; pressed state fills info wash with link-blue.",
+      "html": "<button class=\"ds-icon-btn\" aria-pressed=\"false\" title=\"Show as table\">&#9636;</button> <button class=\"ds-icon-btn\" aria-pressed=\"true\" title=\"Show as table\">&#9636;</button>",
+      "css": ".ds-icon-btn{font:12px system-ui,-apple-system,'Segoe UI',sans-serif;border:1px solid var(--border,rgba(11,11,11,.10));background:var(--surface-1,#fcfcfb);border-radius:7px;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-secondary,#52514e);padding:0;cursor:pointer}.ds-icon-btn:hover{background:var(--plane,#f3f3f0);color:var(--text-primary,#0b0b0b)}.ds-icon-btn[aria-pressed=true]{background:var(--info-wash,#eaf1fc);border-color:var(--link,#256abf);color:var(--link,#256abf)}.ds-icon-btn:focus-visible{outline:2px solid var(--link,#256abf);outline-offset:2px}"
+    },
+    {
+      "name": "Segmented Toggle",
+      "kind": "custom",
+      "refersTo": "segment-toggle",
+      "description": "Items / Points and the forecast question. The pressed segment takes accent blue.",
+      "html": "<div class=\"ds-seg\" role=\"group\" aria-label=\"Unit of measure\"><button type=\"button\" aria-pressed=\"true\">Items</button><button type=\"button\" aria-pressed=\"false\">Points</button></div>",
+      "css": ".ds-seg{display:inline-flex;border:1px solid var(--border,rgba(11,11,11,.10));border-radius:8px;overflow:hidden;background:var(--plane,#f3f3f0)}.ds-seg button{font:600 12.5px/1.2 system-ui,-apple-system,'Segoe UI',sans-serif;border:none;background:none;padding:6px 11px;color:var(--text-secondary,#52514e);cursor:pointer}.ds-seg button+button{border-left:1px solid var(--border,rgba(11,11,11,.10))}.ds-seg button[aria-pressed=true]{background:var(--accent-bg,#256abf);color:var(--on-accent,#fff)}.ds-seg button:not([aria-pressed=true]):hover{background:var(--surface-1,#fcfcfb);color:var(--text-primary,#0b0b0b)}.ds-seg button:focus-visible{outline:2px solid var(--link,#256abf);outline-offset:-2px}"
+    },
+    {
+      "name": "Filter Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Uppercase tracked label beside a native select or search on the plane.",
+      "html": "<div class=\"ds-fgroup\"><label class=\"ds-flab\" for=\"ds-q\">Find</label><input class=\"ds-in\" id=\"ds-q\" type=\"search\" placeholder=\"key or words\"></div>",
+      "css": ".ds-fgroup{display:inline-flex;align-items:center;gap:5px;font-family:system-ui,-apple-system,'Segoe UI',sans-serif}.ds-flab{font-size:11.5px;color:var(--muted,#6f6d67);text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-right:4px}.ds-in{font:inherit;font-size:12.5px;padding:6px 9px;border-radius:8px;border:1px solid var(--border,rgba(11,11,11,.10));background:var(--plane,#f3f3f0);color:var(--text-primary,#0b0b0b);max-width:190px}.ds-in::placeholder{color:var(--muted,#6f6d67)}.ds-in:focus-visible{outline:2px solid var(--link,#256abf);outline-offset:1px;border-color:var(--link,#256abf)}"
+    },
+    {
+      "name": "Severity Chips",
+      "kind": "chip",
+      "refersTo": "chip-warn",
+      "description": "Ink on wash, pill, with a glyph so the hue is never the only signal.",
+      "html": "<span class=\"ds-chip ds-c-good\">&#9679; On track</span> <span class=\"ds-chip ds-c-warn\">&#9650; Watch</span> <span class=\"ds-chip ds-c-serious\">&#9650; Serious</span> <span class=\"ds-chip ds-c-crit\">&#9632; Critical</span> <span class=\"ds-chip ds-c-info\">Demo</span>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;gap:5px;font:650 11px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;padding:2px 8px;border-radius:999px;border:1px solid var(--border,rgba(11,11,11,.10))}.ds-c-good{background:var(--good-wash,#eaf7ea);color:var(--good-ink,#006300)}.ds-c-warn{background:var(--warn-wash,#fdf4e0);color:var(--warn-ink,#8a5a00)}.ds-c-serious{background:var(--serious-wash,#fcefe8);color:var(--serious-ink,#9a4419)}.ds-c-crit{background:var(--crit-wash,#fbecec);color:var(--crit-ink,#a02b2b)}.ds-c-info{background:var(--info-wash,#eaf1fc);color:var(--info-ink,#256abf)}"
+    },
+    {
+      "name": "KPI Tile",
+      "kind": "card",
+      "refersTo": "kpi-tile",
+      "description": "The executive's scan line: label, tight figure, basis, delta, and a 3px bar in the series colour.",
+      "html": "<button class=\"ds-kpi\"><span class=\"ds-k-lab\">Delivered</span><span class=\"ds-k-val\">55%</span><span class=\"ds-k-sub\">12 of 22 items &middot; 41 pts</span><span class=\"ds-k-delta\">&#9650; +63% vs last sprint</span><span class=\"ds-k-bar\"><i style=\"width:55%;background:var(--s1,#2a78d6)\"></i></span></button>",
+      "css": ".ds-kpi{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;text-align:left;width:200px;background:var(--surface-1,#fcfcfb);border:1px solid var(--border,rgba(11,11,11,.10));border-radius:12px;padding:11px 13px 12px;box-shadow:0 1px 2px rgba(11,11,11,.05),0 6px 18px rgba(11,11,11,.05);cursor:pointer;color:var(--text-primary,#0b0b0b);transition:transform .08s ease,box-shadow .12s ease;display:block}.ds-kpi:hover{transform:translateY(-1px);box-shadow:0 2px 4px rgba(11,11,11,.06),0 10px 24px rgba(11,11,11,.09)}.ds-kpi:focus-visible{outline:2px solid var(--link,#256abf);outline-offset:2px}.ds-k-lab{font-size:11.5px;color:var(--text-secondary,#52514e);font-weight:600;display:block}.ds-k-val{display:block;font-size:27px;font-weight:640;letter-spacing:-.02em;margin:3px 0 1px;line-height:1.05;font-variant-numeric:tabular-nums}.ds-k-sub{display:block;font-size:11.5px;color:var(--muted,#6f6d67);min-height:16px}.ds-k-delta{margin-top:2px;font-size:11.5px;font-weight:600;color:var(--good-ink,#006300);display:inline-flex;gap:3px}.ds-k-bar{display:block;height:3px;border-radius:2px;background:var(--grid,#e1e0d9);margin-top:8px;overflow:hidden}.ds-k-bar>i{display:block;height:100%;border-radius:2px}"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Paper on plane, hairline, 12px corners; a question for a heading and a caption in secondary ink.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-hd\"><div><h2>Can we trust the forecast? <span class=\"ds-info\">i</span></h2><div class=\"ds-cap\">Committed against completed, sprint by sprint. Consistency matters more than volume.</div></div><button class=\"ds-icon-btn2\" title=\"Show as table\">&#9636;</button></div><div class=\"ds-card-body\">Average hit rate <b>83%</b>; completed output swings by <b>5 items</b> between the best and worst sprint.</div></div>",
+      "css": ".ds-card{font:400 14px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;width:420px;background:var(--surface-1,#fcfcfb);border:1px solid var(--border,rgba(11,11,11,.10));border-radius:12px;padding:12px 14px 14px;box-shadow:0 1px 2px rgba(11,11,11,.05),0 6px 18px rgba(11,11,11,.05);color:var(--text-primary,#0b0b0b)}.ds-card-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:2px}.ds-card h2{margin:0;font-size:14px;font-weight:650;letter-spacing:-.005em}.ds-cap{font-size:12px;color:var(--text-secondary,#52514e);margin:2px 0 10px}.ds-card-body{font-size:12.5px;color:var(--text-secondary,#52514e)}.ds-card-body b{font-weight:650;color:var(--text-primary,#0b0b0b)}.ds-info{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;border:1px solid var(--axis,#c3c2b7);color:var(--muted,#6f6d67);font-size:9.5px;font-weight:700;cursor:help}.ds-icon-btn2{font-size:12px;border:1px solid var(--border,rgba(11,11,11,.10));background:var(--surface-1,#fcfcfb);border-radius:7px;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-secondary,#52514e);padding:0;cursor:pointer;flex:none}.ds-icon-btn2:hover{background:var(--plane,#f3f3f0);color:var(--text-primary,#0b0b0b)}"
+    },
+    {
+      "name": "Refusal Callout",
+      "kind": "custom",
+      "refersTo": "refusal",
+      "description": "The signature component: the tool's sentence verbatim, warn ink rule on warn wash, square left and rounded right.",
+      "html": "<div class=\"ds-refusal\">Not enough data to forecast: 4 completed items across 1 sprint, below the 30-item floor. The evidence is absent, not noisy.</div>",
+      "css": ".ds-refusal{font:400 12.5px/1.55 system-ui,-apple-system,'Segoe UI',sans-serif;max-width:460px;padding:11px 13px;border-left:3px solid var(--warn-ink,#8a5a00);background:var(--warn-wash,#fdf4e0);border-radius:0 8px 8px 0;color:var(--text-primary,#0b0b0b)}"
+    },
+    {
+      "name": "Finding Row",
+      "kind": "custom",
+      "refersTo": "",
+      "description": "A severity glyph, the what in ink, the why in secondary ink, and a linkish button to the issues.",
+      "html": "<div class=\"ds-narr\"><span class=\"ds-ic\" data-sev=\"warn\">&#9650;</span><div><span class=\"ds-what\">Scope grew 22% mid-sprint &mdash; 4 items, 9 story points.</span><span class=\"ds-why\">Delivery is behind the clock and the team was also given more work. Those are two different conversations; don&rsquo;t merge them. <button class=\"ds-linkish\">See the 4 issues</button></span></div></div>",
+      "css": ".ds-narr{display:grid;grid-template-columns:18px 1fr;gap:9px;font:400 13px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;align-items:start;max-width:520px;color:var(--text-primary,#0b0b0b)}.ds-ic{width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;margin-top:2px;color:var(--on-status-dark,#141414);background:var(--warning,#fab219)}.ds-why{color:var(--text-secondary,#52514e);display:block;font-size:12.5px;margin-top:1px}.ds-linkish{background:none;border:none;padding:0;color:var(--link,#256abf);font-weight:600;text-decoration:underline;text-underline-offset:2px;font-size:12.5px;cursor:pointer;font-family:inherit}.ds-linkish:hover{color:var(--text-primary,#0b0b0b)}.ds-linkish:focus-visible{outline:2px solid var(--link,#256abf);outline-offset:2px;border-radius:3px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Audited Ledger",
+    "overview": "**Creative North Star: \"The Audited Ledger\"**\n\nThe page is a set of accounts a reader can check line by line. Seventeen ruled cards rest on a warm grey plane, each headed by a question in ordinary English (\"Can we trust the forecast?\", \"Where does the time go?\") and each answering with a figure, its unit, and the basis printed beneath it in smaller, quieter type. Nothing on the page is decorative: a colour is either a chart series, a severity, or a link, and every one of them has a name. The system font does the talking because the file has to travel by email and open with no network, and because a report that borrows a display face starts to look like a pitch.\n\nThe personality is plain-spoken and exact. Copy is sentences, not labels; a refusal is printed in full, in the tool's own words, inside a wash with a left rule, so it reads as the tile saying something rather than as an error. Numbers are tabular, tightly tracked, and never larger than the reader needs: the largest figure on the page (a value total at 38px) is still smaller than most dashboards' smallest headline. The eight KPI tiles across the top are the executive's scan line; everything below is the working.\n\nDensity is high on purpose. A full sprint fits on one 1440px screen, the twelve-column grid keeps every row summed to twelve, and cards stretch to their row so a short tile reads as a card with room in it rather than a hole in the page. Two themes are equal citizens: every token is redefined for dark, and both are tested to WCAG 2.2 AA.",
+    "keyCharacteristics": [
+      "Warm off-white paper on a warm grey plane, ruled by hairlines rather than lifted by shadow.",
+      "System font stack throughout; no web fonts, no icon sets, Unicode glyphs only.",
+      "One accent blue for controls and links, kept separate from the chart's delivery blue so contrast fixes never touch a validated series.",
+      "Four severities, each a wash plus an ink pair, each carrying a glyph as well as a hue.",
+      "Figures in tabular numerals with negative tracking; units and basis always beside them.",
+      "Cards at 12px radius, controls at 8px, chips as pills: three corner sizes and no more."
+    ],
+    "rules": [
+      {
+        "name": "The Two Blues Rule",
+        "body": "`accent-blue` is for controls and text; `delivery-blue` is for series. A contrast fix on one must never reach the other, because the series palette is validated for colour-vision deficiency as a set.",
+        "section": "colors"
+      },
+      {
+        "name": "The Ink-on-Wash Rule",
+        "body": "Severity is always ink on its own wash, never white on the status fill. White on the warning yellow measures 1.8:1.",
+        "section": "colors"
+      },
+      {
+        "name": "The Named Colour Rule",
+        "body": "Every colour on the page is a token with a job. A hex literal in markup or script is a bug.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "Any run of digits a reader might compare is set in `font-variant-numeric: tabular-nums`: KPI values, tables, tooltips, issue metadata, the forecast table.",
+        "section": "typography"
+      },
+      {
+        "name": "The Basis Rule",
+        "body": "No figure stands alone. Beneath or beside every number is its unit and, in note type, the slice it was computed over.",
+        "section": "typography"
+      },
+      {
+        "name": "The Question Rule",
+        "body": "A card heading asks the question the card answers, in ordinary English. \"How long finished work took\", not \"Cycle time\".",
+        "section": "typography"
+      },
+      {
+        "name": "The Border Defines It Rule",
+        "body": "Remove the shadow and the page must still read. If a component needs its shadow to be seen, give it a hairline instead.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Nothing Stacks Rule",
+        "body": "Cards never overlap and never nest a second card. The panel, the popovers and the modal are the only layers, and all of them are transient.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do set every figure in tabular numerals with its unit beside it and its basis in note type beneath.",
+      "Do use the system font stack only, and Unicode glyphs (▲ ● ■ ▤ ✕) where an icon is needed.",
+      "Do keep control colour on `accent-blue` and `link-blue` and series colour on `delivery-blue` and its neighbours; fix contrast on the first, never on the second.",
+      "Do print a refusal in the refusal callout in the tool's own words, including its closing clause.",
+      "Do make each row of tiles sum to twelve columns at every breakpoint, and stretch cards to their row.",
+      "Do pair every severity hue with a glyph and every rebuilt data point with a hollow, dashed marker.",
+      "Do phrase a card heading as the question it answers."
+    ],
+    "donts": [
+      "Don't load a web font, an icon font or an icon package. The file makes zero network calls and the security suite asserts it.",
+      "Don't write a hex literal in markup or script; every colour is a named token.",
+      "Don't put white text on a status fill; severity is ink on wash.",
+      "Don't dim a disabled or unsupported element with opacity alone; keep its colour and carry the reason in text.",
+      "Don't let a control set the page's minimum width; wrap it, or give the tools their own row.",
+      "Don't add a fourth corner size or a second shadow at rest; the border defines the card."
+    ]
+  }
+}
