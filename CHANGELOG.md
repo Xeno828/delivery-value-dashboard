@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.78.0
+
+**The remote is gone, and with it the calculator: every figure the app shows is computed inside the Forge function.** The last commit of the series [ADR 0031](docs/adr/0031-the-forecast-runs-inside-the-forge-function.md) ordered. With `burndown` moved in 1.77.5 nothing named the calculator any more, so the `remotes` block and its three Cloud Run hostnames leave the manifest, `invokeRemote` and `callCalculator` leave the resolver, and `.github/workflows/deploy.yml` — the three-region deploy with its realm guard — is deleted, since there is nothing to deploy. Removing this remote is a **major version**, and the second probe had said otherwise: its remote was a bare `baseUrl`, and this one declared realms and `operations: [compute]`, which the linter names as *"data residency or egress modification"* in both directions. Checked by deploying, as `CLAUDE.md` says to: `forge deploy` stopped for `MAJOR_VERSION_RULE`, the approval was given with the only installation still the dev site, and 8.9.0 became **9.0.0** with `forge install --upgrade` re-consenting the installation. The deploy reports the app **eligible for *Runs on Atlassian***, which was the point. 9.0.0 shipped for the eleven minutes it took to notice that the deletion of the dead helper had started at the wrong comment and taken `answerHere` with it — esbuild bundles an undefined identifier without a word, and every route would have thrown inside the tenant. **9.1.0** restored it, and the suite gains a general guard: every bare call in the resolver must name something the file defines, imports or the runtime provides. `tests/test_service.py` inverts the assertions that held the remote's declaration against the code that reached it: no `remotes` block, no egress permission, no `invokeRemote`, and no `.run.app` hostname anywhere under `forge/`, because a remote added after the first external install is a major version, a reinstall for every tenant and the badge gone. [ADR 0012](docs/adr/0012-the-calculator-is-reached-by-invokeremote.md) and [ADR 0030](docs/adr/0030-the-manifest-commits-to-its-hostnames-and-realms-once.md) are marked superseded, and `docs/hosting-the-calculator.md` is kept as the record of what ran. The hosted service's own files — `service/app.py`, its Dockerfile, container gates and provisioning script — go in the next entry, because deleting a service is a different change from ceasing to call it.
+
+**What is left to delete is in Google Cloud, and the CLI cannot do it from here.** Project `calculator-506614`: three Cloud Run services, three Artifact Registry repositories, the shared-secret entry in Secret Manager, the deploy and runtime service accounts and the workload identity federation `service/provision-gcp.sh` created, then the four repository variables in GitHub that pointed the deleted workflow at them. In that order:
+
+```bash
+for r in us-central1 europe-west3 europe-west2; do
+  gcloud run services delete calculator --region="$r" --project=calculator-506614 --quiet
+  gcloud artifacts repositories delete calculator --location="$r" --project=calculator-506614 --quiet
+done
+gcloud secrets delete calculator-shared-secret --project=calculator-506614 --quiet
+gh variable delete GCP_PROJECT_ID; gh variable delete GCP_WIF_PROVIDER
+gh variable delete GCP_DEPLOY_SA; gh variable delete GCP_RUNTIME_SA; gh variable delete FORGE_AUDIENCE
+```
+
+The service accounts and the federation pool can go with the project itself once nothing else is in it. The £75-a-month ceiling on calculator hosting falls away with them.
+
 ## 1.77.5
 
 **The burndown is answered inside the Forge function, and nothing reaches the calculator any more.** The last route to move under [ADR 0031](docs/adr/0031-the-forecast-runs-inside-the-forge-function.md): `/v1/burndown` is one sprint's daily series, bounded by the sprint's days, and the `context` resolver's one call to it now goes to `answerHere`. With it, every figure the app shows a tenant is computed by the Python inside the function — facts, the forecast and sequencing as jobs, the trend series, the burndown — and `callCalculator` has no caller left. It stays in the file for exactly one more commit, with the `remotes` block, the `invokeRemote` import and the hosted service's deployment, because retiring a remote is its own change to blame and this one is a route moving. Deployed to development as **8.9.0**, a minor version; the burndown tile on a sprint with days behind it is the click.

@@ -1,5 +1,7 @@
 # 0030 — The manifest commits to its hostnames and its realms once, before anybody installs
 
+> **Superseded on 2026-09-03 by [ADR 0031](0031-the-forecast-runs-inside-the-forge-function.md).** The hostnames and realms this record committed to left the manifest with the `remotes` block; there is nothing to pin. The window it describes still matters — a remote added after the first external install is a major version — and that is now the reason there will not be one.
+
 Two entries in `forge/manifest.yml` are free to change today and a forced reinstall for every customer tomorrow. `baseUrl` is one value with one shape; the realms it is keyed by are the other. Changing either is a major version — `forge lint` says so in those words — and the window in which that costs nothing closes at the **first external install**, expected September 2026.
 
 Decided 2026-08-31, with the only installation still `development` on the dev site. Both halves were settled by running something rather than by reasoning about it, which is the rule `CLAUDE.md` sets for exactly this class of question.

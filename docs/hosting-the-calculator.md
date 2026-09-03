@@ -1,5 +1,7 @@
 # Hosting the calculator
 
+> **Retired on 2026-09-03.** The calculator ran on Cloud Run in three regions from 2026-08-25 until [ADR 0031](adr/0031-the-forecast-runs-inside-the-forge-function.md) moved every route inside the Forge function. `.github/workflows/deploy.yml` is gone, the `remotes` block is gone, and the three services, three registries, secret and federation described below are to be deleted in Google Cloud project `calculator-506614` — the commands are at the end of the 1.78.0 changelog entry. This document is kept as the record of what was decided and measured while it ran.
+
 Where `service/` runs, what it costs, and the operational decisions that come with it.
 
 `service/README.md` says the service is stateless and sub-second and that this suits scale-to-zero. That was right and it is not the hard part. The hard part is that **the calculator being reachable is not the same as the Forge app being able to call it**, and three things stand between those two states that the runbook did not know about. They are in §1, before the provider comparison, because two of them change what has to be built and one of them changes which provider wins.

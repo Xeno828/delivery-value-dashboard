@@ -10,15 +10,11 @@
 # iframe and reads the tenant's own boards, sprints and issues over the bridge
 # in forge/bridge/bridge.js.
 #
-# The hosted calculator is provisioned and the forecast is wired to it. Two
-# Cloud Run services, region-pinned below, both running SERVICE_AUTH=forge-token
-# so the app holds no secret of its own. tests/test_service.py ties the URL and
-# the resolver together, so a real baseUrl with the offline refusal still in
-# place — or the reverse — fails rather than shipping.
-#
-# Sequencing still refuses, and for a different reason that is not hosting: a
-# Jira site has no way to record an ask, so there is nothing to sequence. The
-# resolver says which of the two it is.
+# Every figure the app shows is computed inside the Forge function: the same
+# Python the CLI and the dashboard run, under WebAssembly, loaded from a
+# generated module at deploy. There is no remote and no egress — the hosted
+# calculator that stood in for this from 2026-08-25 to 2026-09-03 is retired,
+# and tests/test_service.py asserts that nothing in forge/ names it. ADR 0031.
 
 modules:
   jira:projectPage:
@@ -283,66 +279,6 @@ resources:
   - key: probe
     path: static/probe
 
-# The hosted calculator — service/app.py. Forge cannot run agent/tools/, so it
-# posts the fields a calculation reads and gets the figures back, rather than a
-# second Monte Carlo being written in JavaScript. ADR 0008 has the reasoning and
-# the measurements.
-#
-# What attaches the Atlassian-issued invocation token is `invokeRemote` in
-# forge/src/index.js — not this declaration. The comment here used to say the
-# opposite, and the code it described called plain `fetch` against a URL out of
-# the environment, which sends no Authorization header at all: pointing baseUrl
-# at a real host would have returned 401 on every call, in either of the
-# service's auth modes. Declaring the remote is what makes the egress
-# permitted; that is a different claim and it was the one being made.
-#
-# `operations: [compute]` does two jobs. Forge requires it before `invokeRemote`
-# will resolve this key at all, and it is the declaration that this remote
-# processes data without storing any. With `operations` absent Forge assumes the
-# opposite — that the app stores end-user data here — which is the worst
-# available reading of a service whose entire argument is that it stores
-# nothing, and it would cost the app its data-residency PINNED status.
-#
-# There is no `permissions.external.fetch` entry any more, because nothing
-# fetches. It was the egress rule for the `fetch` call that is gone.
-#
-# `baseUrl` becomes an object of region-specific URLs at switchover, resolved
-# per install from the customer's own residency setting, so this app never picks
-# a tenant's region. Converting the format is a major version change and a
-# reinstall, so it lands once, with the real URLs and with the refusals in
-# forge/src/index.js removed in the same commit — tests/test_service.py asserts
-# those two move together. docs/hosting-the-calculator.md §5, ADR 0012.
-remotes:
-  - key: calculator
-    # Region-pinned. Forge picks one of these per installation from the
-    # customer's own Atlassian data residency setting, so this app never
-    # decides which region a tenant's numbers are computed in — the half of
-    # residency that would otherwise have to be built. docs/adr/0012.
-    #
-    # All three hostnames are live. US and EU were verified end to end on
-    # 2026-08-25; GB — London, europe-west2 — was added 2026-08-31, because the
-    # United Kingdom is its own Atlassian realm (EU is Frankfurt and Dublin) and
-    # the first customer is a UK company. Pointing GB at the EU service would
-    # have been one line and a quiet lie. docs/adr/0030.
-    #
-    # A realm declared here with no region behind it fails the deploy workflow:
-    # its regions and these realms are two halves of one fact, and the failure
-    # they prevent is a tenant reading answers from a calculator that stopped
-    # being updated.
-    #
-    # These are the values `gcloud run services describe` reports as
-    # `status.url`; Cloud Run also publishes a
-    # `calculator-<project-number>.<region>.run.app` form for each, and either
-    # would work. Changing which is used later is a major version change and a
-    # reinstall for every tenant, so it is chosen once, here.
-    baseUrl:
-      default: https://calculator-jtfw7qf4ea-uc.a.run.app
-      US: https://calculator-jtfw7qf4ea-uc.a.run.app
-      EU: https://calculator-jtfw7qf4ea-ey.a.run.app
-      GB: https://calculator-jtfw7qf4ea-nw.a.run.app
-    operations:
-      - compute
-
 permissions:
   scopes:
     # Read-only, and every one of them is asserted read-only on every push —
@@ -433,14 +369,13 @@ app:
     # reason to state it here too and let the log say which one held.
     memoryMB: 1024
 
-# Egress costs the "Runs on Atlassian" badge. It is the price of reaching one
-# implementation of the forecast over a remote — and since 2026-09-01 it is no
-# longer the only way to keep one implementation. The tools run unchanged
-# under WebAssembly inside a Forge function, measured on a throwaway app:
-# byte-identical figures, no egress, at roughly ten times the CPU time and
-# with sequencing on the edge of the resolver timeout. ADR 0008's amendment
-# has the price. The calculator stands until that trade is taken, so the badge
-# is still forfeit here — as a decision, not a discovery at listing time.
+# No egress, by construction. Egress costs the "Runs on Atlassian" badge, and
+# for nine days it was the price of one implementation of the forecast over a
+# remote; since ADR 0031 the tools run unchanged under WebAssembly inside the
+# function, byte-identical to native, and the `remotes` block that named the
+# calculator's three hostnames left with it. Removing a remote is a minor
+# version, settled by deploy on the second probe. A remote added back here
+# would be a major version, a reinstall for every tenant, and the badge gone.
 #
 # Deliberately absent from what is committed: an `id`. Running `forge register`
 # writes one, and it ties this manifest to one developer's Atlassian account.

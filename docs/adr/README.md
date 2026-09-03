@@ -17,7 +17,7 @@ Read these before proposing a change that a constraint in `CLAUDE.md` appears to
 | [0009](0009-one-contract-two-transports.md) | Live mode has two transports and one set of body shapes | A page that behaves differently depending on how it was reached |
 | [0010](0010-an-empty-selection-is-a-refusal.md) | Unmeasured is refused or dropped, never scored zero | A score computed from empty denominators, in a chip with a verdict on it |
 | [0011](0011-a-kanban-context-is-a-window-not-a-clock.md) | A board without sprints gets a window, and a window is not a clock | A pace measured against a boundary nobody committed to |
-| [0012](0012-the-calculator-is-reached-by-invokeremote.md) | Forge reaches the calculator by `invokeRemote`, region-pinned | A shared secret over a URL the app builds itself |
+| [0012](0012-the-calculator-is-reached-by-invokeremote.md) | *Superseded by 0031.* Forge reached the calculator by `invokeRemote`, region-pinned | A shared secret over a URL the app builds itself |
 | [0013](0013-the-brief-is-written-inside-the-tenant.md) | The scheduled brief is written by Forge LLMs in the tenant; only the file leaves | An API key, a third party, and every issue title going through it weekly |
 | [0014](0014-jira-sends-the-brief-and-the-read-only-rule-bends.md) | Jira sends the brief; non-read scopes are allow-listed with reasons | A mail provider, recipients as email addresses, and a rule kept by memory |
 | [0015](0015-a-durable-series-stores-what-jira-forgets.md) | Sprint rows are recorded when a sprint closes; re-derivation is a labelled fallback | A cache of Jira, a reconstruction written in as a recording, and a disagreement resolved quietly |
@@ -35,7 +35,7 @@ Read these before proposing a change that a constraint in `CLAUDE.md` appears to
 | [0027](0027-a-value-basis-is-prose-carried-to-a-reader.md) | A value basis is free text carried to a reader, never an input to anything | An enumerated basis, a weight, and reading one out of the issue description |
 | [0028](0028-candidacy-is-a-state-somebody-declares.md) | Candidacy is declared, and which field declares it is the organisation's choice | An issue type or a label as the marker, and inferring candidacy from status |
 | [0029](0029-a-t-shirt-band-selects-a-reference-class.md) | A t-shirt band picks which completed epics an ask is compared against | A number typed into a field, ranking by size, and inferring a band |
-| [0030](0030-the-manifest-commits-to-its-hostnames-and-realms-once.md) | The manifest's hostnames and realms are chosen once, before the first install | A custom domain bought as insurance, and a realm discovered from a customer's tenant |
+| [0030](0030-the-manifest-commits-to-its-hostnames-and-realms-once.md) | *Superseded by 0031.* The manifest's hostnames and realms were chosen once, before the first install | A custom domain bought as insurance, and a realm discovered from a customer's tenant |
 | [0031](0031-the-forecast-runs-inside-the-forge-function.md) | The forecast runs inside the Forge function under Pyodide, and the calculator is retired | A second implementation, a sequencing tile that refuses above three asks, polling in the page, and a cached result |
 
 ## Writing a new one

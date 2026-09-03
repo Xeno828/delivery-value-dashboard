@@ -1,26 +1,26 @@
 /**
  * Forge resolver.
  *
- * Forge runs Node in Atlassian's sandbox and cannot execute agent/tools/. This
- * does not reimplement them. It pulls the issues, strips them to the fields a
- * calculation reads, posts that to the hosted calculator (service/app.py), and
- * puts the summaries back on the way out.
+ * This does not reimplement agent/tools/. It pulls the issues, strips them to
+ * the fields a calculation reads, hands that to the same Python the CLI and
+ * the dashboard run — under WebAssembly, inside this function, through
+ * runtime.js — and puts the summaries back on the way out. Facts, the trend
+ * series and the burndown are answered in the call; the forecast and
+ * sequencing run as jobs on a consumer function, because both run for longer
+ * than a resolver call may on this CPU. ADR 0031.
  *
  * The rule the whole product rests on — one implementation of every figure —
- * survives that. Nothing in this file computes a number.
- * See docs/adr/0008-forge-calls-a-hosted-calculator.md.
+ * survives that. Nothing in this file computes a number, and
+ * tests/test_wasm.py holds the WebAssembly answer against the native one byte
+ * for byte.
  *
- * Status: the app is registered, deployed to development and installed on a
- * dev site; `forge lint` is clean and the declared scopes have been proven
- * against real Jira. The context path below — `contexts` and `context` — is
- * what the dashboard reaches over the bridge, and it is the live one. The
- * `forecast`, `facts` and `sequence` resolvers still point at a calculator
- * that is not hosted anywhere, so they answer with the offline notice until
- * `remotes[0].baseUrl` names a real deployment.
+ * From 2026-08-25 to 2026-09-03 a hosted calculator answered these routes
+ * over a remote instead (ADR 0008, 0012, 0030, all superseded). Nothing here
+ * names it any more, and tests/test_service.py asserts that.
  */
 
 import Resolver from '@forge/resolver';
-import api, { route, invokeRemote } from '@forge/api';
+import api, { route } from '@forge/api';
 import { chat } from '@forge/llm';
 import { kvs } from '@forge/kvs';
 import { Queue } from '@forge/events';
@@ -160,44 +160,20 @@ const assertAsksCarryNoText = (asks) => {
    result is *collected* rather than when it is called for. */
 
 /**
- * One call to the calculator.
- *
- * `invokeRemote` rather than `fetch`, and the difference is the whole point:
- * only `invokeRemote` attaches the Forge Invocation Token, which is what lets
- * the service know the call came from this app and which installation it is
- * for, without this app holding a secret of its own. Declaring the `remotes`
- * entry is what makes the egress *permitted*; it is not what authenticates it.
- * This code used to say otherwise and used to call `fetch` against a URL out of
- * `process.env.CALCULATOR_URL`, which sends no Authorization header at all — so
- * pointing the manifest at a real host would have returned 401 on every call,
- * in either of the service's auth modes. The remote also needs
- * `operations: [compute]`, which is what Forge requires before `invokeRemote`
- * will resolve this key.
- *
- * The URL is gone with it, and that is a gain rather than a loss. A URL built
- * here is one URL for every installation in the world; a `baseUrl` resolved
- * from the manifest is chosen per install from the customer's own Atlassian
- * data residency setting, so this app never decides which region a tenant's
- * numbers are computed in. docs/adr/0012.
- *
- * The remote key is a literal so `tests/test_service.py` can hold it against
- * the manifest: a mistyped key fails at runtime, inside a tenant, which is the
- * same failure the egress rule used to be checked for.
- */
-/**
  * One call to the Python inside this function. ADR 0031.
  *
- * The drop-in for `callCalculator` as routes move: the same route names, the
- * same bodies, and the same two answers — the envelope on success, or
- * `{available: false, sentence}` with the route's own sentence on a refusal —
- * so a caller changes one identifier and nothing downstream of it. The
+ * The same route names and bodies the hosted calculator took, and the same
+ * two answers — the envelope on success, or `{available: false, sentence}`
+ * with the route's own sentence on a refusal — so the callers that once
+ * reached a remote changed one identifier and nothing downstream of it. The
  * runtime loads from the memory snapshot on this function, 1.3 s cold
  * against 11 s, because it answers under the adapter's clock.
  *
- * Routes move here one per commit, and a route is answered here or by the
- * calculator, never both: `tests/test_service.py` holds that the set of
- * routes this is called with and the set `callCalculator` is called with do
- * not overlap. Git is the switch.
+ * Every route is answered here or by the consumer function, never by a
+ * remote: `tests/test_service.py` holds the inventory of routes against the
+ * code, and that this definition exists — it was lost once in a deletion
+ * that started at the wrong comment, and esbuild bundles an undefined name
+ * without a word.
  */
 const answerHere = async (path, body) => {
   const { status, payload } = await runtime.answer(path, body, { snapshot: true });
@@ -208,31 +184,6 @@ const answerHere = async (path, body) => {
     };
   }
   return payload;
-};
-
-const callCalculator = async (path, body) => {
-  const res = await invokeRemote('calculator', {
-    path,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const text = await res.text();
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    // Never surface the body: a proxy error page is not something to render
-    // into a Jira panel.
-    return { available: false, sentence: `The calculator returned ${res.status}.` };
-  }
-  if (!res.ok || parsed.ok === false) {
-    return {
-      available: false,
-      sentence: parsed.error ?? `The calculator returned ${res.status}.`,
-    };
-  }
-  return parsed;
 };
 
 /**

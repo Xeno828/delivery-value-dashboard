@@ -1,5 +1,7 @@
 # The calculator is reached by `invokeRemote`, region-pinned, and authenticated by the invocation token
 
+> **Superseded on 2026-09-03 by [ADR 0031](0031-the-forecast-runs-inside-the-forge-function.md).** The calculator is retired: every route is answered by the same Python inside the Forge function, the `remotes` block and `invokeRemote` are gone, and the app has no egress. What follows is the record of how the remote was reached while it existed, kept because the reasoning about tokens, residency and `operations: [compute]` is what a future remote would have to satisfy again.
+
 [ADR 0008](0008-forge-calls-a-hosted-calculator.md) settled that a Forge build posts to a hosted service rather than growing a second Monte Carlo in JavaScript. It did not settle how the app reaches that service, and the two obvious answers turn out not to be equivalent.
 
 The app calls the calculator with **`invokeRemote()` from `@forge/api`**, against a `remotes` entry whose `baseUrl` is an object of region-specific URLs and whose `operations` are `[compute]`. Atlassian attaches an invocation token; the service verifies it against Atlassian's JWKS and binds the installation identity out of `app.installationId`. The service holds no secret of its own, and holds no opinion about which region a tenant belongs in.

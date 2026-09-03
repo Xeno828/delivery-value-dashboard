@@ -468,6 +468,44 @@ def test_routes_move_one_at_a_time():
               _manifest_item(man, fn).get("memoryMB") == "1024", _manifest_item(man, fn))
 
 
+def test_every_helper_the_resolver_calls_is_defined():
+    """esbuild bundles an undefined identifier without a word.
+
+    `answerHere` was lost once, in a deletion that started at the wrong
+    comment: the bundle built, the deploy succeeded, and every route would
+    have thrown inside the tenant. The suite caught it only because one check
+    happened to split the source on the definition. This is the general form:
+    every bare call in the resolver — `name(`, not `.name(` — is to something
+    the file defines, imports, or the runtime provides.
+    """
+    src = (ROOT / "forge" / "src" / "index.js").read_text()
+    code = _code_only(src)
+    # Strings out too: a sentence that mentions `fetch(` is not a call.
+    code = re.sub(r"`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"", "''", code)
+    called = set(re.findall(r"(?<![\w.$])([a-z_$][\w$]*)\s*\(", code))
+    defined = set(re.findall(r"(?:const|let|var|function)\s+([a-z_$][\w$]*)", code))
+    for m in re.finditer(r"import\s+(?:(\w+)\s*,?\s*)?(?:\{([^}]*)\})?\s*from", code):
+        if m.group(1):
+            defined.add(m.group(1))
+        if m.group(2):
+            defined |= {n.strip().split(" as ")[-1].strip() for n in m.group(2).split(",") if n.strip()}
+    # Anything declared as a parameter counts as defined: callbacks are called.
+    for group in re.findall(r"\(([^()]*)\)\s*=>", code):
+        for n in group.split(","):
+            n = n.strip().split("=")[0].strip().strip("{} ")
+            if n:
+                defined.add(n)
+    globals_ = {"require", "fetch", "setTimeout", "clearTimeout", "parseInt", "parseFloat",
+                "isFinite", "isNaN", "encodeURIComponent", "decodeURIComponent",
+                "structuredClone", "queueMicrotask", "if", "for", "while", "switch",
+                "catch", "return", "typeof", "await", "new", "else", "do", "async", "of"}
+    undefined = sorted(n for n in called - defined - globals_)
+    check("every bare call in the resolver names something defined, imported or global",
+          undefined == [], undefined)
+    check("and the check can see the definition it exists for",
+          "answerHere" in called and "answerHere" in defined)
+
+
 def _code_only(js):
     """JavaScript with its comments stripped, so a check about what the code
     does is not answered by the sentence explaining why it must not."""
@@ -1001,7 +1039,7 @@ def test_forge_manifest_matches_the_code():
     """`forge lint` needs a CLI nobody here has. These are the parts of the
     manifest that have to agree with this repository, which a linter would not
     check anyway — it validates schema, not whether the scopes match the OAuth
-    client or the egress rule points at a remote that exists."""
+    client or a remote has crept back in."""
     man = (ROOT / "forge" / "manifest.yml").read_text()
 
     # Atlassian has two scope vocabularies — classic (`read:jira-work`) and
@@ -1070,36 +1108,26 @@ def test_forge_manifest_matches_the_code():
     check("no scope outside the reviewed allow-list",
           set(scope_strs) <= ALLOWED, sorted(set(scope_strs) - ALLOWED) or "none")
 
-    declared = re.findall(r"^remotes:\s*$\n(?:\s+- key:\s*(\S+)\s*$)", man, re.M)
-    referenced = re.findall(r"^\s+- remote:\s*(\S+)\s*$", man, re.M)
-    check("any egress rule points at a remote that is declared",
-          set(referenced) <= set(declared),
-          {"declared": declared, "referenced": referenced})
-
-    # That check used to require an egress rule to exist, because the calculator
-    # was reached with `fetch` and `permissions.external.fetch.backend` named the
-    # remote. It is reached with `invokeRemote` now — the only call that attaches
-    # the invocation token — so there is no egress rule left to check and the
-    # typo it guarded against has moved into the code. `invokeRemote` names its
-    # remote with a string, and a mistyped one fails at runtime, inside a tenant,
-    # which is exactly what the old assertion existed to prevent.
+    # No remote, no egress, nothing hosted — ADR 0031. This block used to hold
+    # the remote's declaration against the code that reached it; it now holds
+    # the absence against everything that could quietly bring one back. A
+    # remote added here would be a major version, a reinstall for every
+    # tenant and the Runs on Atlassian badge gone, and the calculator's
+    # hostnames are the one thing a stale comment or a copied line could
+    # reintroduce without anybody deciding to.
     idx_src = (ROOT / "forge" / "src" / "index.js").read_text()
-    invoked = set(re.findall(r"invokeRemote\(\s*'([^']+)'", idx_src))
-    check("every remote invokeRemote names is declared in the manifest",
-          bool(invoked) and invoked <= set(declared),
-          {"declared": declared, "invoked": sorted(invoked)})
-
-    # `operations: [compute]` is required before Forge will resolve a remote key
-    # for `invokeRemote` at all, so without it the calculator route fails in a
-    # tenant with nothing here to have caught it. It is also the declaration that
-    # this remote computes without storing: absent, Forge assumes the app stores
-    # end-user data on the remote, which is both untrue and the reading that
-    # costs the app its data-residency PINNED status.
-    block = re.search(r"^remotes:\s*$\n((?:[ \t]+.*\n|\n)*)", man, re.M)
-    ops = block.group(1) if block else ""
-    check("the calculator remote declares operations: [compute]",
-          re.search(r"^\s+operations:\s*$\n\s+- compute\s*$", ops, re.M) is not None,
-          ops.strip() or "no remotes block found")
+    check("the manifest declares no remote",
+          re.search(r"^remotes:", man, re.M) is None)
+    check("and no egress permission",
+          re.search(r"^\s+external:", man, re.M) is None)
+    check("nothing in the resolver reaches a remote",
+          "invokeRemote" not in idx_src and "callCalculator" not in idx_src)
+    forge_text = "\n".join(f.read_text() for f in sorted((ROOT / "forge").rglob("*"))
+                           if f.is_file() and f.suffix in (".js", ".mjs", ".yml", ".json", ".md")
+                           and "node_modules" not in f.parts and "static" not in f.parts
+                           and f.name != "assets.js")
+    check("no Cloud Run hostname survives anywhere under forge/",
+          ".run.app" not in forge_text)
 
     # `forge register` writes an app id into the manifest, and having one locally
     # is the correct state for anyone who has registered. Only committing it is
@@ -1200,12 +1228,8 @@ def test_forge_manifest_matches_the_code():
           "contextId: entry.id" in idx_js,
           "untagged issues are silently excluded from the slice")
 
-    idx = (ROOT / "forge" / "src" / "index.js").read_text()
-    placeholder = ".invalid" in man
-    refuses = "NO_CALCULATOR" in idx
-    check("an unhosted calculator and a refusing forecast go together",
-          placeholder == refuses,
-          "manifest says unhosted=%s, resolver refuses=%s" % (placeholder, refuses))
+    check("every route the resolver answers is answered in-function",
+          "answerHere(" in idx_js and "NO_CALCULATOR" not in idx_js)
 
 
 def test_split_build_has_no_inline_assets():
@@ -2544,84 +2568,6 @@ def test_the_brief_never_states_a_figure():
     rule = b["proseRule"].lower()
     check("the model is told the rule the guard enforces",
           "number" in rule and "words" in rule and "digits" in rule, rule[:80])
-
-
-def test_the_deploy_trigger_covers_everything_the_image_ships():
-    """A file that reaches the image must reach the deploy.
-
-    `deploy.yml` filters on paths, and a path filter fails silently in one
-    direction: too broad and you get a rebuild nobody asked for, which is
-    noise; too narrow and the image content changes while the running service
-    does not, which is a service quietly older than the source that describes
-    it. Only the second one is dangerous, and neither shows up as a red run.
-
-    The filter was narrowed once, to stop `service/README.md` redeploying both
-    regions. That is safe because the Dockerfile copies `service/` by *file
-    name* and a README is not one of them. It would not be safe for
-    `agent/tools/`, which is copied as a whole directory — a markdown file
-    added there does ship. This asserts that asymmetry rather than leaving it
-    to the comment that explains it.
-    """
-    wf = ROOT / ".github" / "workflows" / "deploy.yml"
-    if not wf.exists():
-        check("deploy.yml is present", False, str(wf))
-        return
-
-    text = wf.read_text()
-    # Deliberately parsed by hand rather than with PyYAML: `on:` is the YAML 1.1
-    # boolean and safe_load turns the key into True, which is the sort of thing
-    # that makes a test fail for a reason unrelated to what it checks.
-    block = re.search(r"^\s*paths:\n((?:\s*-\s*'[^']*'\s*(?:#.*)?\n|\s*#.*\n|\s*\n)+)",
-                      text, re.M)
-    if not block:
-        check("the deploy workflow filters on paths", False, "no paths: block")
-        return
-    patterns = re.findall(r"-\s*'([^']*)'", block.group(1))
-    positive = [p for p in patterns if not p.startswith("!")]
-    negative = [p[1:] for p in patterns if p.startswith("!")]
-
-    check("the deploy trigger has path patterns", bool(positive), patterns)
-
-    def matches(pattern, path):
-        """GitHub's glob, narrowly: ** spans separators, * does not."""
-        rx, i = "", 0
-        while i < len(pattern):
-            if pattern.startswith("**", i):
-                rx, i = rx + ".*", i + 2
-            elif pattern[i] == "*":
-                rx, i = rx + "[^/]*", i + 1
-            else:
-                rx, i = rx + re.escape(pattern[i]), i + 1
-        return re.fullmatch(rx, path) is not None
-
-    dockerfile = (ROOT / "service" / "Dockerfile").read_text()
-    copies = re.findall(r"^COPY\s+(\S+)\s+\S+", dockerfile, re.M)
-    check("the Dockerfile has COPY sources to check", bool(copies), copies)
-
-    # Every file the image ships triggers a deploy when it changes.
-    for src in copies:
-        if src.endswith("/"):
-            continue
-        covered = any(matches(p, src) for p in positive)
-        excluded = any(matches(n, src) for n in negative)
-        check("a change to %s deploys" % src, covered and not excluded,
-              {"covered": covered, "excluded": excluded})
-
-    # A directory copied wholesale ships whatever is put in it later, so no
-    # exclusion may reach inside one. This is the assertion that would have
-    # stopped `!agent/tools/**.md` — which looks like the same tidy-up as the
-    # one above and is not.
-    for src in copies:
-        if not src.endswith("/"):
-            continue
-        reaching = [n for n in negative if n.startswith(src)]
-        check("no exclusion reaches inside %s, which ships wholesale" % src,
-              not reaching, reaching)
-
-    # And the narrowing that prompted all this still holds.
-    check("editing the service README does not redeploy",
-          any(matches(n, "service/README.md") for n in negative),
-          negative)
 
 
 def _manifest_item(text, key):
@@ -5735,6 +5681,8 @@ if __name__ == "__main__":
     test_simulations_are_jobs()
     print("routes move one at a time")
     test_routes_move_one_at_a_time()
+    print("every helper is defined")
+    test_every_helper_the_resolver_calls_is_defined()
     print("the config travels in the payload")
     test_config_travels_in_the_payload()
     print("refusals")
@@ -5785,8 +5733,6 @@ if __name__ == "__main__":
     print("the brief as an email")
     test_the_brief_reaches_an_inbox_without_carrying_a_payload()
     test_nothing_is_sent_that_the_guards_would_have_stopped()
-    print("the deploy trigger")
-    test_the_deploy_trigger_covers_everything_the_image_ships()
     series_checks()
     forecast_log_checks()
     window_checks()
