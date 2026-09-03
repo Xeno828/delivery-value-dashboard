@@ -288,8 +288,16 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 .fc-commit{margin-top:12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;
   background:var(--plane);font-size:12.5px;line-height:1.5}
 .fc-commit .note{margin-top:4px;font-style:normal}
-.fc-refusal{padding:11px 13px;border-left:3px solid var(--warn-ink);background:var(--warn-wash);
-  border-radius:0 8px 8px 0;font-size:12.5px;line-height:1.55}
+/* The refusal callout — one treatment for every refusal on the page. The KPI
+   band, the ageing, value and risk tiles used to print theirs as an 11.5px
+   muted .note, which is dimming by another route (ADR 0010): the sentence
+   that says "this was not measured" was the smallest, greyest text on the
+   page while charts that could not support the selection drew beside it. The
+   forecast tile's class name is kept so its sixteen call sites need not move. */
+.refusal,.fc-refusal{padding:11px 13px;border-left:3px solid var(--warn-ink);background:var(--warn-wash);
+  border-radius:0 8px 8px 0;font-size:12.5px;line-height:1.55;color:var(--text-primary)}
+/* The verdict's refusal keeps the verdict's size: it is the headline read. */
+.exec .verdict .refusal{font-size:inherit;line-height:inherit}
 .fc-offline{padding:12px 14px;border:1px dashed var(--border);border-radius:9px;
   font-size:12.5px;line-height:1.55}
 .seq-un{margin:6px 0 6px;padding-left:18px;display:grid;gap:3px}

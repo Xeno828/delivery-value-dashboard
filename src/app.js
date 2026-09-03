@@ -1725,7 +1725,7 @@ function renderExec(m) {
     // none of its members and an empty sprint are different facts, and only
     // one of them is about the team.
     $("#exec-verdict").innerHTML = rollupLead() +
-      "<strong>" + esc(noItems("there is nothing to summarise")) + "</strong>";
+      '<div class="refusal"><strong>' + esc(noItems("there is nothing to summarise")) + "</strong></div>";
     $("#exec-basis").innerHTML = "Nothing loaded from " + esc(meta.sourceLabel || "the loaded dataset") +
       ", as at " + fmtD(asOf()) + ". The findings below are generated from the issues on this page, " +
       "so they are absent rather than clear.";
@@ -1868,8 +1868,8 @@ function renderKpis(m) {
        nobody has loaded anything into. The strip goes as one, because a mixed
        row — some figures, some dashes — invites the reader to trust the ones
        that still carry a number. */
-    $("#kpis").innerHTML = '<div class="kpi-none note">' +
-      esc(noItems("none of these figures were measured")) + "</div>";
+    $("#kpis").innerHTML = '<div class="kpi-none"><div class="refusal">' +
+      esc(noItems("none of these figures were measured")) + "</div></div>";
     $("#kpis").onclick = null;
     return;
   }
@@ -2080,7 +2080,12 @@ function renderBurn(m) {
 function renderDist(m, items) {
   const host = $("#dist-chart"), st = STAGE();
   const people = uniq(items.map(i => i.assignee));
-  if (!people.length) { host.innerHTML = '<div class="note">No assignees in this selection.</div>'; return; }
+  if (!people.length) {
+    host.innerHTML = m.empty
+      ? '<div class="refusal">' + esc(noItems("there is nobody\u2019s work to place")) + "</div>"
+      : '<div class="note">No assignees in this selection.</div>';
+    return;
+  }
   const rows = people.map(p => {
     const mine = items.filter(i => i.assignee === p);
     return { p, mine, seg: st.map(s => ({ s, v: sum(mine.filter(i => i.statusCategory === s.key), U().val),
@@ -2223,7 +2228,7 @@ function renderCycle(m) {
     /* The same sentence the waiting-versus-working chart uses, because it is
        the same absence: without a start date there is no cycle time, and on a
        flow board that is the measure rather than a nicety. */
-    host.innerHTML = '<div class="note">' + esc(m.empty
+    host.innerHTML = '<div class="refusal">' + esc(m.empty
       ? noItems("there is no finished work to time")
       : "No closed items with both a start and a resolved date in this selection, so " +
         "there is no cycle time to plot — the evidence is absent, not noisy.") + "</div>";
@@ -2298,7 +2303,7 @@ function renderWip(m) {
   const host = $("#wip-chart");
   const open = m.ages.slice().sort((a, b) => b.age - a.age);
   if (!open.length) {
-    host.innerHTML = '<div class="note">' + esc(m.empty
+    host.innerHTML = '<div class="' + (m.empty ? "refusal" : "note") + '">' + esc(m.empty
       ? noItems("there is no work in progress to age")
       : "Nothing is open in this selection, so there is no work in progress to age.") + "</div>";
     host.onclick = null;
@@ -2381,7 +2386,7 @@ function renderThr(m) {
   const host = $("#thr-chart");
   const fin = m.done.filter(i => i.resolved).map(i => i.resolved).sort();
   if (!fin.length) {
-    host.innerHTML = '<div class="note">' + esc(m.empty
+    host.innerHTML = '<div class="' + (m.empty ? "refusal" : "note") + '">' + esc(m.empty
       ? noItems("there is no completed work to count")
       : "Nothing in this selection has been completed, so there is no throughput to show.") + "</div>";
     host.onclick = null;
@@ -2488,7 +2493,7 @@ function renderCfd(m) {
   const host = $("#cfd-chart");
   const items = m.done.concat(m.open).filter(i => i.created);
   if (!items.length) {
-    host.innerHTML = '<div class="note">' + esc(m.empty
+    host.innerHTML = '<div class="' + (m.empty ? "refusal" : "note") + '">' + esc(m.empty
       ? noItems("there is no flow to accumulate")
       : "No issue in this selection carries a created date, so there is nothing to accumulate.") + "</div>";
     host.onclick = null;
@@ -2578,7 +2583,7 @@ function renderAge(m) {
        this branch is only for the case where there was never anything to age.
        The table view is cleared with the chart: a stale row set behind the
        toggle is the same wrong number one click further away. */
-    host.innerHTML = '<div class="note">' + esc(noItems("there is no open work to age")) + "</div>";
+    host.innerHTML = '<div class="refusal">' + esc(noItems("there is no open work to age")) + "</div>";
     host.onclick = null;
     S.tables.age = { cols: ["Age band", "Items", "Story points", "Keys"], rows: [] };
     drawTable("age");
@@ -2875,7 +2880,7 @@ function renderValue(m) {
        worth anything, which is a different statement from "nothing here has
        been priced". The floor-not-a-total footnote read "0 of the 0 completed
        items carry no value estimate" underneath it. */
-    host.innerHTML = '<div class="note">' + esc(noItems("no value was closed, priced or left unpriced")) + "</div>";
+    host.innerHTML = '<div class="refusal">' + esc(noItems("no value was closed, priced or left unpriced")) + "</div>";
     host.onclick = null;
     return;
   }
@@ -4258,7 +4263,7 @@ function renderRisk(m, items) {
       '<div class="ra"><b>Do this:</b> ' + esc(r.a) + "</div>" +
       (r.its.length ? '<div><button class="linkish" data-risk="' + ix + '">Inspect the ' + r.its.length + " issue" + (r.its.length > 1 ? "s" : "") + "</button></div>" : "") +
       "</div>";
-  }).join("") || '<div class="note">' + esc(m.empty
+  }).join("") || '<div class="' + (m.empty ? "refusal" : "note") + '">' + esc(m.empty
     /* "No risks triggered" is a finding. Over an empty selection nothing was
        examined, so there is no finding either way — every rule above reads the
        issues on this page, and there are none to read. */

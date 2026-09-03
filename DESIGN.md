@@ -338,7 +338,7 @@ Refined and restrained: every control looks like the browser's own, only tidier.
 - **Header:** a title block that yields (flex 1 1 220px) beside a tools cluster that wraps; heading at 14px/650 with a 14px info ring, caption in secondary ink with 10px below.
 
 ### KPI tile
-The executive's scan line. Paper card at 11px 13px 12px, label at 11.5px/600 in secondary ink, value at 27px/640 tight-tracked, sub-line in muted 11.5px with a 16px minimum height so a missing sub-line does not shift the row, an optional delta at 600 with a ▲/▼ glyph in severity ink, and a 3px bar on grid grey whose fill takes the series or severity colour. Hover lifts 1px. Over an empty selection the whole band becomes one card that states the refusal.
+The executive's scan line. Paper card at 11px 13px 12px, label at 11.5px/600 in secondary ink, value at 27px/640 tight-tracked, sub-line in muted 11.5px with a 16px minimum height so a missing sub-line does not shift the row, an optional delta at 600 with a ▲/▼ glyph in severity ink, and a 3px bar on grid grey whose fill takes the series or severity colour. Hover lifts 1px. Over an empty selection the whole band becomes one card carrying the refusal callout.
 
 ### Inputs / Fields
 - **Style:** 12.5px, 6px 9px, 8px radius, hairline, plane background, ink text, max width 190px in the filter row and 230px in the context bar. Native selects, native search, native date fields.

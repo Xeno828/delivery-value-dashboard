@@ -565,6 +565,26 @@ def empty_selection(b):
           CLAUSE in (page.get_attribute("#t-health", "data-tt") or ""),
           (page.get_attribute("#t-health", "data-tt") or "")[:110])
 
+    # And in the callout, not in the note style. The words were right and the
+    # type contradicted them: the KPI band's refusal was an 11.5px muted line
+    # inside a full-width card, the smallest text on the page, beside charts
+    # that kept drawing — the "dimming" ADR 0010 rules out, arrived at through
+    # typography instead of opacity. One class carries every refusal now, and
+    # a refusal set as a .note anywhere on the page fails here by name.
+    for sel in FIGURE_TILES:
+        if sel == "#t-health":
+            continue
+        check("the refusal in %s is set in the refusal callout" % sel,
+              page.eval_on_selector_all(sel + " .refusal", "n => n.length") >= 1)
+    stray = page.evaluate("""c => [...document.querySelectorAll('.note')]
+        .filter(n => n.textContent.includes(c) && !n.closest('.refusal'))
+        .map(n => (n.parentElement && n.parentElement.id) || n.className)""", CLAUSE)
+    check("no refusal anywhere on the page is set in the note style", stray == [], stray[:4])
+    kpi_px = page.evaluate("() => parseFloat(getComputedStyle("
+                           "document.querySelector('#kpis .refusal')).fontSize)")
+    check("the KPI band's refusal is not the smallest text on the page",
+          kpi_px >= 12.5, kpi_px)
+
     # The specific sentences that were wrong, named so a regression is legible
     # rather than just a failing digit count.
     kpis = " ".join((page.text_content("#kpis") or "").split())
