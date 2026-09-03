@@ -84,10 +84,38 @@ typography:
     fontWeight: 400
     lineHeight: 1.5
     letterSpacing: "normal"
+  scale:
+    display: "38px"
+    headline: "27px"
+    drop-glyph: "22px"
+    page-title: "20px"
+    stat: "19px"
+    modal-title: "17px"
+    panel-title: "16px"
+    verdict: "15px"
+    body: "14px"
+    forecast-lead: "13.5px"
+    finding: "13px"
+    caption: "12.5px"
+    caption-small: "12px"
+    note: "11.5px"
+    table-head: "11px"
+    axis: "10.5px"
+    severity-glyph: "10px"
+    info-ring: "9.5px"
+    arrow-glyph: "8px"
+    form: "0.86rem"
+    form-label: "0.82rem"
 rounded:
+  bar: "2px"
+  bar-lg: "3px"
+  focus: "4px"
+  code: "5px"
   xs: "6px"
+  icon: "7px"
   sm: "8px"
   md: "9px"
+  drop: "10px"
   lg: "12px"
   xl: "14px"
   pill: "999px"
@@ -207,7 +235,7 @@ Density is high on purpose. A full sprint fits on one 1440px screen, the twelve-
 - One accent blue for controls and links, kept separate from the chart's delivery blue so contrast fixes never touch a validated series.
 - Four severities, each a wash plus an ink pair, each carrying a glyph as well as a hue.
 - Figures in tabular numerals with negative tracking; units and basis always beside them.
-- Cards at 12px radius, controls at 8px, chips as pills: three corner sizes and no more.
+- Cards at 12px radius, controls at 8px, chips as pills: three corner sizes carry the page, with a short named ladder of small radii beneath them for bars, code, icon buttons and drop zones.
 
 ## Colors
 
@@ -269,6 +297,8 @@ Dark theme values for every token live in `src/styles.css` under `:root[data-the
 
 **The Question Rule.** A card heading asks the question the card answers, in ordinary English. "How long finished work took", not "Cycle time".
 
+**The Enumerated Ramp Rule.** Every size the page sets is a step of `typography.scale` in the frontmatter — the seven roles above, the in-between steps they lean on (the 20px page title, the 15px verdict, the 13px finding, the 11px table head, the 10.5px axis), the three glyph sizes (22px drop arrow, 10px severity mark, 8px reorder arrow, and the 9.5px info ring) and the brief form's two rem values, which are the only rem on the page. A size that is not on the ramp is added to the ramp first, with a name that says where it is used, or it is not used. The detector reads the ramp, not the prose.
+
 ## Layout
 
 A single centred column up to 1560px wide with 16px top and 20px side padding, on a twelve-column grid with a 10px gutter. Cards declare a span (3 to 12) and every row must sum to twelve at every breakpoint; the browser suite asserts it at three widths. Cards stretch to the height of their row and keep their contents top-aligned.
@@ -300,7 +330,7 @@ The only things that rise are transient: a KPI tile lifts 1px with a slightly st
 
 ## Shapes
 
-Three corner sizes carry the whole page. Cards, the topbar, filter rows and popovers are gently rounded (12px). Controls, inputs, selects, the forecast's ask strip and callouts are tighter (8px); icon buttons, code, small inputs and list rows sit at 6 to 7px; the tooltip, textareas, drop zones and radio cards at 9 to 10px; the modal alone at 14px. Chips, badges, the health pill, the toast and filter chips are full pills (999px).
+Three corner sizes carry the whole page, and every radius on it is a named step of the `rounded` scale in the frontmatter: bar (2px) and bar-lg (3px) for progress and KPI bars, focus (4px) for a focused disclosure summary, code (5px), xs (6px), icon (7px), sm (8px), md (9px), drop (10px), lg (12px), xl (14px) and pill. Cards, the topbar, filter rows and popovers are gently rounded (12px). Controls, inputs, selects, the forecast's ask strip and callouts are tighter (8px); icon buttons, code, small inputs and list rows sit at 6 to 7px; the tooltip, textareas, drop zones and radio cards at 9 to 10px; the modal alone at 14px. Chips, badges, the health pill, the toast and filter chips are full pills (999px).
 
 Borders are 1px hairline everywhere, dashed at 1.5px for the drop zone and the offline notice, and dashed at 1px for the "folded" separators above a raw field. A refusal is squared on its left where a 3px rule in the severity ink stands, and rounded 8px on the right. Progress and KPI bars are 3 to 6px tall with 2 to 3px radius. Severity glyphs are 16px circles with a bold 10px character; the info mark is a 14px ring.
 
@@ -380,4 +410,4 @@ Paper at 9px radius with the float shadow, 9px 11px padding, 12px text up to 290
 - **Don't** put white text on a status fill; severity is ink on wash.
 - **Don't** dim a disabled or unsupported element with opacity alone; keep its colour and carry the reason in text.
 - **Don't** let a control set the page's minimum width; wrap it, or give the tools their own row.
-- **Don't** add a fourth corner size or a second shadow at rest; the border defines the card.
+- **Don't** add a radius outside the `rounded` scale or a second shadow at rest; the border defines the card, and a new corner size is a new step with a name before it is a value in a rule.

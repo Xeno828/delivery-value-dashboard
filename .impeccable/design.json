@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-03T14:29:40+00:00",
+  "generatedAt": "2026-09-03T19:18:56+00:00",
   "title": "Design System: Delivery Value Dashboard",
   "extensions": {
     "colorMeta": {
@@ -691,6 +691,10 @@
       "mono": {
         "displayName": "Mono",
         "purpose": "Account ids, pasted JSON and code only."
+      },
+      "scale": {
+        "displayName": "Scale",
+        "purpose": "The enumerated ramp: every size the page sets, named for where it is used. The roles above are the ones a new element should reach for first."
       }
     },
     "shadows": [
@@ -718,6 +722,11 @@
         "name": "modal",
         "value": "0 20px 60px rgba(0,0,0,.3)",
         "purpose": "The import dialog."
+      },
+      {
+        "name": "toast",
+        "value": "0 8px 30px rgba(0,0,0,.25)",
+        "purpose": "The toast rising into place."
       }
     ],
     "motion": [
@@ -795,6 +804,57 @@
       "maxWidth": "1560px",
       "pagePadding": "16px 20px 80px",
       "rule": "Every row sums to twelve at every breakpoint; cards stretch to their row."
+    },
+    "roundedMeta": {
+      "bar": {
+        "canonical": "2px",
+        "purpose": "KPI bars and the burndown's fill track."
+      },
+      "bar-lg": {
+        "canonical": "3px",
+        "purpose": "Release progress bars, legend swatches, chart bar ends."
+      },
+      "focus": {
+        "canonical": "4px",
+        "purpose": "A focused disclosure summary's outline."
+      },
+      "code": {
+        "canonical": "5px",
+        "purpose": "Inline code."
+      },
+      "xs": {
+        "canonical": "6px",
+        "purpose": "Small inputs, list rows, the brief form's fields and buttons."
+      },
+      "icon": {
+        "canonical": "7px",
+        "purpose": "Icon buttons and the forecast's inputs."
+      },
+      "sm": {
+        "canonical": "8px",
+        "purpose": "Controls, inputs, selects, callouts, the segmented toggle."
+      },
+      "md": {
+        "canonical": "9px",
+        "purpose": "Tooltip, textareas, radio cards, the stat grid."
+      },
+      "drop": {
+        "canonical": "10px",
+        "purpose": "Drop zones and the tile picker's list rows."
+      },
+      "lg": {
+        "canonical": "12px",
+        "purpose": "Cards, the topbar, filter rows, popovers."
+      },
+      "xl": {
+        "canonical": "14px",
+        "purpose": "The import dialog alone."
+      },
+      "pill": {
+        "canonical": "999px",
+        "role": "pill",
+        "purpose": "Chips, badges, the health pill, the toast, filter chips."
+      }
     }
   },
   "components": [
@@ -930,6 +990,11 @@
         "name": "The Nothing Stacks Rule",
         "body": "Cards never overlap and never nest a second card. The panel, the popovers and the modal are the only layers, and all of them are transient.",
         "section": "elevation"
+      },
+      {
+        "name": "The Enumerated Ramp Rule",
+        "body": "Every size the page sets is a step of typography.scale and every radius a step of rounded; a new one is added to the scale, with a name that says where it is used, before it is used. The detector reads the ramp, not the prose.",
+        "section": "typography"
       }
     ],
     "dos": [
