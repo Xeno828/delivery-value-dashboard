@@ -242,7 +242,20 @@ table.tv td.num,table.tv th.num{text-align:right}
   border:1px solid var(--axis);color:var(--muted);font-size:9.5px;font-weight:700;cursor:help;flex:none;
   background:transparent;padding:0;line-height:1;vertical-align:middle}
 .info:hover{color:var(--text-primary);border-color:var(--muted)}
-.info:focus-visible,.health-chip:focus-visible{outline:2px solid var(--link);outline-offset:2px}
+/* One focus language. DESIGN.md said the 2px link-blue ring was on every
+   focusable control; it was on seven kinds, and the buttons, the KPI tiles,
+   the icon buttons, the segmented toggles, the selects and the inputs fell to
+   the browser's default — two rings on one page, the weaker one on the
+   executive's band. tests/a11y.py focuses one of each and reads the ring. */
+.info:focus-visible,.health-chip:focus-visible,.btn:focus-visible,.icon-btn:focus-visible,
+.kpi:focus-visible,.seg button:focus-visible,.filters select:focus-visible,.filters input:focus-visible,
+.ctx-f select:focus-visible,.fc-ask input:focus-visible,.vp-presets button:focus-visible,
+.tabs button:focus-visible,.linkish:focus-visible,.maptable select:focus-visible,
+.wingrid input:focus-visible,textarea:focus-visible,.fchip button:focus-visible,
+.vp-list input:focus-visible{outline:2px solid var(--link);outline-offset:2px}
+/* A note inside a refusal is secondary ink, never muted: muted on the warn
+   wash measured 4.3:1 in the dark theme. */
+.refusal .note,.fc-refusal .note{color:var(--text-secondary)}
 /* Off-screen until it is focused, then a button in the top-left corner. */
 .skip{position:absolute;left:8px;top:-60px;z-index:100;background:var(--accent-bg);color:var(--on-accent);
   padding:8px 12px;border-radius:8px;font-size:12.5px;font-weight:600;text-decoration:none}

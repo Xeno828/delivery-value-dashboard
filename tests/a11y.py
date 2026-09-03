@@ -300,6 +300,29 @@ def main():
         print("2.4.7  focus visible")
         check("no control suppresses its focus indicator",
               page.evaluate(FOCUS) == [], page.evaluate(FOCUS)[:4])
+        # One focus language, not two. The design's 2px link-blue ring was on
+        # seven kinds of control and the browser's default on the rest, the
+        # weaker of the two on the KPI band. Focus one of each kind and read
+        # the ring; a control whose focus is not :focus-visible after a
+        # programmatic focus is reported as such rather than passed.
+        link = page.evaluate("() => getComputedStyle(document.documentElement).getPropertyValue('--link').trim()")
+        rings = page.evaluate("""() => {
+          const sels = ['.btn', '.btn.primary', '.icon-btn', '#kpis .kpi', '.seg button',
+                        '#f-assignee', '#f-q', '.info', '#t-health', '.linkish'];
+          const c = document.createElement('canvas').getContext('2d');
+          const rgb = v => { c.fillStyle = v; return c.fillStyle; };
+          return sels.map(s => {
+            const el = [...document.querySelectorAll(s)].find(e => e.getBoundingClientRect().width > 0);
+            if (!el) return [s, 'missing'];
+            el.focus();
+            const cs = getComputedStyle(el);
+            return [s, el.matches(':focus-visible') ? cs.outlineWidth + ' ' + cs.outlineStyle + ' ' + rgb(cs.outlineColor) : 'not focus-visible'];
+          });
+        }""")
+        want = page.evaluate("v => { const c = document.createElement('canvas').getContext('2d'); c.fillStyle = v; return c.fillStyle; }", link)
+        bad = [r for r in rings if r[1] != "2px solid " + want]
+        check("every kind of control focuses with the same 2px link-blue ring", bad == [], bad[:4])
+        page.evaluate("() => document.activeElement && document.activeElement.blur()")
 
         # ---------- 1.3.1 / 2.1.1 the help layer without a pointer ----------
         # Every "i" was a span that answered mousemove and nothing else, and the
@@ -368,6 +391,27 @@ def main():
         # for some readers it is the only state they see — and until the fix it
         # was the state the grid was faded to 0.45 opacity in, which put every
         # sentence on the page below AA.
+        # A note inside a refusal callout. The one beneath the brief card's
+        # refusal measured 4.3:1 in the dark theme: muted ink on the warn wash.
+        # Tested on the stylesheet directly, because the state needs a
+        # transport that answers 404 and this suite runs from a file.
+        print("1.4.3  contrast — a note inside a refusal")
+        for theme in ("light", "dark"):
+            page.evaluate("t => document.documentElement.dataset.theme = t", theme)
+            ratio = page.evaluate("""() => {
+              const box = document.createElement('div'); box.className = 'fc-refusal';
+              const n = document.createElement('div'); n.className = 'note'; n.textContent = 'x';
+              box.appendChild(n); document.body.appendChild(box);
+              const lum = s => { const m = s.match(/\\d+(\\.\\d+)?/g).slice(0, 3).map(Number);
+                const f = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+                return 0.2126 * f(m[0]) + 0.7152 * f(m[1]) + 0.0722 * f(m[2]); };
+              const fg = lum(getComputedStyle(n).color), bg = lum(getComputedStyle(box).backgroundColor);
+              box.remove();
+              return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
+            }""")
+            check("a note inside a refusal meets AA in %s mode" % theme, ratio >= 4.5, round(ratio, 2))
+        page.evaluate("() => document.documentElement.dataset.theme = 'light'")
+
         print("1.4.3  contrast — the empty selection")
         page.evaluate("d => window.DVD.applyDataset(d)",
                       json.loads((ROOT / "forge" / "seed.json").read_text()))
