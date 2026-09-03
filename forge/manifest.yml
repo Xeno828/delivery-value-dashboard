@@ -109,7 +109,7 @@ modules:
     # the value field's, so a tenant can easily have one and not the other.
     #
     # It never leaves the tenant. `valueBasis` is in `NEVER_SEND` in
-    # `forge/src/index.js` and in `FREE_TEXT_FIELDS` in `service/app.py`, so the
+    # `forge/src/index.js` and in `FREE_TEXT_FIELDS` in `service/routes.py`, so the
     # calculator gets the number with no sentence beside it and no issue key —
     # a rule that predates this field and is the reason declaring it costs no
     # new egress. ADR 0025 made that argument for the number; it is stronger

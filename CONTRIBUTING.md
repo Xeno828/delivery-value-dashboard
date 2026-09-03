@@ -55,7 +55,7 @@ Five suites run in CI and all must pass:
 | `tests/test_agent.py` | The tools agree with the dashboard; the forecaster is honest and backtested; a config changes the right figures and nothing else |
 | `tests/a11y.py` | WCAG 2.2 AA in both themes, including post-interaction states |
 | `tests/security.py` | Hostile data cannot execute; nothing leaks; nothing persists; no credential is hard-coded |
-| `tests/test_service.py` | The hosted calculator computes nothing of its own, and no issue text can reach it |
+| `tests/test_service.py` | The routes and the Forge resolver compute nothing of their own, no issue text crosses the projection, and the jobs, the manifest and the adapter agree with the code |
 
 Two rules worth stating because both were broken once and caught here:
 
@@ -68,11 +68,11 @@ Two rules worth stating because both were broken once and caught here:
 
 ```bash
 pip install playwright && playwright install chromium
-make test          # all five suites
+make test          # all six suites
 make test-a11y     # accessibility only
 make test-security # security only
 make test-agent    # the tools — facts, forecast, intake, org config; no browser
-make test-service  # the hosted calculator — projection, refusals; no browser
+make test-service  # the routes and the Forge resolver — projection, refusals, jobs; no browser
+make test-wasm     # the same Python under WebAssembly, byte for byte; needs node
 make perf          # timing at four bundle sizes (not part of `make test`)
-make serve-calc    # run the calculator locally, unauthenticated
 ```

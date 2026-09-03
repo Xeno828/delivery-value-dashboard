@@ -1,7 +1,7 @@
 BUNDLE ?= data/demo-intake-bundle.json
 BOARD  ?= 42
 
-.PHONY: build check test test-agent test-a11y test-security test-service test-wasm perf report intake intake-scale intake-sequence demo serve serve-live serve-calc forge-static forge-deps forge-assets forge-lint forge-deploy forge-install forge-upgrade forge-uninstall bundle fetch clean
+.PHONY: build check test test-agent test-a11y test-security test-service test-wasm perf report intake intake-scale intake-sequence demo serve serve-live forge-static forge-deps forge-assets forge-lint forge-deploy forge-install forge-upgrade forge-uninstall bundle fetch clean
 
 build:            ## assemble dist/delivery-value-dashboard.html from src/
 	python3 build.py
@@ -26,7 +26,7 @@ test-security: build ## security only (XSS, pollution, traversal, secrets, deps)
 test-agent:       ## agent tools only: facts, forecast, refusals, backtest
 	python3 tests/test_agent.py
 
-test-service:     ## the hosted calculator: projection, refusals, no arithmetic
+test-service:     ## the routes and the Forge resolver: projection, refusals, jobs, no arithmetic
 	python3 tests/test_service.py
 
 # Regenerates forge/src/assets.js itself, from the Python as it is now, so it
@@ -68,10 +68,6 @@ serve: build      ## preview at http://localhost:8000/dist/
 
 serve-live: build ## serve with the live-mode API backed by the demo bundle
 	python3 scripts/serve_live.py --bundle data/sample-bundle.json
-
-serve-calc:       ## the hosted calculator, for local development only
-	@echo "Unauthenticated — local development only. See service/README.md."
-	python3 service/app.py --insecure
 
 forge-static: build forge-deps  ## stage both Forge static resources
 	@mkdir -p forge/static/dashboard/build forge/static/probe

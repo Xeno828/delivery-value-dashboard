@@ -1,20 +1,15 @@
 #!/usr/bin/env python3
 """
-routes.py — the calculator's answers, with nothing to serve them.
+routes.py — the routes: the projection, the caps, the refusals, one function
+per route, and `answer(path, body)`.
 
-Everything `service/app.py` did that was not HTTP or authentication lives here:
-the projection that keeps a customer's words out of a calculation, the caps,
-the refusal sentences, and one function per route that validates, delegates to
-`agent/tools/` and hands the figures back. Two callers import it and neither
-adds anything:
-
-  * `service/app.py`, the hosted calculator, puts a socket and two auth
-    verifiers in front of `answer()` and is otherwise a pass-through.
-  * The Forge function runs this file unchanged under Pyodide — CPython
-    compiled to WebAssembly — inside Atlassian's runtime, and calls `answer()`
-    with the same bodies. ADR 0031. Nothing is rewritten for that; the
-    generated module the function ships is built from this file and from
-    `agent/tools/` at deploy, so there is no second copy of any of it.
+This is what the Forge function runs unchanged under Pyodide — CPython
+compiled to WebAssembly — inside Atlassian's runtime. Nothing is rewritten
+for that; the generated module the function ships is built from this file
+and from `agent/tools/` at deploy, so there is no second copy of any of it.
+ADR 0031. Until 2026-09-03 a hosted calculator, `app.py` beside this file,
+put a socket and two auth verifiers in front of the same functions; it is
+retired and this module is the whole of `service/`.
 
 **It does no arithmetic of its own.** Every figure comes from metrics.py,
 forecast.py, intake.py or selection.py, exactly as the dashboard and the CLI

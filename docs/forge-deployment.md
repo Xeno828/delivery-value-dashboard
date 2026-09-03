@@ -187,7 +187,9 @@ Reached, on a dev site. Getting there took three deploys, and all three were the
 
 ---
 
-## 2. Verify the Forge invocation token — confirmed against a real token, 2026-08-25
+## 2. Verify the Forge invocation token — confirmed against a real token, 2026-08-25; retired with the calculator, 2026-09-03
+
+> The verifier this section describes lived in `service/app.py`, which is deleted: nothing is hosted, so no token is presented to anything. Kept because the four values it confirmed are the ones any future remote would need again.
 
 **Read [hosting the calculator](hosting-the-calculator.md) §1 before starting this.** The four values below are now confirmed and dated, and confirming them turned up three things this section did not know: the resolver used plain `fetch` and so would have received no token at all, the verifier read the tenant with a flat lookup against a claim that is nested, and the clock-skew allowance is longer than the token's whole life. The first two are fixed and pinned by the suite; the third is left at 30 seconds deliberately until a real token measures the lifetime. This section is otherwise still correct — it is the *"only you can do it"* framing that was wrong, because two of the three were code.
 
@@ -280,7 +282,9 @@ Keep the shared-secret mode — it is what makes the service testable without a 
 
 ---
 
-## 3. Build and scan the container image — done, and both gates are in CI
+## 3. Build and scan the container image — done, and both gates were in CI; retired with the calculator, 2026-09-03
+
+> The image, its smoke test, its scan gate and the `container` job in CI are gone with `service/app.py` ([ADR 0031](adr/0031-the-forecast-runs-inside-the-forge-function.md)). Kept as the record of what the gates checked.
 
 **When this was written, `service/Dockerfile` had never been built: it was written on a machine with no Docker.** It has been built many times since — the image is what runs in both Cloud Run regions, and every push that touches it rebuilds, smoke-tests and scans it before anything is pushed to a registry. The rest of this section is the local loop, which is still worth running before a push.
 

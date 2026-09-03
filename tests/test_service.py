@@ -1,20 +1,26 @@
 #!/usr/bin/env python3
 """
-test_service.py — the hosted calculator.
+test_service.py — the routes, the Forge resolver, and the seam between them.
 
-Three things have to hold, and the first is the one the whole design rests on:
+Named for the hosted calculator it used to test; that service is retired
+(ADR 0031) and what is here is what replaced it. Three things have to hold,
+and the first is the one the whole design rests on:
 
-  1. The projection loses nothing. Forge sends dates and status categories and
-     keeps the issue titles inside the tenant. If a calculation quietly needs a
-     field the projection drops, the Forge build returns a different number
-     from the CLI and nothing says so.
-  2. The service computes nothing. Its answer must equal the tool called
-     directly, or there are two implementations again and the whole point of
-     hosting the Python is gone.
-  3. It refuses rather than half-answers. Bad auth, free text, a bad config, an
-     oversized payload — each is a sentence and no number.
+  1. The projection loses nothing. The resolver sends dates and status
+     categories and keeps the issue titles inside the tenant. If a calculation
+     quietly needs a field the projection drops, the Forge build returns a
+     different number from the CLI and nothing says so.
+  2. The routes compute nothing. `service/routes.py` validates, delegates to
+     `agent/tools/` and passes figures through; its answer must equal the tool
+     called directly, or there are two implementations again.
+  3. It refuses rather than half-answers. Free text, a bad config, an oversized
+     payload, more asks than one sequencing compares — each is a sentence and
+     no number.
 
-Needs nothing but Python 3.
+The Forge half — the resolver's pure functions, the manifest, the jobs, the
+adapter — is held here too, against the same bodies.
+
+Needs Python 3 and, for the resolver's pure functions, Node.
 
     python3 tests/test_service.py
 """
@@ -36,7 +42,7 @@ sys.path.insert(0, str(ROOT / "service"))
 # the window it builds can be compared against the resolver's directly.
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import app as SVC        # noqa: E402
+import routes as SVC     # noqa: E402
 import metrics as MT     # noqa: E402
 import forecast as FC
 import selection as SEL    # noqa: E402
@@ -45,14 +51,6 @@ import serve_live as LIVE  # noqa: E402
 import intake as IN        # noqa: E402
 
 failures = []
-#: Generated per run rather than written down. A literal token in a test file is
-#: indistinguishable from a real one to a secret scanner — the security suite
-#: flagged exactly that — and a test that needs a hard-coded credential is a
-#: test teaching a bad habit.
-SECRET = secrets.token_hex(16)
-AUTH = {"Authorization": "Bearer " + SECRET}
-
-
 # The only scopes in this app that do not begin with `read:`, and the reason
 # each is tolerable. ADR 0014 has the argument; this is the enforcement.
 #
@@ -74,8 +72,10 @@ def check(name, ok, detail=""):
 
 
 def call(method, path, body=None, headers=None):
-    raw = json.dumps(body).encode() if body is not None else b""
-    return SVC.handle(method, path, raw, headers if headers is not None else AUTH)
+    """One route, answered: `(status, payload)`. The signature kept the shape
+    of the hosted service's `handle()` so the checks below did not have to
+    change when the socket went; `method` and `headers` are ignored now."""
+    return SVC.answer(path, json.loads(json.dumps(body if body is not None else {})))
 
 
 def team_payload(path="data/sample-bundle.json"):
@@ -298,70 +298,20 @@ def _intake_bodies():
     return ds, asks
 
 
-def test_the_routes_module_is_the_whole_answer():
-    """One seam, two doors. ADR 0031.
+def test_routes_is_the_whole_service():
+    """`service/` is `routes.py` and nothing else. ADR 0031.
 
-    `service/routes.py` is what travels into the Forge function; `app.py` is
-    the socket in front of it. The property to hold is that the socket adds
-    nothing: the envelope `handle()` returns after authenticating is the
-    envelope `answer()` returns, byte for byte, on every route — or the hosted
-    service and the in-function path are two implementations of the wire
-    format, and a key one of them adds is a key the page reads on one
-    transport and not the other.
+    The hosted calculator's socket and its two auth verifiers went with the
+    calculator; what is left is the module the Forge function runs under
+    WebAssembly. Nothing in it opens a socket, reads the environment, or
+    imports anything that runtime lacks — a server-only import here is a
+    deploy that fails inside a tenant after every test passed on a machine
+    that has the module.
     """
     import routes as RT
-    full, team, meta = team_payload()
-    ds = {"issues": project(team), "meta": meta, "orgConfig": full.get("orgConfig", {})}
-    ctx_ds = {"issues": project(team), "contexts": full["contexts"],
-              "orgConfig": full.get("orgConfig", {})}
-    cid = full["contexts"][0]["id"]
-    seq_ds, asks = _intake_bodies()
-    bodies = [
-        ("/v1/facts", {"dataset": ds}),
-        ("/v1/forecast", {"dataset": ds}),
-        ("/v1/forecast-context", {"dataset": ctx_ds, "contextId": cid}),
-        ("/v1/slice", {"dataset": {"contexts": full["contexts"]}, "contextId": cid}),
-        ("/v1/history", {"dataset": ctx_ds, "contextId": cid}),
-        ("/v1/burndown", {"dataset": ds}),
-        ("/v1/sequence", {"dataset": seq_ds, "asks": asks[:2], "board": "42",
-                          "asOf": "2026-08-10"}),
-        # Refusals too: a refusal is an answer, and its sentence has to be the
-        # same sentence over both doors.
-        ("/v1/forecast", {"dataset": {"issues": "not a list"}}),
-        ("/v1/sequence", {"dataset": seq_ds, "asks": []}),
-        ("/v1/nope", {"dataset": ds}),
-    ]
-    for path, body in bodies:
-        via_socket = call("POST", path, json.loads(json.dumps(body)))
-        direct = RT.answer(path, json.loads(json.dumps(body)))
-        check("%s answers the same through the socket as directly" % path,
-              via_socket[0] == direct[0]
-              and json.dumps(via_socket[1], sort_keys=True)
-              == json.dumps(direct[1], sort_keys=True),
-              {"socket": via_socket[0], "direct": direct[0]})
-    status, out = RT.answer("/v1/sequence",
-                            {"dataset": seq_ds, "asks": asks[:2], "board": "42",
-                             "asOf": "2026-08-10"})
-    check("the sequencing body the suite uses really sequences",
-          status == 200 and (out.get("result") or {}).get("available") is True,
-          (status, (out.get("result") or {}).get("sentence") or out.get("error")))
-
-    # The socket defines no route of its own. Every route name the service
-    # exposes is the routes module's object, not a copy of it.
-    for name in ("route_facts", "route_forecast", "route_forecast_context",
-                 "route_slice", "route_ask", "route_sequence", "route_history",
-                 "route_burndown", "clean_dataset", "check_sequence", "answer"):
-        check("app.%s is routes.%s, not a second definition" % (name, name),
-              getattr(SVC, name) is getattr(RT, name))
-    app_src = (ROOT / "service" / "app.py").read_text()
-    check("app.py defines no route and no projection of its own",
-          not re.search(r"^def (route_|clean_dataset|_clean_issue|check_sequence|answer)",
-                        app_src, re.M),
-          re.findall(r"^def \w+", app_src, re.M))
-
-    # And the module that travels imports nothing that only a server has. A
-    # socket or an environment read in routes.py is a deploy that fails inside
-    # a tenant, after the tests here all passed on a machine that has both.
+    files = sorted(p.name for p in (ROOT / "service").iterdir() if p.is_file())
+    check("service/ holds the routes module and its README, and nothing hosted",
+          files == ["README.md", "routes.py"], files)
     rt_src = (ROOT / "service" / "routes.py").read_text()
     imported = set(re.findall(r"^\s*(?:import|from)\s+([\w.]+)", rt_src, re.M))
     server_only = sorted(m for m in imported
@@ -372,11 +322,10 @@ def test_the_routes_module_is_the_whole_answer():
     code = "\n".join(l for l in rt_src.splitlines() if not l.lstrip().startswith("#"))
     check("and reads no environment variable",
           "os.environ" not in code and "getenv" not in code)
+    seq_ds, asks = _intake_bodies()
 
     # ---- the ask cap is the tool's, consulted and not copied ----
-    check("the cap the service reports is the tool's constant",
-          SVC.meta()["limits"]["maxAsks"] == IN.MAX_ASKS == 12,
-          SVC.meta()["limits"]["maxAsks"])
+    check("the cap is the tool's constant", IN.MAX_ASKS == 12, IN.MAX_ASKS)
     many = [dict(asks[0], id="A%02d" % i) for i in range(IN.MAX_ASKS + 1)]
     status, out = call("POST", "/v1/sequence",
                        {"dataset": seq_ds, "asks": many, "board": "42", "asOf": "2026-08-10"})
@@ -882,12 +831,6 @@ def test_refusals():
     full, team, meta = team_payload()
     ds = {"issues": project(team), "meta": meta}
 
-    check("no auth is refused", call("POST", "/v1/forecast", {"dataset": ds}, {})[0] == 401)
-    check("a wrong token is refused",
-          call("POST", "/v1/forecast", {"dataset": ds},
-               {"Authorization": "Bearer nope"})[0] == 401)
-    check("health needs no auth", SVC.handle("GET", "/healthz", b"", {})[0] == 200)
-    check("meta does need auth", SVC.handle("GET", "/v1/meta", b"", {})[0] == 401)
 
     # The one that matters: issue text must bounce, not be quietly dropped. A
     # service that accepts and ignores it is a service customer text reaches.
@@ -907,9 +850,6 @@ def test_refusals():
           "Nothing was calculated" in out["error"], out["error"][:70])
 
     check("a bad route is a 404", call("POST", "/v1/nope", {})[0] == 404)
-    check("GET on a POST route is a 405", call("GET", "/v1/forecast")[0] == 405)
-    status, out = SVC.handle("POST", "/v1/forecast", b"{not json", AUTH)
-    check("a malformed body is refused", status == 400 and "not JSON" in out["error"])
     status, out = call("POST", "/v1/sequence", {"dataset": ds, "asks": []})
     check("sequencing with no asks says why",
           status == 400 and "at least two" in out["error"], out.get("error", "")[:70])
@@ -926,113 +866,6 @@ def test_no_internals_leak():
                                            "ask": {"id": "X", "title": "t"}})
     check("an internal failure never returns a traceback",
           "Traceback" not in json.dumps(out) and "File \"" not in json.dumps(out), out)
-
-
-def test_auth_seam_fails_closed():
-    """Swapping the verifier must be a contained change that cannot fail open.
-
-    Both modes are written now. The one thing that must not happen in either is
-    a configuration which serves requests without checking anything — a
-    calculator that came up unauthenticated looks healthy to everything
-    watching it. So every way of being misconfigured is checked here, and each
-    one has to stop the process *and* refuse the request, because a guard that
-    only exists at startup is a guard somebody removes.
-    """
-    import os
-    saved = dict(os.environ)
-    try:
-        # The token mode, with none of the four values it needs. Configuration
-        # rather than constants, precisely so this file carries no value nobody
-        # has confirmed against Atlassian — which means it can be absent.
-        os.environ["SERVICE_AUTH"] = "forge-token"
-        for k in SVC.FORGE_ENV:
-            os.environ.pop(k, None)
-        problem = SVC.startup_problem()
-        check("an unconfigured token mode refuses to start",
-              problem and all(k in problem for k in SVC.FORGE_ENV), problem)
-        check("and says where the specification lives",
-              problem and "forge-deployment" in problem, problem)
-        # even if the startup guard were removed, requests must not pass
-        check("and its verifier refuses every request while unconfigured",
-              SVC.authorised({"Authorization": "Bearer anything"}) is None)
-
-        # And on a host where the crypto library is not installed at all. This
-        # is how CI found it: the import sat at the top of the verifier, so a
-        # runner without PyJWT got an exception where the line above expects a
-        # refusal. "A principal, or None" is the contract; raising is neither,
-        # and a verifier that cannot verify has one honest answer.
-        import sys as _sys
-        had = _sys.modules.get("jwt", "absent")
-        _sys.modules["jwt"] = None              # makes `import jwt` raise
-        try:
-            check("a host with no crypto library refuses rather than raising",
-                  SVC.authorised({"Authorization": "Bearer anything"}) is None)
-            # With the four values present, so it is the missing library the
-            # guard is refusing over rather than the configuration — the two
-            # are different problems with different fixes and the message has
-            # to name the one the operator actually has.
-            for k in SVC.FORGE_ENV:
-                os.environ[k] = "set-for-this-check"
-            problem = SVC.startup_problem()
-            check("and the startup guard names the missing dependency",
-                  problem and "PyJWT" in problem, problem)
-        finally:
-            for k in SVC.FORGE_ENV:
-                os.environ.pop(k, None)
-            if had == "absent":
-                _sys.modules.pop("jwt", None)
-            else:
-                _sys.modules["jwt"] = had
-
-        os.environ["SERVICE_AUTH"] = "typo-mode"
-        problem = SVC.startup_problem()
-        check("an unknown auth mode refuses to start", bool(problem), problem)
-        check("an unknown auth mode refuses every request",
-              SVC.authorised({"Authorization": "Bearer anything"}) is None)
-
-        os.environ["SERVICE_AUTH"] = "shared-secret"
-        os.environ.pop("SERVICE_SHARED_SECRET", None)
-        check("the implemented mode still refuses to start with no secret",
-              bool(SVC.startup_problem()))
-        check("and refuses every request while unconfigured",
-              SVC.authorised({"Authorization": "Bearer anything"}) is None)
-
-        os.environ["SERVICE_SHARED_SECRET"] = SECRET
-        check("a configured service may start", SVC.startup_problem() is None)
-        check("every declared mode has a verifier",
-              sorted(SVC.VERIFIERS) == sorted(SVC.AUTH_MODES), sorted(SVC.VERIFIERS))
-
-        # ---------- a secret store's trailing newline must not lock everyone out
-        #
-        # This shipped. `openssl rand -hex 32` prints a newline after the hex,
-        # Secret Manager stored all 65 bytes, Cloud Run injected all 65, and the
-        # deployment answered 401 to a caller presenting exactly the right
-        # secret. The verifier stripped the token it was *given* and not the one
-        # it was *configured with*, so the two sides were never comparable — and
-        # from inside the service the credential really did not match, which is
-        # why nothing it could log would have pointed at the cause.
-        #
-        # Every secret store and every echo-based workflow does this, so the
-        # asymmetry is the bug rather than the newline.
-        for label, stored in [("a trailing newline", SECRET + "\n"),
-                              ("a leading newline", "\n" + SECRET),
-                              ("surrounding whitespace", "  " + SECRET + "  \n")]:
-            os.environ["SERVICE_SHARED_SECRET"] = stored
-            who = SVC.authorised({"Authorization": "Bearer " + SECRET})
-            check("a secret stored with %s still authenticates" % label,
-                  bool(who) and who.get("mode") == "shared-secret", who)
-
-        # And the strip must not turn a blank secret into a configured one: an
-        # open calculator is free compute for whoever finds it.
-        os.environ["SERVICE_SHARED_SECRET"] = "   \n  "
-        check("a whitespace-only secret is no secret, and refuses to start",
-              bool(SVC.startup_problem()))
-        check("and refuses every request",
-              SVC.authorised({"Authorization": "Bearer    "}) is None)
-        os.environ["SERVICE_SHARED_SECRET"] = SECRET
-    finally:
-        os.environ.clear()
-        os.environ.update(saved)
 
 
 def test_forge_manifest_matches_the_code():
@@ -2057,280 +1890,6 @@ def test_epic_sizing_survives_the_projection():
 # =====================================================================
 # the Forge invocation token
 # =====================================================================
-def _jwt_available():
-    try:
-        import jwt                                          # noqa: F401,PLC0415
-        import cryptography                                 # noqa: F401,PLC0415
-        return True
-    except Exception:                                       # noqa: BLE001
-        return False
-
-
-def test_forge_token_verification():
-    """SERVICE_AUTH=forge-token, proved without Atlassian.
-
-    A keypair is generated here, a JWKS is served from a local HTTP server, and
-    the tokens are minted in the test. That exercises every mechanic — algorithm
-    pinning, key lookup by `kid`, cache and rotation, `exp`, `nbf`, `aud`,
-    `iss`, tenant binding — against a signer this test controls, which is the
-    only way to test a verifier without a real token to test against.
-
-    What it does **not** prove is the four values that identify Atlassian's
-    issuer: the JWKS URL, the `iss`, what belongs in `aud`, and which claim
-    carries the tenant. Those are configuration, the service refuses to start
-    without them, and confirming them against current Atlassian documentation
-    is a step no test here can do for you.
-    """
-    if not _jwt_available():
-        # Reported, never skipped silently. A security test that quietly did
-        # not run reads exactly like one that passed.
-        check("PyJWT with its crypto extra is installed, so the verifier can be tested",
-              False, "pip install -r service/requirements.txt")
-        return
-
-    import http.server
-    import threading
-    import jwt
-    from cryptography.hazmat.primitives.asymmetric import rsa
-
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    KID = "test-key-1"
-
-    def jwk_of(k, kid):
-        pub = jwt.algorithms.RSAAlgorithm.to_jwk(k.public_key(), as_dict=True)
-        pub.update({"kid": kid, "use": "sig", "alg": "RS256"})
-        return pub
-
-    served = {"keys": [jwk_of(key, KID)]}
-    fetches = {"n": 0}
-
-    class JWKS(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):                                   # noqa: N802
-            fetches["n"] += 1
-            body = json.dumps(served).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, *a):                          # keep the run quiet
-            pass
-
-    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), JWKS)
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    url = "http://127.0.0.1:%d/jwks" % srv.server_address[1]
-
-    ISS, AUD, TENANT_CLAIM = "https://forge.example/iss", "ari:app/abc", "installationId"
-    env = {"SERVICE_AUTH": "forge-token", "FORGE_JWKS_URL": url, "FORGE_ISSUER": ISS,
-           "FORGE_AUDIENCE": AUD, "FORGE_TENANT_CLAIM": TENANT_CLAIM}
-    old_env = {k: os.environ.get(k) for k in env}
-
-    def mint(k=key, kid=KID, alg="RS256", **over):
-        now = int(time.time())
-        claims = {"iss": ISS, "aud": AUD, "exp": now + 300, "nbf": now - 5,
-                  TENANT_CLAIM: "tenant-abc"}
-        claims.update(over)
-        return jwt.encode(claims, k, algorithm=alg, headers={"kid": kid})
-
-    def bearer(tok):
-        return {"Authorization": "Bearer " + tok}
-
-    try:
-        os.environ.update(env)
-        SVC._jwks_cache.update({"keys": {}, "fetched_at": 0.0, "last_attempt": 0.0})
-
-        check("the token mode starts once its four values are configured",
-              SVC.startup_problem() is None, SVC.startup_problem())
-
-        who = SVC.authorised(bearer(mint()))
-        check("a correctly signed, in-date token is accepted",
-              bool(who) and who.get("mode") == "forge-token", who)
-        check("and it carries the tenant, which is the point of the mode",
-              (who or {}).get("tenant") == "tenant-abc", who)
-
-        now = int(time.time())
-        rejects = [
-            ("expired", mint(exp=now - 60, nbf=now - 600)),
-            ("nbf in the future", mint(nbf=now + 600, exp=now + 900)),
-            ("right signature, wrong aud", mint(aud="ari:app/somebody-else")),
-            ("right signature, wrong iss", mint(iss="https://not-atlassian.example")),
-            ("signed with a key not in the JWKS", mint(k=other)),
-            ("no kid in the header", jwt.encode({"iss": ISS, "aud": AUD,
-                                                 "exp": now + 300,
-                                                 TENANT_CLAIM: "t"}, key,
-                                                algorithm="RS256")),
-            ("well-formed but truncated", mint()[:-8]),
-            ("no tenant claim at all", mint(**{TENANT_CLAIM: None})),
-            ("an empty tenant claim", mint(**{TENANT_CLAIM: "   "})),
-        ]
-        for name, tok in rejects:
-            check("a token that is %s is rejected" % name,
-                  SVC.authorised(bearer(tok)) is None, name)
-
-        # The two that are attacks rather than mistakes, and the reason the
-        # algorithm is pinned before a key is ever looked up.
-        unsigned = jwt.encode({"iss": ISS, "aud": AUD, "exp": now + 300,
-                               TENANT_CLAIM: "t"}, key=None, algorithm="none",
-                              headers={"kid": KID})
-        check("a token with alg:none and no signature is rejected",
-              SVC.authorised(bearer(unsigned)) is None, "alg:none")
-
-        # The classic: sign with HMAC using the RSA *public* key as the shared
-        # secret, against a verifier that takes its algorithm from the header.
-        # The public key is public, so this is free to construct.
-        # Assembled by hand rather than with `jwt.encode`, which refuses to use
-        # an asymmetric key as an HMAC secret — a good guard on the *minting*
-        # side, and not one a verifier may rely on. An attacker writes these
-        # three lines.
-        import base64
-        import hashlib
-        import hmac as _hmac
-        from cryptography.hazmat.primitives import serialization
-        pub_pem = key.public_key().public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo)
-        b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=")
-        signing = (b64(json.dumps({"alg": "HS256", "typ": "JWT", "kid": KID}).encode())
-                   + b"." + b64(json.dumps({"iss": ISS, "aud": AUD, "exp": now + 300,
-                                            TENANT_CLAIM: "t"}).encode()))
-        forged = (signing + b"." + b64(_hmac.new(pub_pem, signing,
-                                                 hashlib.sha256).digest())).decode()
-        check("an HMAC-signed token using the public key as the secret is rejected",
-              SVC.authorised(bearer(forged)) is None, "HS256 with the public key")
-
-        check("a request with no Authorization header at all is rejected",
-              SVC.authorised({}) is None)
-
-        # ---------- the tenant claim is nested in a real token ----------
-        #
-        # Every token minted above carries a *flat* tenant claim, and that is
-        # why twelve rejection cases could pass against a verifier that could
-        # not read a real one. The invocation token has no flat tenant claim at
-        # all: the installation identity is `app.installationId`, one level
-        # down, and `context.cloudId` — the other candidate — is not delivered
-        # to the backend-function invocations this app makes, so on this route
-        # it is always absent. A flat `claims.get()` found neither, so the mode
-        # refused 100% of genuine traffic while this suite stayed green.
-        #
-        # It failed in the safe direction — nothing wrong was ever accepted —
-        # and it still meant the tenant-aware mode did not work. Nothing minted
-        # by a signer this test controls could have shown it; only Atlassian's
-        # published payload could, which is why the shape is copied from it.
-        INSTALL = ("ari:cloud:ecosystem::installation/"
-                   "0a3a7799-53ae-4a5b-9e7e-03338980abb5")
-        os.environ["FORGE_TENANT_CLAIM"] = "app.installationId"
-        nested = mint(**{TENANT_CLAIM: None,
-                         "app": {"id": AUD, "installationId": INSTALL}})
-        who = SVC.authorised(bearer(nested))
-        check("a nested tenant claim is read, as a real token carries it",
-              bool(who) and who.get("tenant") == INSTALL, who)
-
-        # The walk has to refuse as firmly as the flat lookup did. A path that
-        # runs out, or lands on an object, or lands on blank, is a call this
-        # service cannot attribute — and attributing calls is the whole reason
-        # this mode exists.
-        for name, tok in [
-            ("a dotted path whose object is absent",
-             mint(**{TENANT_CLAIM: None})),
-            ("a dotted path that lands on an object rather than a string",
-             mint(**{TENANT_CLAIM: None,
-                     "app": {"installationId": {"id": INSTALL}}})),
-            ("a dotted path that lands on a blank string",
-             mint(**{TENANT_CLAIM: None, "app": {"installationId": "   "}})),
-        ]:
-            check("%s is rejected" % name,
-                  SVC.authorised(bearer(tok)) is None, name)
-
-        # And a claim name with no dot in it still reads flat, so the twelve
-        # cases above are not rewritten to suit the fix.
-        os.environ["FORGE_TENANT_CLAIM"] = TENANT_CLAIM
-        check("a claim name with no dot in it still reads flat",
-              (SVC.authorised(bearer(mint())) or {}).get("tenant") == "tenant-abc")
-
-        # The algorithm pin is defence in depth: PyJWT's own `algorithms=`
-        # already refuses both forgeries above, so removing the pin changes no
-        # verdict and no mutation of it would fail. What the pin *does* change
-        # is observable, and is the property worth having — the token is thrown
-        # out before a key is looked up, so an attacker cannot use `alg: none`
-        # to make this service fetch from Atlassian's endpoint on their behalf.
-        # It also means the rejection is this service's rather than a library
-        # default somebody widens later.
-        # Carrying a `kid` this service has never seen, so that without the
-        # pin the verifier would go and fetch looking for it. With `kid` set to
-        # a key already cached the check proves nothing, because no fetch would
-        # happen either way — which is what the first version of it did.
-        probe = (b64(json.dumps({"alg": "HS256", "typ": "JWT",
-                                 "kid": "never-seen"}).encode())
-                 + b"." + b64(json.dumps({"iss": ISS, "aud": AUD, "exp": now + 300,
-                                          TENANT_CLAIM: "t"}).encode()))
-        probe = (probe + b"." + b64(_hmac.new(pub_pem, probe,
-                                              hashlib.sha256).digest())).decode()
-        SVC._jwks_cache["last_attempt"] = 0.0
-        before = fetches["n"]
-        check("and that token is rejected", SVC.authorised(bearer(probe)) is None)
-        check("a token whose algorithm is not pinned is refused before any key is fetched",
-              fetches["n"] == before, (before, fetches["n"]))
-        # The floor was opened to make that check mean something; close it
-        # again, because the cache assertions below depend on a recent attempt
-        # and a test that quietly changes a precondition for the next one is
-        # its own kind of wrong answer.
-        SVC._jwks_cache["last_attempt"] = time.time()
-
-        # ---------- the cache, and rotation ----------
-        before = fetches["n"]
-        for _ in range(5):
-            SVC.authorised(bearer(mint()))
-        check("the key set is cached rather than fetched per request",
-              fetches["n"] == before, (before, fetches["n"]))
-
-        # An unknown kid is exactly what somebody would send in a loop if this
-        # were unbounded, so it is rate limited by when the last fetch was
-        # attempted — not by whether the kid was found. Both halves of that are
-        # worth pinning: inside the floor an unknown kid costs Atlassian
-        # nothing at all, and past it costs one fetch however many arrive.
-        before = fetches["n"]
-        for _ in range(4):
-            SVC.authorised(bearer(mint(kid="nope")))
-        check("inside the refetch floor an unknown kid triggers no fetch at all",
-              fetches["n"] == before, (before, fetches["n"]))
-
-        SVC._jwks_cache["last_attempt"] = 0.0
-        before = fetches["n"]
-        for _ in range(4):
-            SVC.authorised(bearer(mint(kid="nope")))
-        check("past the floor it refetches once, not once per attempt",
-              fetches["n"] == before + 1, (before, fetches["n"]))
-
-        # Rotation: a new key appears under a new kid, and the floor is what
-        # keeps it from being picked up instantly — so the floor is dropped to
-        # prove the refetch works rather than waiting thirty seconds for it.
-        served["keys"] = [jwk_of(other, "test-key-2")]
-        SVC._jwks_cache["last_attempt"] = 0.0
-        rotated = SVC.authorised(bearer(mint(k=other, kid="test-key-2")))
-        check("a rotated key is picked up on the next unknown kid",
-              bool(rotated) and rotated.get("tenant") == "tenant-abc", rotated)
-        check("and the key it replaced stops verifying",
-              SVC.authorised(bearer(mint(k=key, kid=KID))) is None)
-
-        # ---------- misconfiguration must not serve ----------
-        for missing in SVC.FORGE_ENV:
-            keep = os.environ.pop(missing)
-            problem = SVC.startup_problem()
-            os.environ[missing] = keep
-            check("without %s the service refuses to start" % missing,
-                  problem is not None and missing in problem, problem)
-    finally:
-        srv.shutdown()
-        for k, v in old_env.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
-        SVC._jwks_cache.update({"keys": {}, "fetched_at": 0.0, "last_attempt": 0.0})
-
-
 def test_forge_app_dependencies():
     """This code runs inside a customer's Jira tenant, so what it depends on is
     a security question rather than a packaging one.
@@ -2406,68 +1965,6 @@ def test_forge_app_dependencies():
     gen = (ROOT / "forge" / "build-assets.mjs").read_text()
     check("the generator imports BOOT from the loader rather than carrying a copy",
           "require('./src/runtime.js')" in gen and "BOOT" in gen and "writeSources" in gen)
-
-
-def test_dockerfile_copies_everything_the_service_imports():
-    """Reconstruct the image's filesystem from its COPY lines and boot from it.
-
-    The failure this catches is narrow and nasty: the Dockerfile stops copying a
-    module the service imports — a new file under agent/tools, say — and every
-    other suite in this repository still passes, because they all run against a
-    working tree where the file is present. The container then fails on its
-    first request in production.
-
-    CI builds the real image and smoke-tests it. This runs everywhere, including
-    on machines with no Docker, which is where the Dockerfile actually gets
-    edited.
-    """
-    import os, shutil, tempfile
-    df = (ROOT / "service" / "Dockerfile").read_text()
-    copies = re.findall(r"^COPY\s+(\S+)\s+(\S+)\s*$", df, re.M)
-    check("the Dockerfile has COPY instructions to check", len(copies) >= 2, copies)
-
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp = pathlib.Path(tmp)
-        for src, dst in copies:
-            s, d = ROOT / src, tmp / dst.lstrip("/").replace("app/", "", 1)
-            if s.is_dir():
-                shutil.copytree(s, d, dirs_exist_ok=True)
-            else:
-                d.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(s, d)
-
-        r = subprocess.run(
-            [sys.executable, "-c",
-             "import sys; sys.path.insert(0, 'service'); import app; "
-             "print(app.VERSION); print(sorted(app.VERIFIERS))"],
-            cwd=tmp, capture_output=True, text=True, timeout=60,
-            env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
-        check("the service imports cleanly from the image's files alone",
-              r.returncode == 0, (r.stderr or r.stdout)[-200:])
-
-        shipped = {p.relative_to(tmp).as_posix() for p in tmp.rglob("*") if p.is_file()}
-        needed = {"agent/tools/%s.py" % m for m in
-                  ("metrics", "forecast", "intake", "orgconfig")}
-        check("every tool module is in the image", needed <= shipped,
-              sorted(needed - shipped) or "all present")
-
-        # Nothing that could carry a credential or a customer's issue titles.
-        leaked = sorted(p for p in shipped
-                        if p.startswith(("data/", "dist/", ".env", "config/"))
-                        or p.endswith((".env", ".jira-oauth.json")))
-        check("no credential or dataset is baked into the image",
-              leaked == [], leaked)
-
-
-def test_refuses_to_start_unauthenticated():
-    """A calculator that came up open would look perfectly healthy."""
-    env = {k: v for k, v in __import__("os").environ.items()
-           if k != "SERVICE_SHARED_SECRET"}
-    r = subprocess.run([sys.executable, str(ROOT / "service" / "app.py"), "--port", "0"],
-                       env=env, capture_output=True, text=True, timeout=30)
-    check("it refuses to start without a shared secret",
-          r.returncode != 0 and "Refusing to start" in (r.stdout + r.stderr),
-          (r.returncode, (r.stdout + r.stderr)[:80]))
 
 
 def test_the_brief_never_states_a_figure():
@@ -2575,9 +2072,8 @@ def _manifest_item(text, key):
 
     Regex rather than PyYAML, deliberately and for the same reason
     `test_forge_manifest_matches_the_code` does it: yaml is not a dependency of
-    this repository, CI installs only `service/requirements.txt` for this suite,
-    and adding a parser to the *service's* requirements to read a *Forge* file
-    would put a package in the production image that nothing in it imports.
+    this repository and CI installs nothing for this suite; a parser added for
+    one Forge file would be a dependency for the sake of a test.
     """
     m = re.search(r"^(\s+)-\s*key:\s*%s\s*$" % re.escape(key), text, re.M)
     if not m:
@@ -4566,68 +4062,6 @@ def body_keys_reach_a_reader():
               in_idx and in_live, {"resolver answer": in_idx, "serve_live": in_live})
 
 
-def test_the_image_takes_debians_security_updates():
-    """The base lags Debian, and the build has to close the gap.
-
-    `service/scan.sh` blocks on HIGH and CRITICAL findings that have a fix
-    available. Debian publishes a patched package before the `python` image is
-    rebuilt to include it, so for the length of that lag every build produces an
-    image the gate correctly refuses — and deploys stop. That happened on
-    2026-08-28: CVE-2026-14456 in OpenSSL, fixed in 3.5.7-1~deb13u2, with
-    python:3.12-slim still shipping 3.5.6-1~deb13u2 and no newer digest to pin.
-
-    Checked here rather than only in CI because CI needs Docker and this is
-    where the Dockerfile is edited. What CI proves is that the resulting image
-    scans clean; what this proves is that the line is still there and still says
-    why. ADR 0016.
-    """
-    df = (ROOT / "service" / "Dockerfile").read_text()
-    # The instructions, not the prose around them. Half this file is a comment
-    # explaining why `dist-upgrade` is the wrong verb, and a check that greps
-    # the whole text fails on the sentence saying not to do the thing.
-    steps = "\n".join(l for l in df.splitlines() if not l.lstrip().startswith("#"))
-
-    check("the image applies Debian's security updates",
-          "apt-get upgrade" in steps,
-          [l.strip() for l in steps.splitlines() if "apt-get" in l])
-
-    # `upgrade`, never `dist-upgrade`: this takes patched versions of packages
-    # already present and must not add or remove one. A dist-upgrade can change
-    # what is in a calculator image without anybody deciding to.
-    check("it upgrades what is there rather than resolving a new package set",
-          "dist-upgrade" not in steps,
-          [l.strip() for l in steps.splitlines() if "upgrade" in l])
-
-    # In the same layer, or the lists sit in the published image for no reason.
-    check("and deletes the apt lists in the same layer",
-          "rm -rf /var/lib/apt/lists/*" in steps,
-          [l.strip() for l in df.splitlines() if "apt/lists" in l])
-
-    # Before the wheel and the source, so everything above is built on the
-    # patched base and the layer caches independently of the app changing.
-    check("the upgrade runs before anything is installed on top of it",
-          steps.index("apt-get upgrade") < steps.index("COPY"),
-          (steps.index("apt-get upgrade"), steps.index("COPY")))
-
-    # The reason, in the file. A bare `apt-get upgrade` reads as belt-and-braces
-    # and is the first line somebody removes when trimming an image; the CVE and
-    # the record are what make it a decision rather than a habit.
-    check("the line says which lag it exists for, and names the record",
-          "CVE-2026-14456" in df and "ADR 0016" in df,
-          [l.strip() for l in df.splitlines() if "CVE-" in l or "ADR " in l])
-
-    # The policy itself, which this does not change and must not be read as
-    # changing. Unfixable findings have never blocked, and the failure of
-    # 2026-08-28 was misread twice as though they had.
-    scan = (ROOT / "service" / "scan.sh").read_text()
-    check("the gate still blocks only on findings that have a fix",
-          "--ignore-unfixed" in scan and "--exit-code 1" in scan,
-          [l.strip() for l in scan.splitlines() if "ignore-unfixed" in l])
-    check("and still prints everything HIGH and CRITICAL, fixable or not",
-          "--exit-code 0" in scan,
-          [l.strip() for l in scan.splitlines() if "exit-code 0" in l])
-
-
 def forecast_log_checks():
     """The forecast log, wired — roadmap item 4c, ADR 0017.
 
@@ -5667,7 +5101,6 @@ def business_value_checks():
 
 if __name__ == "__main__":
     import os
-    os.environ["SERVICE_SHARED_SECRET"] = SECRET
 
     print("the projection")
     test_projection_loses_nothing()
@@ -5675,8 +5108,8 @@ if __name__ == "__main__":
     test_field_lists_agree()
     print("the service computes nothing")
     test_service_computes_nothing()
-    print("one seam, two doors")
-    test_the_routes_module_is_the_whole_answer()
+    print("the routes are the whole service")
+    test_routes_is_the_whole_service()
     print("simulations are jobs")
     test_simulations_are_jobs()
     print("routes move one at a time")
@@ -5689,8 +5122,6 @@ if __name__ == "__main__":
     test_refusals()
     print("nothing internal leaks out")
     test_no_internals_leak()
-    print("the auth seam")
-    test_auth_seam_fails_closed()
     print("the Forge manifest")
     test_forge_manifest_matches_the_code()
     print("the split build")
@@ -5707,8 +5138,6 @@ if __name__ == "__main__":
     print("the forecast over a board with no sprints")
     test_the_forecaster_counts_one_issue_once()
     test_a_window_is_not_a_deadline_to_the_forecaster()
-    print("the Forge invocation token")
-    test_forge_token_verification()
     print("the scheduled brief")
     test_the_brief_never_states_a_figure()
     print("the Forge app's dependencies")
@@ -5746,11 +5175,6 @@ if __name__ == "__main__":
     value_basis_checks()
     ask_assembly_checks()
     body_keys_reach_a_reader()
-    print("the container image")
-    test_dockerfile_copies_everything_the_service_imports()
-    test_the_image_takes_debians_security_updates()
-    print("startup")
-    test_refuses_to_start_unauthenticated()
 
     print()
     if failures:

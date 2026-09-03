@@ -256,7 +256,7 @@ def epic_sizes(issues, as_of=None, min_items=3, stale_days=30, done_ratio=0.9):
     # A bundle carries `epic`, the epic's own summary. A payload assembled for
     # the hosted calculator carries `epicKey` and cannot carry `epic` at all —
     # free text is stripped on the way out (`FREE_TEXT_FIELDS` in
-    # service/app.py), which is the point of that boundary rather than an
+    # service/routes.py), which is the point of that boundary rather than an
     # oversight. Until this line, sizing over that route grouped nothing,
     # found no completed epics and refused: t-shirt scales and reference
     # classes were unavailable to it in principle.

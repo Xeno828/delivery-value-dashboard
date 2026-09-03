@@ -58,8 +58,8 @@ tests/wiz-*.png
 # here so a crashed run cannot leave it looking like a committed artefact.
 dist/.transport-test.html
 
-# Written by service/provision-gcp.sh so a re-run remembers what it created.
-# None of it is secret — a project id, two service account emails and a
-# federation path — but it is local machine state rather than repository
-# content, and the project it names is one person's.
+# Written by the retired calculator's provisioning script: a project id, two
+# service account emails and a federation path. Not secret, but one person's,
+# and the values the cloud teardown in CHANGELOG 1.78.0 needs — so it stays
+# ignored until Google Cloud project calculator-506614 is emptied, then goes.
 .gcp-deploy.env

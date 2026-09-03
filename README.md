@@ -141,14 +141,14 @@ Because it needs the local server, this tile shows an offline notice rather than
 │   ├── serve_live.py                    optional live-mode server
 │   ├── refresh.sh                       cron-friendly wrapper
 │   └── requirements.txt
-├── service/                             the hosted calculator (Forge route)
-│   ├── app.py                           stdlib HTTP over agent/tools; computes nothing
-│   ├── Dockerfile                       non-root, no writes, no credentials baked in
-│   └── README.md                        routes, sizing, deployment
-├── forge/                               Forge app scaffold — never deployed
-│   ├── manifest.yml                     scopes, remote, egress
-│   ├── src/index.js                     projects, calls the calculator, re-attaches
-│   └── README.md                        what the route costs
+├── service/                             the routes the Forge function runs under WebAssembly
+│   ├── routes.py                        projection, caps, refusals, answer(); computes nothing
+│   └── README.md                        what it is, and what used to be beside it
+├── forge/                               the Forge app — deployed, no remote, no egress
+│   ├── manifest.yml                     scopes, the consumer, the functions
+│   ├── src/index.js                     projects, hands to the Python in-function, re-attaches
+│   ├── src/runtime.js                   loads Pyodide from the generated bundle
+│   └── README.md                        how it is built and deployed
 ├── docs/
 │   ├── dashboard-review.md              why it is built this way
 │   ├── importing-data.md                the upload pipeline
@@ -174,7 +174,8 @@ Because it needs the local server, this tile shows an offline notice rather than
 ├── tests/
 │   ├── e2e.py                           browser suite, 101 checks
 │   ├── test_agent.py                    facts, forecast, intake, org config
-│   ├── test_service.py                  the calculator: projection, refusals
+│   ├── test_service.py                  the routes and the resolver: projection, refusals, jobs
+│   ├── test_wasm.py                     the same Python under WebAssembly, byte for byte
 │   ├── perf.py                          timing harness, four bundle sizes
 │   ├── a11y.py                          WCAG 2.2 AA, both themes
 │   ├── security.py                      hostile-data, secrets and server checks

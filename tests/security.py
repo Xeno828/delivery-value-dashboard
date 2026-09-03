@@ -886,18 +886,20 @@ def sso_checks():
           [l.strip() for l in manifest.splitlines()
            if any(w in l for w in ("oauth", "authentication", "login"))])
 
-    # ---- the calculator is machine-to-machine and has no human login ----
+    # ---- nothing hosted, so nothing anyone could sign in to ----
     #
-    # Nobody signs in to it, so there is no login for an IdP to stand in front
-    # of. Its two modes are a shared secret and Atlassian's own invocation
-    # token, and it refuses to start with neither — asserted in test_service.py.
-    app_py = (ROOT / "service" / "app.py").read_text()
-    check("the calculator authenticates callers, never people",
-          'AUTH_MODES = ("shared-secret", "forge-token")' in app_py,
-          [l.strip() for l in app_py.splitlines() if "AUTH_MODES" in l][:1])
-    check("and serves no page anybody could sign in to",
-          "text/html" not in app_py and "<form" not in app_py,
-          [l.strip() for l in app_py.splitlines() if "html" in l.lower()][:2])
+    # The calculator that used to stand here authenticated callers, never
+    # people, and is retired (ADR 0031). What replaced it runs inside the Forge
+    # function under Atlassian's own identity; the module it runs opens no
+    # socket and serves no page, and the security surface that used to be a
+    # bearer secret and a token verifier is now none at all.
+    routes_py = (ROOT / "service" / "routes.py").read_text()
+    check("the routes module opens no socket and serves no page",
+          "http.server" not in routes_py and "text/html" not in routes_py
+          and "<form" not in routes_py,
+          [l.strip() for l in routes_py.splitlines() if "http" in l.lower()][:2])
+    check("and no hosted service is left to authenticate to",
+          not (ROOT / "service" / "app.py").exists())
 
     # ---- the one path that bypasses an IdP, named and kept out of the app ----
     #

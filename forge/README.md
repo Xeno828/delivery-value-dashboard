@@ -1,5 +1,7 @@
 # The Forge app
 
+> **Since 2026-09-03 there is no calculator.** Every figure is computed inside the Forge function by the same Python the CLI runs, under WebAssembly, from a bundle `make forge-assets` generates ([ADR 0031](../docs/adr/0031-the-forecast-runs-inside-the-forge-function.md)). Passages below that describe hosting `service/`, `remotes[0].baseUrl` or a shared secret describe the route that was taken from 2026-08-25 and retired; they are kept as the record of what was built and why.
+
 **Registered, deployed to development, and reading a real tenant's data.** The
 other Jira connection is OAuth 2.0 (3LO) — `scripts/jira_auth.py`, with
 `--auth oauth` on the fetcher — and it is not going away: it needs no app
@@ -20,7 +22,7 @@ numbering and what is still open are in [`../docs/roadmap.md`](../docs/roadmap.m
 | | |
 |---|---|
 | `manifest.yml` | Modules, resources, scopes and the egress declaration |
-| `src/index.js` | The resolvers. Talks to Jira, calls the calculator, computes nothing |
+| `src/index.js` | The resolvers. Talks to Jira, hands to the Python inside the function, computes nothing |
 | `src/jira.js` | The shaping, as pure functions of a Jira response. No SDK, no network — which is what lets `tests/test_service.py` run it and compare its output with the live server's |
 | `bridge/bridge.js` | The transport adapter. Puts an `invoke()` on `window.__DVD_BRIDGE__` so `src/app.js` can reach a resolver without importing anything |
 

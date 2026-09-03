@@ -85,7 +85,7 @@ const CALC_FIELDS = [
 ];
 
 /** Everything the calculator must never see. Kept here so the two lists can be
- *  compared by eye against service/app.py's FREE_TEXT_FIELDS. */
+ *  compared by eye against service/routes.py's FREE_TEXT_FIELDS. */
 const NEVER_SEND = ['summary', 'assignee', 'epic', 'labels', 'url', 'valueBasis'];
 
 const projectIssue = (issue) => {

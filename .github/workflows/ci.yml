@@ -47,10 +47,8 @@ jobs:
       - name: Security tests
         run: python3 tests/security.py
 
-      - name: Hosted calculator tests (projection, refusals, no arithmetic)
-        run: |
-          pip install -r service/requirements.txt
-          python3 tests/test_service.py
+      - name: Routes and resolver tests (projection, refusals, jobs, no arithmetic)
+        run: python3 tests/test_service.py
 
       # The runtime the Forge function ships, which is Node 24 on Forge. The
       # pinned pyodide package is fourteen megabytes and the lockfile keys the
@@ -74,7 +72,6 @@ jobs:
         run: |
           pip install pip-audit
           pip-audit -r scripts/requirements.txt
-          pip-audit -r service/requirements.txt
 
       - name: Upload the rendered page
         if: always()
@@ -84,28 +81,3 @@ jobs:
           path: |
             dist/delivery-value-dashboard.html
             tests/last-run.png
-
-  # The calculator ships as a container, so the container is what gets tested —
-  # not just the Python inside it. This job has caught nothing yet because it is
-  # new; what it exists to catch is a Dockerfile that stops copying a file the
-  # service imports, which passes every other suite in this repository.
-  container:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Build the calculator image
-        run: docker build -f service/Dockerfile -t delivery-value-calculator:ci .
-
-      # The assertions live in service/smoke.sh rather than here, because the
-      # weekly rebuild in deploy.yml has to clear the same bar before it ships
-      # an image built from a base that moved on its own. Two copies would be
-      # two things to keep in step.
-      - name: It must clear the container checks
-        run: bash service/smoke.sh delivery-value-calculator:ci
-
-      # The policy is in service/scan.sh: fixable HIGH and CRITICAL block,
-      # unfixable ones are printed and do not. Both passes run, so what the
-      # gate declined to block on is on the log rather than dropped quietly.
-      - name: It must clear the vulnerability gate
-        run: bash service/scan.sh delivery-value-calculator:ci

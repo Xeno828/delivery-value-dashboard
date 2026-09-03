@@ -15,7 +15,7 @@ answered "0% by today" for a board that set no deadline (1.16.13 again). None
 of those failed. They all returned a plausible date.
 
 It lived in `scripts/serve_live.py` until the hosted calculator needed it too.
-`service/Dockerfile` copies `agent/tools/` and `service/app.py` and nothing
+`forge/build-assets.mjs` packs `agent/tools/` and `service/routes.py` and nothing
 else, so a slice defined in `scripts/` was a slice the Forge route could not
 reach — and the only other way to give Forge a forecast was to write this
 logic a second time in JavaScript, which is exactly what ADR 0005 and ADR 0008
@@ -23,7 +23,7 @@ exist to refuse. Of everything in this repository, this is the last code that
 should have had two implementations.
 
 So: one implementation, three callers. `scripts/serve_live.py` imports it,
-`service/app.py` imports it, and the agent's tools use it directly.
+`service/routes.py` imports it, and the agent's tools use it directly.
 """
 
 import forecast as FC
