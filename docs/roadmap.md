@@ -60,6 +60,17 @@ resolves a region-specific `baseUrl` per installation from the customer's own
 residency setting, so the app never routes tenants itself and there is no routing
 logic to get wrong. ADR 0012, `docs/hosting-the-calculator.md` §5.
 
+**And then, on 2026-09-03, residency stopped being ours at all.** The calculator
+is retired: every figure is computed inside the Forge function by the same
+Python the CLI runs, under WebAssembly, and the app declares no remote and no
+egress. That makes it *Runs on Atlassian* — the deploy reports 9.1.0 eligible —
+and data-residency PINNED by construction rather than by a region-keyed
+`baseUrl`. The price was measured before it was paid: a forecast that runs ten
+times slower on that CPU, and two routes, sequencing and the forecast itself,
+that no longer fit a resolver call and run as jobs the page cannot tell from a
+call. [ADR 0031](adr/0031-the-forecast-runs-inside-the-forge-function.md), and
+the eleven changelog entries from 1.76.0 to 1.78.1.
+
 **The other two thirds landed on 2026-08-29, and neither cost what this file
 said it would.** Item 6 was priced at 6–10 weeks for three features. One arrived
 as a side effect, one needed a day, and one needed nothing built — which is
@@ -212,8 +223,9 @@ these:
 - **SSO**, the other third of item 6, needed nothing built.
   [ADR 0022](adr/0022-sso-is-inherited-because-the-app-owns-no-identity.md):
   this product owns **no identity** — the panel is opened by somebody Atlassian
-  already authenticated, the calculator authenticates callers rather than
-  people, and the built file is a file. The customer's own authentication
+  already authenticated, nothing is hosted for anyone to authenticate to —
+  the calculator that authenticated callers rather than people is retired —
+  and the built file is a file. The customer's own authentication
   policy governs it entirely and the app cannot weaken it. What that record
   adds is the list of things that would falsify the claim, each one now checked
   in `tests/security.py`, and the one path that bypasses an IdP — the fetcher's
@@ -363,10 +375,10 @@ the activity log is **not tamper-evident** and says so
 ([ADR 0021](adr/0021-the-audit-log-is-operational-and-says-so.md)); item 5
 accepts an aggregate disclosure rather than enforcing per-issue permissions
 (ADRs [0018](adr/0018-permission-mirroring-holds-by-accident-and-where-it-does-not.md)–[0020](adr/0020-the-anchor-issue-is-the-brief-s-access-control.md));
-and the calculator image carries sixteen HIGH and CRITICAL findings with no
-upstream fix, reported and blocking nothing exactly as
-[ADR 0016](adr/0016-the-image-takes-debians-security-updates-at-build-time.md)
-intends. The answers that would have been problems are all clean: no credential
+and the calculator image that carried sixteen HIGH and CRITICAL findings with
+no upstream fix is gone with the calculator
+([ADR 0016](adr/0016-the-image-takes-debians-security-updates-at-build-time.md)
+records how its gate treated them while it ran). The answers that would have been problems are all clean: no credential
 collected, no login of its own
 ([ADR 0022](adr/0022-sso-is-inherited-because-the-app-owns-no-identity.md)),
 every scope read-only bar the two named and justified.
