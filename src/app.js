@@ -1158,14 +1158,25 @@ function derive(items) {
   // elapsed working-time position in the sprint
   const window = isWindow(S.view.ctx);
   const wd = window ? [] : (S.view.meta.workingDays || []);
-  const idx = wd.indexOf(now);
+  /* Position in the sprint, counted in working days up to the as-of date. Not
+     `indexOf(now)`: an as-of date that was not in the list — before the first
+     day, after the last, or a weekend in between — fell through to 1, so a
+     tenant's board whose next sprint began eleven days later read "100%
+     elapsed", "-72 pp" and "Off track (29/100)", a verdict about delivery on
+     a sprint in which no day had been worked, and a Saturday mid-sprint read
+     the same. Before the first day there is no clock yet, and that is said
+     rather than scored; after the last it is all elapsed; a weekend is as far
+     through as the working days already passed. agent/tools/metrics.py is
+     the mirror — change one, change both. Found by tests/forge_smoke.py. */
+  m.sprintNotStarted = wd.length > 0 && now < wd[0];
+  const passed = wd.filter(d => d <= now).length;
   /* Belt as well as braces. `contextWorkingDays()` already withholds the
      calendar from a window, so this would be null anyway — but every reader of
      `timeElapsed` and `paceGap` would then be relying on one guard two
      functions away, and `renderExec` reads `paceGap` directly. Removing that
      one guard in a mutation test printed **Pace vs clock −45 pp** for a board
      that had committed to nothing. One place to be wrong is enough. */
-  m.timeElapsed = wd.length ? (idx >= 0 ? (idx + 1) / wd.length : 1) : null;
+  m.timeElapsed = wd.length && !m.sprintNotStarted ? passed / wd.length : null;
   m.paceGap = (m.timeElapsed != null && m.totalU) ? (m.doneU / m.totalU) - m.timeElapsed : null;
 
   /* Why pace and scope could not be taken, when they could not — two different
@@ -1185,6 +1196,9 @@ function derive(items) {
   const noSprint = "this board does not use sprints, so nothing was committed by a date " +
     "and there is no clock to measure delivery against";
   m.paceUnknown = window ? noSprint
+    : m.sprintNotStarted
+    ? "this sprint has not started — it begins on " + fmtD(wd[0]) +
+      ", so there is no clock yet to measure delivery against"
     : m.timeElapsed == null
     ? (rollup
         ? "this view rolls up " + rollupCovers(S.view.ctx) + ", so there is no single " +
@@ -1195,6 +1209,7 @@ function derive(items) {
      calendar" for all four causes, including a rollup that has dates and a
      points view of issues nobody estimated. */
   m.paceUnknownShort = window ? "no sprints on this board"
+    : m.sprintNotStarted ? "not started · sprint starts " + fmtD(wd[0])
     : m.timeElapsed == null
     ? (rollup ? "no single sprint clock" : "no sprint dates")
     : (!m.totalU ? "no " + U().label + " recorded" : null);

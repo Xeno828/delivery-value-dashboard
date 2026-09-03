@@ -830,7 +830,18 @@ def facts(ds, previous=None, scope="sprint"):
     }
 
     wdays = meta.get("workingDays") or [d.isoformat() for d in working_days(_d(start), _d(end), cfg)]
-    elapsed = pct(wdays.index(as_of) + 1, len(wdays)) if as_of in wdays else (1.0 if wdays else None)
+    # Position in the sprint, counted in working days up to the as-of date.
+    # Not `wdays.index(as_of)`: an as-of date that was not in the list — before
+    # the first day, after the last, or a weekend in between — fell through
+    # to 1.0, so a sprint that had not started read as fully elapsed and a
+    # Saturday mid-sprint read the same. Before the first day there is no
+    # clock yet, and that is stated in `pace_withheld` rather than scored.
+    # `derive()` in src/app.js is the mirror — change one, change both.
+    not_started = bool(wdays) and as_of < wdays[0]
+    elapsed = (None if not wdays or not_started
+               else pct(sum(1 for d in wdays if d <= as_of), len(wdays)))
+    pace_withheld = (("this sprint has not started — it begins on %s, so there is no clock "
+                      "yet to measure delivery against") % wdays[0]) if not_started else None
 
     ages = {}
     for band, lo, hi in (("0-7", 0, 7), ("8-14", 7, 14), ("15-30", 14, 30), ("30+", 30, 10 ** 6)):
@@ -892,6 +903,8 @@ def facts(ds, previous=None, scope="sprint"):
             "points_done_pct": pct(sp(done), sp(issues)),
             "time_elapsed_pct": elapsed,
             "pace_gap_pts": round(pct(sp(done), sp(issues)) - elapsed, 4) if elapsed is not None else None,
+            # Why the two above are null when they are. Quoted, never softened.
+            "pace_withheld": pace_withheld,
         },
         "scope": {
             "added_items": len(added), "added_points": sp(added),

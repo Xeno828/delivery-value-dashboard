@@ -39,7 +39,7 @@ The dashboard is the specification. Every card on it is a question someone asked
 | Question | Dashboard source | Tool output |
 |---|---|---|
 | How much is done, in items and points? | Delivered tile | `delivery.*` |
-| Are we ahead of or behind the calendar? | Pace-vs-clock tile | `delivery.pace_gap_pts` |
+| Are we ahead of or behind the calendar? | Pace-vs-clock tile | `delivery.pace_gap_pts`; `null` before the sprint's first working day, with `delivery.pace_withheld` saying why |
 | Did scope change after we started, and by how much? | Burndown scope line | `scope.*` |
 | What is blocked, and by whom? | Blocked tile, risk register | `risk.blocked` |
 | What is overdue against a date we promised someone? | Past-due tile | `risk.overdue` |

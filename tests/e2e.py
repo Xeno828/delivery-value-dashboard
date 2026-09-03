@@ -155,6 +155,42 @@ def health_composition(b):
     check("the disclosed weights are the re-weighted ones and sum to 100",
           len(weights) == 3 and 99 <= sum(weights) <= 101, weights)
 
+    # ---------- a sprint that has not started ----------
+    # `wd.indexOf(now)` fell through to 1 for any as-of date not in the list:
+    # before the first day, after the last, or a weekend in between. A
+    # tenant's board whose next sprint began in eleven days read "100%
+    # elapsed", "-72 pp" and "Off track (29/100)" — a verdict about delivery
+    # on a sprint in which no day had been worked. Found by
+    # tests/forge_smoke.py, which is the only suite that looks inside the
+    # tenant.
+    future = json.loads(json.dumps(sample))
+    future["meta"]["startDate"], future["meta"]["endDate"] = "2026-08-17", "2026-08-28"
+    future["meta"].pop("workingDays", None)   # derived, as a Forge tenant's is
+    page.evaluate("d => window.DVD.applyDataset(d)", future)
+    page.wait_for_timeout(500)
+    chip, tt = page.evaluate(CHIP), page.evaluate(TT)
+    kpi = " ".join((page.text_content("#kpis .kpi:nth-child(2)") or "").split())
+    verdict = " ".join((page.text_content("#exec-verdict") or "").split())
+    check("a sprint that has not started drops delivery pace rather than scoring it",
+          "Delivery pace — <b>not measured</b>" in tt and "3 of 4 measures" in chip, chip)
+    check("and names the day the clock starts as the cause",
+          "has not started" in tt and re.search(r"17 Aug|Aug 17", tt) is not None, tt[:220])
+    check("the pace KPI says the sprint has not started, and states no figure",
+          "not started" in kpi and not re.search(r"-?\d+ pp|\d+% elapsed", kpi), kpi)
+    check("the verdict withholds the pace sentence and says why",
+          "has not started" in verdict and "% elapsed" not in verdict, verdict[:200])
+    # A Saturday inside the sprint is as far through as the working days
+    # already passed — five of ten here — not the whole of it.
+    sat = json.loads(json.dumps(sample))
+    sat["meta"]["asOfDate"] = "2026-08-08"
+    page.evaluate("d => window.DVD.applyDataset(d)", sat)
+    page.wait_for_timeout(500)
+    kpi = " ".join((page.text_content("#kpis .kpi:nth-child(2)") or "").split())
+    check("a Saturday mid-sprint reads as half elapsed, not fully",
+          "50% elapsed" in kpi, kpi)
+    check("and the score is still built from all four measures",
+          "/100)" in page.evaluate(CHIP) and "measures" not in page.evaluate(CHIP), page.evaluate(CHIP))
+
     # ---------- a rollup has dates and still has no clock ----------
     page.evaluate("d => window.DVD.applyDataset(d)", bundle)
     page.wait_for_timeout(500)

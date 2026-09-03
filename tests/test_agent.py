@@ -133,6 +133,36 @@ def test_demo_file_is_self_consistent():
           many["history"][-1] == last, (many["history"][-1], last))
 
 
+def test_a_sprint_that_has_not_started_has_no_pace():
+    """Before the first working day there is no clock, and the pack says so.
+
+    `wdays.index(as_of)` fell through to 1.0 for any as-of date not in the
+    list, so a sprint that had not started read as fully elapsed — a tenant's
+    board whose next sprint began eleven days later scored "Off track" on the
+    page that mirrors this — and a Saturday inside the sprint read the same.
+    Found by tests/forge_smoke.py, from inside the tenant.
+    """
+    future = json.load(open(ROOT / "data" / "sample-sprint.json"))
+    future["meta"]["startDate"], future["meta"]["endDate"] = "2026-08-17", "2026-08-28"
+    future["meta"].pop("workingDays", None)   # derived, as a Forge tenant's is
+    d = M.facts(future)["delivery"]
+    check("a sprint that has not started has no elapsed share and no pace gap",
+          d["time_elapsed_pct"] is None and d["pace_gap_pts"] is None,
+          (d["time_elapsed_pct"], d["pace_gap_pts"]))
+    check("and says why, naming the day the clock starts",
+          (d.get("pace_withheld") or "").startswith("this sprint has not started") and
+          "2026-08-17" in (d.get("pace_withheld") or ""), d.get("pace_withheld"))
+    sat = json.load(open(ROOT / "data" / "sample-sprint.json"))
+    sat["meta"]["asOfDate"] = "2026-08-08"     # a Saturday, five of ten working days in
+    d = M.facts(sat)["delivery"]
+    check("a Saturday inside the sprint is as far through as the working days passed, not all of them",
+          near(d["time_elapsed_pct"], 0.5) and d.get("pace_withheld") is None, d["time_elapsed_pct"])
+    done = json.load(open(ROOT / "data" / "sample-sprint.json"))
+    done["meta"]["asOfDate"] = "2026-08-20"    # after the last working day
+    check("after the last working day the sprint is fully elapsed",
+          near(M.facts(done)["delivery"]["time_elapsed_pct"], 1.0))
+
+
 def test_reporting_scope():
     """The facts pack reports the sprint; the forecaster uses all history.
     Conflating them puts '89% complete' on a report about a sprint that is
@@ -1776,6 +1806,7 @@ if __name__ == "__main__":
     print("facts pack vs the dashboard")
     test_facts()
     test_demo_file_is_self_consistent()
+    test_a_sprint_that_has_not_started_has_no_pace()
     print("reporting scope vs forecasting scope")
     test_reporting_scope()
     print("change detection")
