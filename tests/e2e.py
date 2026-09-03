@@ -1571,6 +1571,18 @@ def main():
               page.get_attribute("[data-unit=items]", "aria-pressed") == "true")
         items_tile = page.text_content("#kpis .kpi:nth-child(1)")
         check("delivered tile reads in items", "22 items" in items_tile, items_tile[:60])
+        # The delta under a share names the two counts it compares; it read
+        # "+63% vs last sprint" under "55%", one glyph over two denominators.
+        check("the delivered delta names the counts it compares",
+              re.search(r"\d+ done vs \d+ last sprint", items_tile) is not None
+              and "% vs last sprint" not in items_tile, items_tile[:90])
+        pace_tile = page.text_content("#kpis .kpi:nth-child(2)")
+        check("the pace tile says its figure in the verdict's words",
+              re.search(r"\d+ percentage points? (behind|ahead of) the clock|level with the clock",
+                        pace_tile) is not None, pace_tile[:90])
+        check("and keeps the unit spelt out, never as points",
+              "percentage point" in pace_tile and not re.search(r"\d+ points? (behind|ahead)", pace_tile),
+              pace_tile[:90])
         burn_items = page.eval_on_selector_all("#burn-chart polyline", "n => n.length")
         page.click("[data-unit=points]"); page.wait_for_timeout(500)
         pts_tile = page.text_content("#kpis .kpi:nth-child(1)")
@@ -1668,6 +1680,11 @@ def main():
         check("jira csv points parsed", float(stats[2]) > 0, stats)
         check("jira csv applied", "jira-export.csv" in page.text_content("#foot"),
               page.text_content("#foot")[:80])
+        # A sprint with no predecessor shows no delta. It used to print
+        # "→ no change" — a comparison that was never made, stated as a result.
+        check("a sprint with nothing to compare against prints no delta, not 'no change'",
+              "no change" not in page.text_content("#kpis .kpi:nth-child(1)"),
+              page.text_content("#kpis .kpi:nth-child(1)")[:90])
         check("burndown rebuilt, not inherited",
               page.eval_on_selector_all("#burn-chart polyline", "n => n.length") >= 3)
         check("charts have data", page.eval_on_selector_all("#dist-chart rect[data-drill]", "n => n.length") > 0)

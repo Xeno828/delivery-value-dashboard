@@ -1883,15 +1883,33 @@ function renderKpis(m) {
     $("#kpis").onclick = null;
     return;
   }
-  const arrow = (v, goodUp) => {
-    if (v == null || Math.abs(v) < 0.005) return { t: "no change", c: CSSV("--muted"), i: "→" };
-    const good = goodUp ? v > 0 : v < 0;
-    return { t: (v > 0 ? "+" : "") + Math.round(v * 100) + "% vs last sprint",
-             c: CSSV(good ? "--good-ink" : "--crit-ink"), i: v > 0 ? "▲" : "▼" };
-  };
   const cur = m.cur, prev = m.prev, hk = U().hist("completed");
   const cv = h => (h && h[hk] != null ? h[hk] : (h ? h.completedSP : null));
   const spDelta = (cv(cur) && cv(prev)) ? cv(cur) / cv(prev) - 1 : null;
+  /* The delta names what it compares. "▲ +63% vs last sprint" sat directly
+     under "55%", a share of the committed scope, and read as the share having
+     risen sixty-three points; it was the change in the *count* completed, a
+     different denominator under the same glyph. Both counts are printed now,
+     in the measure selected. And a sprint with no predecessor shows no delta
+     at all: it used to print "→ no change", which is a claim about a
+     comparison that was never made. */
+  const arrow = (v, goodUp, now, then) => {
+    if (now == null || then == null) return null;
+    const t = U().fmt(now) + " done vs " + U().fmt(then) + " last sprint";
+    if (v == null || Math.abs(v) < 0.005) return { t, c: CSSV("--muted"), i: "→" };
+    const good = goodUp ? v > 0 : v < 0;
+    return { t, c: CSSV(good ? "--good-ink" : "--crit-ink"), i: v > 0 ? "▲" : "▼" };
+  };
+  /* "-5 pp" is the honest unit and the least legible one on the band, and it
+     was the only KPI whose sub-line did not say its figure in words. This is
+     the verdict's own phrasing. "percentage points" stays spelt out — see the
+     comment on the tile: "points" alone beside an item measure reads as story
+     points. */
+  const paceWords = g => {
+    const n = Math.abs(Math.round(g * 100));
+    if (n === 0) return "level with the clock";
+    return n + " percentage point" + (n === 1 ? "" : "s") + (g < 0 ? " behind the clock" : " ahead of the clock");
+  };
 
   const tiles = [
     /* Delivered is a share of a committed scope, and a window has none — its
@@ -1908,13 +1926,14 @@ function renderKpis(m) {
       : { lab: "Delivered", val: pct(m.totalU ? m.doneU / m.totalU : 0),
       sub: U().fmt(m.doneU) + " of " + U().fmt(m.totalU) + " " + U().label +
            (U().isItems ? " · " + n1(m.doneSP) + " pts" : " · " + m.doneCount + " items"),
-      barPct: m.totalU ? m.doneU / m.totalU : 0, barCol: CSSV("--s1"), delta: arrow(spDelta, true),
+      barPct: m.totalU ? m.doneU / m.totalU : 0, barCol: CSSV("--s1"), delta: arrow(spDelta, true, cv(cur), cv(prev)),
       tt: "Share of in-scope work completed, measured in " + U().label + ". Items is the default because it is the unit the forecaster uses; switch to points in the filter row if you need size information.",
       drill: { t: "Completed work", items: m.done } },
     // "pp" = percentage points. Never "pts" here — beside an item measure it
     // reads as story points, which is a different quantity entirely.
     { lab: "Pace vs clock", val: (m.paceGap == null ? "—" : (m.paceGap >= 0 ? "+" : "") + Math.round(m.paceGap * 100) + " pp"),
-      sub: m.paceUnknownShort || (pct(m.timeElapsed) + " elapsed · percentage points"),
+      sub: m.paceUnknownShort || (pct(m.timeElapsed) + " elapsed" +
+           (m.paceGap == null ? " · percentage points" : " · " + paceWords(m.paceGap))),
       barPct: m.timeElapsed || 0, barCol: CSSV("--muted"),
       tt: "Percentage of work complete (in " + U().label + ") minus percentage of the sprint elapsed. Negative means the burndown is behind the calendar. This is the single number the original dashboard was missing.",
       drill: { t: "Work not yet finished", items: m.open } },
