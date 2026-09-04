@@ -2831,6 +2831,39 @@ def main():
               bool(slack) and max(slack) <= 12,
               "largest gap %spx under a heading, over %d headers" % (max(slack) if slack else None, len(slack)))
 
+        # ---------- the band's head says what it reads (1.79.40) ----------
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(300)
+        bb = " ".join((page.text_content("#band-basis") or "").split())
+        check("the band's head names its basis at rest", bb == "Headline numbers · all 22 issues", bb)
+        page.evaluate("() => window.DVD.debug.setFilter('q', 'checkout')"); page.wait_for_timeout(300)
+        bb = " ".join((page.text_content("#band-basis") or "").split())
+        check("and under a filter says how many of how many", re.fullmatch(r"Headline numbers · \d+ of 22 issues after filters", bb) is not None, bb)
+        page.evaluate("() => window.DVD.debug.setFilter('q', '')"); page.wait_for_timeout(300)
+        check("the head and the chip share one row",
+              abs(page.eval_on_selector("#band-basis", "e => e.getBoundingClientRect().top") -
+                  page.eval_on_selector("#t-health", "e => e.getBoundingClientRect().top")) < 20)
+        # Every hex literal in the stylesheet defines a token; none sits in a
+        # rule. Comments are skipped; a line that defines tokens contains "--".
+        styles = (ROOT / "src" / "styles.css").read_text()
+        code = re.sub(r"/\*.*?\*/", "", styles, flags=re.S)
+        stray = [ln.strip() for ln in code.splitlines()
+                 if re.search(r"#[0-9a-fA-F]{3,8}\b", ln) and "--" not in ln]
+        check("no rule outside the token definitions carries a hex literal", not stray, stray[:3])
+        glyph = page.evaluate("""() => { const i = document.querySelector('.narr .ic[data-sev=critical]');
+            const cs = getComputedStyle(document.documentElement);
+            return i ? { color: getComputedStyle(i).color } : null; }""")
+        check("the critical glyph's ink is the on-accent token", glyph is None or glyph["color"] == "rgb(255, 255, 255)", glyph)
+        ib = page.evaluate("""() => { const i = document.querySelector('.narr .ic[data-sev=info]'); if (!i) return null;
+            const want = getComputedStyle(document.documentElement).getPropertyValue('--accent-bg').trim();
+            const d = document.createElement('i'); d.style.color = want; document.body.appendChild(d);
+            const c = getComputedStyle(d).color; d.remove(); return [getComputedStyle(i).backgroundColor, c]; }""")
+        check("the info glyph is painted with a UI token, not a chart series", ib is None or ib[0] == ib[1], ib)
+        page.goto(DIST.as_uri() + "?view=exec"); page.wait_for_timeout(700)
+        pw = page.eval_on_selector("#pred-chart", "e => Math.round(e.getBoundingClientRect().width)")
+        check("alone on its row, the predictability chart keeps a chart's width", 0 < pw <= 820, pw)
+        page.goto(DIST.as_uri()); page.wait_for_timeout(700)
+
         # ---------- more words the fifth critique read (1.79.39) ----------
         page.set_viewport_size({"width": 1500, "height": 1000})
         page.wait_for_timeout(300)

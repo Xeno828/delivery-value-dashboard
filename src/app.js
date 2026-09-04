@@ -2030,7 +2030,8 @@ function renderExec(m) {
       "More work is being started than finished. Every extra item in flight slows the ones already there, " +
       "so the fix is a work-in-progress cap rather than more effort. This reads the sprint record, not the filtered issues.", null);
 
-  const ico = { critical: ["--critical", "!"], warning: ["--warning", "▲"], serious: ["--serious", "▲"], good: ["--good", "✓"], info: ["--s1", "i"] };
+  // UI colour, not a chart series: the info glyph borrowed --s1, the burndown's blue.
+  const ico = { critical: ["--critical", "!"], warning: ["--warning", "▲"], serious: ["--serious", "▲"], good: ["--good", "✓"], info: ["--accent-bg", "i"] };
   // No cap. Seven findings can fire and the list held six, dropping the
   // seventh — always the work-in-progress one — without a word. One more
   // line costs nothing; a truncated list reads as a complete one.
@@ -2054,6 +2055,10 @@ function renderExec(m) {
    ================================================================== */
 function renderKpis(m) {
   const meta = S.view.meta;
+  const bb = $("#band-basis"), all = S.view.issues.length;
+  if (bb) bb.textContent = "Headline numbers · " +
+    (m.total === all ? "all " + all + " issue" + (all === 1 ? "" : "s")
+                     : m.total + " of " + all + " issues after filters");
   if (m.empty) {
     /* Eight tiles of zeros read as a measured sprint with nothing wrong in it,
        which is the opposite of what an empty selection means. Four of the eight
