@@ -2303,6 +2303,22 @@ def main():
         # A tile without a delta used to be a line shorter than one with, so the
         # two rows of four differed by the delta alone. The placeholder keeps
         # its height; rows may still differ where a long sub-line wraps.
+        # One baseline per row (1.79.27): within a row of the band, the value
+        # tops and the bar tops agree on every tile, whatever the sub-line or
+        # the delta did. Grouped by the tile's own top so it holds at any width.
+        bl = page.evaluate("""() => [...document.querySelectorAll('#kpis .kpi')].map(e => {
+            const top = s => Math.round(e.querySelector(s).getBoundingClientRect().top);
+            return { row: Math.round(e.getBoundingClientRect().top), val: top('.k-val'), bar: top('.k-bar') };
+        })""")
+        rows = {}
+        for t in bl:
+            rows.setdefault(t["row"], []).append(t)
+        check("every KPI value in a row sits on one baseline",
+              rows and all(max(x["val"] for x in r) - min(x["val"] for x in r) <= 1 for r in rows.values()),
+              {k: [x["val"] for x in r] for k, r in rows.items()})
+        check("and every KPI bar in a row ends on one line",
+              rows and all(max(x["bar"] for x in r) - min(x["bar"] for x in r) <= 1 for r in rows.values()),
+              {k: [x["bar"] for x in r] for k, r in rows.items()})
         dh = page.eval_on_selector_all("#kpis .kpi", "n => n.map(e => { const d = e.querySelector('.k-delta'); return d ? [d.textContent.length, Math.round(d.getBoundingClientRect().height)] : null; })")
         check("a tile without a delta keeps the delta's height",
               all(x is not None and (x[0] > 0 or x[1] >= 16) for x in dh), dh)

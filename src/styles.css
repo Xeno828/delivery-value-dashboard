@@ -164,16 +164,23 @@ a{color:var(--link)}
    saying something rather than as a stray line of page furniture. */
 .kpis .kpi-none{grid-column:1/-1;background:var(--surface-1);border:1px solid var(--border);
   border-radius:var(--radius);box-shadow:var(--shadow);padding:13px 14px}
+/* A column, not a button's centred content. Browsers centre what is inside a
+   <button> vertically, so a wrapping sub-line or a present delta moved the
+   whole tile's contents and the band's eight values sat on three baselines,
+   17px apart, on the one row the executive is meant to scan left to right.
+   Labels start at the top, the bar ends at the bottom, and the value sits on
+   one line across the band. */
 .kpi{background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);padding:11px 13px 12px;
-  box-shadow:var(--shadow);text-align:left;position:relative;transition:transform .08s ease,box-shadow .12s ease}
+  box-shadow:var(--shadow);text-align:left;position:relative;transition:transform .08s ease,box-shadow .12s ease;
+  display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start}
 .kpi:hover{transform:translateY(-1px);box-shadow:0 2px 4px rgba(11,11,11,.06),0 10px 24px rgba(11,11,11,.09)}
 .kpi .k-lab{font-size:11.5px;color:var(--text-secondary);font-weight:600;display:flex;align-items:center;gap:5px}
 .kpi .k-val{display:block;font-size:27px;font-weight:640;letter-spacing:-.02em;margin:3px 0 1px;line-height:1.05}
 .kpi .k-sub{display:block;font-size:11.5px;color:var(--muted);min-height:16px}
 /* Always rendered, so a tile without a delta is as tall as one with, and
    the two rows of four the band becomes on a narrow screen line up. */
-.kpi .k-delta{margin-top:2px;font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:3px;min-height:16px}
-.kpi .k-bar{display:block;height:3px;border-radius:2px;background:var(--grid);margin-top:8px;overflow:hidden}
+.kpi .k-delta{margin:2px 0 8px;font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:3px;min-height:16px}
+.kpi .k-bar{display:block;height:3px;border-radius:2px;background:var(--grid);margin-top:auto;overflow:hidden}
 .kpi .k-bar > i{display:block;height:100%;border-radius:2px}
 
 /* ---------- charts ---------- */
