@@ -2830,6 +2830,41 @@ def main():
               bool(slack) and max(slack) <= 12,
               "largest gap %spx under a heading, over %d headers" % (max(slack) if slack else None, len(slack)))
 
+        # ---------- tense follows the clock (1.79.38) ----------
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(300)
+        tile = lambda n: " ".join((page.text_content("#kpis .kpi:nth-child(%d)" % n) or "").split())
+        CHIP2 = "() => document.getElementById('t-health').textContent.trim()"
+        check("the running sprint is drawn hollow in the predictability chart",
+              page.eval_on_selector_all("#pred-chart rect.pred-live", "n => n.length") == 2 and
+              "In progress" in (page.text_content("#pred-chart .legend") or ""))
+        pn = " ".join((page.text_content("#pred-chart .note") or "").split())
+        check("and left out of the average, which says so",
+              "over 5 finished sprints, the running one left out" in pn, pn[:120])
+        check("a running sprint keeps the forecast tense", tile(6).startswith("Likely to carry over") and "elapsed" in tile(2))
+        bundle = json.loads((ROOT / "data" / "sample-bundle.json").read_text())
+        page.evaluate("d => window.DVD.applyDataset(d)", bundle); page.wait_for_timeout(700)
+        page.evaluate("() => window.DVD.debug.selectContext('BLC/42/S23')"); page.wait_for_timeout(700)
+        check("a closed sprint has carried over, not is likely to", tile(6).startswith("Carried over"), tile(6))
+        check("and finished short, rather than being behind a stopped clock",
+              "sprint over · finished" in tile(2) and "short" in tile(2) and "behind the clock" not in tile(2), tile(2))
+        check("and the verdict says the sprint has ended",
+              "The sprint has ended" in (page.text_content("#exec-verdict") or "") and
+              "elapsed" not in (page.text_content("#exec-verdict") or ""),
+              (page.text_content("#exec-verdict") or "")[:160])
+        check("no row of a closed sprint's history is drawn as running",
+              page.eval_on_selector_all("#pred-chart rect.pred-live", "n => n.length") == 0)
+        page.evaluate("() => window.DVD.debug.selectContext(window.DVD.debug.view().contexts.find(c => c.isRollup && !c.isCrossTeam).id)")
+        page.wait_for_timeout(700)
+        check("a roll-up's composite is called roll-up health", page.evaluate(CHIP2).find("Roll-up health") >= 0, page.evaluate(CHIP2))
+        check("and its open work is still open, not carried over", tile(6).startswith("Still open"), tile(6))
+        ct = page.evaluate("() => (window.DVD.debug.view().contexts.find(c => c.isCrossTeam) || {}).id")
+        if ct:
+            page.evaluate("id => window.DVD.debug.selectContext(id)", ct); page.wait_for_timeout(900)
+            check("a cross-team roll-up's composite is called portfolio health",
+                  page.evaluate(CHIP2).find("Portfolio health") >= 0, page.evaluate(CHIP2))
+        page.click("#btn-import"); page.click("#m-sample"); page.wait_for_timeout(500)
+
         # ---------- the value basis sentence follows the data (1.79.37) ----------
         page.set_viewport_size({"width": 1500, "height": 1000})
         page.wait_for_timeout(300)

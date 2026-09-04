@@ -1215,6 +1215,12 @@ function derive(items) {
      that names the wrong cause sends them to fix the wrong thing. */
   const noVolume = "nothing in this selection carries a figure in " + U().label;
   const rollup = S.view.ctx && S.view.ctx.isRollup;
+  /* A sprint that has ended is described in the past tense: "likely to carry
+     over" and "behind the clock" are forecasts about a clock that has
+     stopped. Closed is what the source says, or an as-of date past the end. */
+  m.sprintOver = !window && !rollup &&
+    !!((S.view.ctx && S.view.ctx.sprintState === "closed") || (end && D(now) > D(end)));
+  m.isRollup = !!rollup;
   /* A fourth cause, and it is the one that has to be said out loud rather than
      folded into "no sprint dates". A window *has* dates. They are on screen,
      in the picker, beside the board's name — so a reader told the dates are
@@ -1305,7 +1311,7 @@ function derive(items) {
      ranking of individuals this page does not produce; it read 75/100 for one
      name against the team's 52. Both are withheld and say why. */
   if (S.filters.status || S.filters.assignee) {
-    const kindNow = isWindow(S.view.ctx) ? "Flow health" : "Sprint health";
+    const kindNow = healthKindFor(S.view.ctx);
     m.healthKind = kindNow;
     m.healthParts = null;
     m.health = null;
@@ -1369,7 +1375,7 @@ function derive(items) {
       clamp(1 - (m.ages.filter(a => a.age > 14).length / Math.max(open.length, 1)), 0, 1),
       m.ages.filter(a => a.age > 14).length + " open items older than 14 days");
   } else {
-    m.healthKind = "Sprint health";
+    m.healthKind = healthKindFor(S.view.ctx);
     part("Delivery pace", 0.34, m.paceUnknown,
       m.paceGap == null ? 0 : clamp(1 + m.paceGap * 2.2, 0, 1),
       m.paceGap >= 0 ? "ahead of the time-elapsed line"
@@ -1937,7 +1943,11 @@ function renderExec(m) {
     (U().isItems
       ? (m.totalSP ? ", carrying " + n1(m.doneSP) + " of " + n1(m.totalSP) + " story points." : ".")
       : ", worth " + n1(m.doneSP) + " of " + n1(m.totalSP) + " story points."));
-  if (m.paceGap != null)
+  if (m.paceGap != null && m.sprintOver)
+    v.push(" The sprint has ended: delivery " +
+      (behind ? "<strong>finished " + Math.round(-m.paceGap * 100) + " percentage points short</strong> of its scope"
+              : "<strong>finished level with its plan</strong>") + ".");
+  else if (m.paceGap != null)
     v.push(" The sprint is <strong>" + pct(m.timeElapsed) + " elapsed</strong>, so delivery is " +
       (behind ? "<strong>behind the clock</strong> by roughly " + Math.round(-m.paceGap * 100) + " percentage points"
               : "<strong>tracking with the clock</strong>") + ".");
@@ -2099,6 +2109,12 @@ function renderKpis(m) {
     if (n === 0) return "level with the clock";
     return n + " percentage point" + (n === 1 ? "" : "s") + (g < 0 ? " behind the clock" : " ahead of the clock");
   };
+  // The same gap after the clock has stopped: a result, not a pace.
+  const finishWords = g => {
+    const n = Math.abs(Math.round(g * 100));
+    if (n === 0) return "finished level with its plan";
+    return "finished " + n + " percentage point" + (n === 1 ? "" : "s") + (g < 0 ? " short" : " ahead of plan");
+  };
 
   const tiles = [
     /* Delivered is a share of a committed scope, and a window has none — its
@@ -2127,8 +2143,10 @@ function renderKpis(m) {
     // "pp" = percentage points. Never "pts" here — beside an item measure it
     // reads as story points, which is a different quantity entirely.
     { lab: "Pace vs clock", val: (m.paceGap == null ? "—" : (m.paceGap >= 0 ? "+" : "") + Math.round(m.paceGap * 100) + " pp"),
-      sub: m.paceUnknownShort || (pct(m.timeElapsed) + " elapsed" +
-           (m.paceGap == null ? " · percentage points" : " · " + paceWords(m.paceGap))),
+      sub: m.paceUnknownShort || (m.sprintOver && m.paceGap != null
+           ? "sprint over · " + finishWords(m.paceGap)
+           : pct(m.timeElapsed) + " elapsed" +
+             (m.paceGap == null ? " · percentage points" : " · " + paceWords(m.paceGap))),
       barPct: m.timeElapsed || 0, barCol: CSSV("--muted"),
       tt: "Percentage of work complete (in " + U().label + ") minus percentage of the sprint elapsed. Negative means the burndown is behind the calendar. This is the single number the original dashboard was missing.",
       drill: { t: "Work not yet finished", items: m.open } },
@@ -2163,14 +2181,21 @@ function renderKpis(m) {
        flow board has none — work there does not carry over, it simply
        continues. Renamed rather than refused, because renaming is what the
        tile actually needed. */
-    { lab: m.isFlowBoard ? "Still open" : "Likely to carry over",
+    /* Tense follows the clock. "Likely to carry over" is a forecast about a
+       running sprint; a closed one has carried over what it carried over, and
+       a roll-up of several sprints has no single boundary to carry across. */
+    { lab: (m.isFlowBoard || m.isRollup) ? "Still open" : m.sprintOver ? "Carried over" : "Likely to carry over",
       val: U().fmt(m.openU) + " " + (U().isItems ? U().n(m.openU) : U().short),
       sub: m.open.length + (m.open.length === 1 ? " item" : " items") + " still open",
       barPct: m.totalU ? m.openU / m.totalU : 0, barCol: CSSV("--warning"),
       tt: m.isFlowBoard
         ? "Everything not yet done. There is no boundary for it to carry over into on this board — work continues rather than rolling forward — and " + m.notStarted.length + " items have never been picked up."
+        : m.isRollup
+        ? "Everything not yet done across the sprints rolled up here. There is no single boundary for it to carry over; " + m.notStarted.length + " items have never been picked up."
+        : m.sprintOver
+        ? "Everything that was not done when the sprint ended — " + m.notStarted.length + " items were never picked up."
         : "Everything not yet done. At this point in the sprint, anything not started is the realistic carry-over candidate — " + m.notStarted.length + " items have never been picked up.",
-      drill: { t: m.isFlowBoard ? "Open work" : "Open work at risk of carry-over", items: m.open } },
+      drill: { t: m.isFlowBoard || m.isRollup ? "Open work" : m.sprintOver ? "Open work carried over" : "Open work at risk of carry-over", items: m.open } },
     { lab: "Past due date", val: m.overdue.length, sub: "open, past their own due date",
       barPct: m.total ? m.overdue.length / m.total : 0, barCol: CSSV("--serious"),
       tt: "Open items whose due date has already passed. A due date nobody re-negotiates is a commitment quietly broken.",
@@ -2942,6 +2967,11 @@ function renderPred(m) {
     // sentence covering the whole series is not the answer.
     const rebuilt = d.source === "reconstructed";
     const extra = [];
+    // The sprint still running is not a result yet: drawn hollow, kept out of
+    // the average, and said so on the point. It was drawn and averaged like
+    // a finished one — "Sprint 24 · 67%" at 60% elapsed, folded into the mean.
+    const inProg = liveRow(d);
+    if (inProg) extra.push(["In progress", "still running, so drawn hollow and left out of the average"]);
     if (d.source) {
       extra.push(["Row", rebuilt
         ? "rebuilt from Jira — this sprint closed before the app saw the board"
@@ -2965,7 +2995,7 @@ function renderPred(m) {
       ["Completed", U().fmt(cp(d)) + " " + U().short],
       ["Hit rate", pct(rel)], ["Items finished", d.throughput]].concat(extra),
       rel >= 0.9 ? "Commitment met." : "<b>" + U().fmt(cm(d) - cp(d)) + " " + U().n(cm(d) - cp(d)) + " short</b> of the commitment.");
-    const mark = rebuilt ? ' class="hit pred-rebuilt" stroke="' : ' class="hit" stroke="';
+    const mark = inProg ? ' class="hit pred-live" stroke="' : rebuilt ? ' class="hit pred-rebuilt" stroke="' : ' class="hit" stroke="';
     s.add('<rect' + mark + commitCol + '" x="' + (cx - bw - 1) + '" y="' + y(cm(d)) + '" width="' + bw + '" height="' + (y(0) - y(cm(d))) +
       '" rx="3" fill="' + commitCol + '" data-tt="' + esc(tt) + '"/>');
     s.add('<rect' + mark + doneCol + '" x="' + (cx + 1) + '" y="' + y(cp(d)) + '" width="' + bw + '" height="' + (y(0) - y(cp(d))) +
@@ -2979,9 +3009,11 @@ function renderPred(m) {
   });
   s.add('<line class="axis-line" x1="' + P.l + '" y1="' + y(0) + '" x2="' + (W - P.r) + '" y2="' + y(0) + '"/>');
 
-  const rates = h.map(d => cm(d) ? cp(d) / cm(d) : 0);
-  const avg = sum(rates) / rates.length;
-  const spread = Math.max.apply(null, h.map(cp)) - Math.min.apply(null, h.map(cp));
+  const finished = h.filter(d => !liveRow(d)), running = h.length - finished.length;
+  const rates = finished.map(d => cm(d) ? cp(d) / cm(d) : 0);
+  const avg = rates.length ? sum(rates) / rates.length : null;
+  const spread = finished.length
+    ? Math.max.apply(null, finished.map(cp)) - Math.min.apply(null, finished.map(cp)) : 0;
   // Only when the series actually mixes the two. A legend entry explaining a
   // distinction nothing on the chart makes is noise, and on a board where every
   // row is recorded there is no distinction to make.
@@ -2990,8 +3022,12 @@ function renderPred(m) {
     '<span><i class="swatch" style="background:' + doneCol + '"></i>Completed</span>' +
     (mixes ? '<span><i class="swatch pred-rebuilt" style="background:' + doneCol +
       ';border:1px solid ' + doneCol + '"></i>Rebuilt from Jira</span>' : "") +
+    (running ? '<span><i class="swatch pred-live" style="background:' + doneCol +
+      ';border:1px solid ' + doneCol + '"></i>In progress</span>' : "") +
     '<span style="margin-left:auto">% = share of the commitment met</span></div>' + s.out() +
-    '<div class="note" style="margin-top:8px">Average hit rate <b>' + pct(avg) + "</b>; completed output swings by <b>" +
+    '<div class="note" style="margin-top:8px">Average hit rate <b>' + (avg == null ? "—" : pct(avg)) + "</b> over " +
+    finished.length + " finished sprint" + (finished.length === 1 ? "" : "s") +
+    (running ? ", the running one left out" : "") + "; completed output swings by <b>" +
     U().fmt(spread) + " " + U().label + "</b> between the best and worst sprint. A commitment set from " + sprintsBasis(m.recentAvgN) + " (<b>" +
     (m.recentAvg ? U().fmt(m.recentAvg) + " " + U().label : "—") + "</b>) would be met far more often than one set from ambition." +
     // The same count again, in the clause that describes the same average. This
@@ -3715,6 +3751,23 @@ function seriesRefusalHtml(thin) {
 /** Where a record-fed tile says its record lives: a reader of a forwarded
  *  file is holding a file; a reader inside the app is looking at a board. */
 function recordHome() { return S.live ? "this board's data" : "this file"; }
+
+/** What the composite is called, by what it spans. A roll-up of several
+ *  sprints read "Sprint health" beside "no single sprint clock"; a score across
+ *  a project's boards is not a sprint's either. The name is the guard against
+ *  comparing scores that were never measured the same way. */
+/** Is this history row the sprint still running on the board in view? */
+function liveRow(d) {
+  const c = S.view.ctx;
+  return !!(c && c.sprintState === "active" && d && d.sprint === S.view.meta.sprintName);
+}
+
+function healthKindFor(ctx) {
+  if (isWindow(ctx)) return "Flow health";
+  if (ctx && ctx.isCrossTeam) return "Portfolio health";
+  if (ctx && ctx.isRollup) return "Roll-up health";
+  return "Sprint health";
+}
 
 /** Does anything in view carry a hierarchy level? Decides which counting rule
  *  the value card describes: the epic rule where levels exist, the no-level

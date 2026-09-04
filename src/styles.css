@@ -577,6 +577,9 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
    colour — the series colours are validated for colour-vision deficiency and
    adding a third meaning to them would break that. */
 .pred-rebuilt{fill-opacity:.34;stroke-width:1.5;stroke-dasharray:3 2}
+/* The sprint still running: hollow too, but dotted rather than dashed, so a
+   rebuilt row and a live one are not mistaken for each other. */
+.pred-live{fill-opacity:.18;stroke-width:1.5;stroke-dasharray:1.5 2.5}
 /* The issue-type filter. Folded, because a board can carry a dozen types and
    the row it sits in is a row of one-line controls. */
 .f-types > summary{

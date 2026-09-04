@@ -402,7 +402,7 @@ Paper at 9px radius with the float shadow, 9px 11px padding, 12px text up to 290
 - **Do** keep control colour on `accent-blue` and `link-blue` and series colour on `delivery-blue` and its neighbours; fix contrast on the first, never on the second.
 - **Do** print a refusal in the refusal callout in the tool's own words, including its closing clause.
 - **Do** make each row of tiles sum to twelve columns at every breakpoint, and stretch cards to their row.
-- **Do** pair every severity hue with a glyph and every rebuilt data point with a hollow, dashed marker.
+- **Do** pair every severity hue with a glyph, every rebuilt data point with a hollow, dashed marker, and the sprint still running with a hollow, dotted one.
 - **Do** phrase a card heading as the question it answers.
 
 ### Don't:
