@@ -2823,6 +2823,33 @@ def main():
               bool(slack) and max(slack) <= 12,
               "largest gap %spx under a heading, over %d headers" % (max(slack) if slack else None, len(slack)))
 
+        # ---------- value refuses under a filter (1.79.34) ----------
+        # Value is counted on epics, once each; the filters select items. Under
+        # a Person filter the tile kept the sprint's whole total over that
+        # person's count, and under an Epic filter read "2 of 1 closed items
+        # priced". A ratio over two sets is not a figure.
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(300)
+        page.evaluate("() => window.DVD.debug.setFilter('assignee', window.DVD.data.issues.find(i => i.assignee).assignee)")
+        page.wait_for_timeout(400)
+        vt = " ".join((page.text_content("#kpis .kpi:nth-child(8)") or "").split())
+        check("under a Person filter the Value tile withholds its figure",
+              "not counted under a filter" in vt and "$" not in vt and " of " not in vt, vt)
+        vc = " ".join((page.text_content("#value-body") or "").split())
+        check("and the value card refuses in the tool's words",
+              "Value is not counted under a filter" in vc and "absent, not noisy" in vc and "$" not in vc, vc[:160])
+        check("and the verdict carries no value finding",
+              "estimated value closed" not in (page.text_content("#exec-list") or ""))
+        check("and the footer says so beside the tiles that do not follow the filters",
+              "value is not counted under a filter" in (page.text_content("#foot") or ""))
+        page.evaluate("() => window.DVD.debug.setFilter('assignee', '')"); page.wait_for_timeout(400)
+        vt = " ".join((page.text_content("#kpis .kpi:nth-child(8)") or "").split())
+        check("with the filter cleared the figure is back", re.search(r"\$[\d,]+", vt) is not None and "of 12 closed items priced" in vt, vt)
+        page.evaluate("() => window.DVD.debug.setFilter('status', 'Done')"); page.wait_for_timeout(400)
+        check("a Status filter withholds it too",
+              "not counted under a filter" in (page.text_content("#kpis .kpi:nth-child(8)") or ""))
+        page.evaluate("() => window.DVD.debug.setFilter('status', '')"); page.wait_for_timeout(400)
+
         # ---------- names are looked up, not placed (1.79.32) ----------
         names = page.eval_on_selector_all("#dist-chart text.ser-lab", "n => n.map(e => e.textContent)")
         check("the per-person bars are in alphabetical order, not league-table order",

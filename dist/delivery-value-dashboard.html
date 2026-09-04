@@ -2188,6 +2188,18 @@ function derive(items) {
   m.scopeAddedPct = m.empty ? null
     : ((m.totalU - m.addedU) > 0 ? m.addedU / (m.totalU - m.addedU) : 0);
   m.value = sum(m.valueItems, i => i.businessValue);
+  /* Value is counted on a different set from the items (ADR 0026): epics,
+     finished inside this sprint's window, once each. The filters select items.
+     Under a Person filter the tile kept the whole sprint's money over that
+     person's count — "$87,000 · 2 of 3 closed items priced", one of the two
+     belonging to somebody else — and under an Epic filter it read "2 of 1".
+     A ratio whose halves come from two sets is not a figure, so under any
+     filter the value tiles refuse and say why. */
+  m.valueWithheld = filtersActive()
+    ? "Value is recorded on epics and counted once per epic, and the filters select items; " +
+      "a total over one set beside a count over another would not be a figure. Clear the " +
+      "filters to see it — the evidence is absent, not noisy."
+    : null;
   const totLead = sum(lead), totCyc = sum(cycle);
   m.flowEff = totLead > 0 ? totCyc / totLead : null;
   /* Why it could not be taken, when it could not — the same treatment pace and
@@ -2650,6 +2662,12 @@ function renderTypeFilter(issues) {
 /* A chip names the filter the way the row above it does — the chips said
    "search:" and "assignee:" under a row labelled FIND and PERSON. */
 const FILTER_LABEL = { assignee: "Person", epic: "Epic", types: "Types", status: "Status", q: "Find" };
+/** Is any filter narrowing the selection? `types` is null for "no
+ *  restriction" and a list, possibly empty, once the reader has chosen. */
+const filtersActive = () => {
+  const f = S.filters;
+  return !!(f.assignee || f.epic || Array.isArray(f.types) || f.status || f.q);
+};
 function renderFilters() {
   const I = S.view.issues;
   const opts = [["f-assignee", "assignee", uniq(I.map(x => x.assignee)), "Everyone"],
@@ -2981,7 +2999,7 @@ function renderExec(m) {
         old.sort((a, b) => b.age - a.age)[0].i.key + " at " + Math.round(old[0].age) + " days.",
       { title: "Open work older than 14 days", items: old.map(a => a.i) });
   }
-  if (m.value) {
+  if (m.value && !m.valueWithheld) {
     add("good", money(m.value, meta.currency) + " of estimated value closed this sprint across " + m.valueItems.length + " item" + (m.valueItems.length > 1 ? "s" : "") + ".",
       "Estimates with a stated basis, not booked revenue. " + (m.total - m.valueItems.length - m.open.length) + " other completed items carry no value estimate, so this figure is a floor, not a total.",
       { title: "Completed work with an estimated value", items: m.valueItems });
@@ -3160,7 +3178,12 @@ function renderKpis(m) {
        "delivered nothing of value", which is a different statement from
        "nobody has priced anything", and the value card beneath already says
        which of three reasons applies. The count stays, because it is honest. */
-    m.valueItems.length
+    m.valueWithheld
+      ? { lab: "Value closed", val: "—", sub: "not counted under a filter",
+          barPct: 0, barCol: CSSV("--muted"),
+          tt: m.valueWithheld,
+          drill: { t: "Completed items carrying a value estimate", items: [] } }
+      : m.valueItems.length
       ? { lab: "Value closed", val: money(m.value, meta.currency), sub: m.valueItems.length + " of " + m.done.length + " closed items priced",
           barPct: m.done.length ? m.valueItems.length / m.done.length : 0, barCol: CSSV("--s3"),
           tt: "Estimated commercial impact of completed items. Estimates only — see the value card for the working.",
@@ -4142,6 +4165,12 @@ function renderValue(m) {
      and it is the one a reader would otherwise read as "we have delivered
      nothing of value". */
   const priced = m.done.filter(i => i.businessValue > 0);
+  if (m.valueWithheld) {
+    host.innerHTML = '<div class="fc-refusal"><b>Value is not counted under a filter.</b> ' +
+      esc(m.valueWithheld) + "</div>";
+    host.onclick = null;
+    return;
+  }
   if (!m.valueItems.length) {
     const belowLine = priced.filter(i => i.valueCounts === false);
     // What the producer knows about the field, where a producer knows anything.
@@ -6388,7 +6417,8 @@ function render() {
        screen; nothing on the page said which was which. */
     (items.length !== S.view.issues.length
       ? " of " + S.view.issues.length + " after filters (the burndown, predictability, release quality, " +
-        "team load and releases tiles read the sprint\u2019s record and do not follow the filters)"
+        "team load and releases tiles read the sprint\u2019s record and do not follow the filters; " +
+        "value is not counted under a filter)"
       : "") +
     " · measured in " + U().label +
     " · rendered " + fmtDT(new Date()) +
