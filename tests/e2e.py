@@ -2834,6 +2834,33 @@ def main():
               bool(slack) and max(slack) <= 12,
               "largest gap %spx under a heading, over %d headers" % (max(slack) if slack else None, len(slack)))
 
+        # ---------- lighter is idler in both themes (1.79.45) ----------
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(300)
+        LUM = """() => { const v = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+            const lum = h => { const m = /^#?([0-9a-f]{6})$/i.exec(h); if (!m) return null;
+              const c = [0,2,4].map(i => parseInt(m[1].slice(i, i+2), 16) / 255).map(x => x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4));
+              return 0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2]; };
+            const legend = [...document.querySelectorAll('#flowtime-chart .legend .swatch')].map(e => getComputedStyle(e).backgroundColor);
+            return { theme: document.documentElement.getAttribute('data-theme'),
+                     wait: lum(v('--wait')), worked: lum(v('--worked')),
+                     todo: lum(v('--st-todo')), doing: lum(v('--st-doing')), done: lum(v('--st-done')),
+                     commit: lum(v('--commit')), completed: lum(v('--completed')), legend }; }"""
+        for turn in ("light", "dark"):
+            if turn == "dark":
+                page.click("#btn-theme"); page.wait_for_timeout(300)
+            l = page.evaluate(LUM)
+            check("in the %s theme waiting is paler than worked" % turn, l["wait"] > l["worked"], l)
+            check("and not started is paler than in progress, which is paler than done (%s)" % turn,
+                  l["todo"] > l["doing"] > l["done"], l)
+            check("and committed is paler than completed (%s)" % turn, l["commit"] > l["completed"], l)
+        page.click("#btn-theme"); page.wait_for_timeout(300)
+        cap = page.text_content("#c-flow .cap") or ""
+        check("the flow-time caption names legend entries, not a shade",
+              "pale" not in cap and "waiting in a queue" in cap, cap)
+        src_js = (ROOT / "src" / "app.js").read_text()
+        check("and nor does its help mark", "Long pale bars" not in src_js and "Long queue segments are the real problem" in src_js)
+
         # ---------- one rule for a Status filter, and a filter is one when it narrows (1.79.44) ----------
         page.set_viewport_size({"width": 1500, "height": 1000})
         page.wait_for_timeout(300)

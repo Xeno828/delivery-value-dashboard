@@ -544,7 +544,7 @@ const HELP = {
   exec: "<b>What it is</b><br>A plain-English reading of every chart below, written from the data rather than typed by hand.<br><br><b>How to improve it</b><br>If a line here surprises you, click through to the issues. A summary you cannot trace back to issues is a summary nobody trusts.",
   burn: "<b>What it is</b><br>Work still outstanding on each day, in the measure selected in the filter row, against the straight-line plan. The orange line is total committed scope.<br><br><b>Why the orange line matters</b><br>A classic burndown hides mid-sprint additions — the line just flattens and the team looks slow. Showing scope separately splits 'we were slow' from 'we were given more'.<br><br><b>How to improve it</b><br>Agree a scope-change rule at planning: anything added mid-sprint displaces something of equal size, and that swap is recorded.",
   dist: "<b>What it is</b><br>Each person's work, in the measure selected in the filter row, split into done, in progress and not started.<br><br><b>How to read it</b><br>Look for one person carrying a tall in-progress block — that is work in progress piling up, which slows the whole team down more than an uneven total would.<br><br><b>How to improve it</b><br>Cap how many items one person has in progress at once (two is a common limit) and finish before starting.",
-  flowtime: "<b>What it is</b><br>For each closed item: total time from being raised to being done (lead time), split into time actively worked (cycle time) and time waiting in a queue.<br><br><b>How to read it</b><br>Long pale bars are the real problem. Waiting is invisible in most reports and is usually the majority of elapsed time.<br><br><b>How to improve it</b><br>Attack the queues, not the coding. Refine sooner, review faster, and stop starting work you cannot immediately progress.",
+  flowtime: "<b>What it is</b><br>For each closed item: total time from being raised to being done (lead time), split into time actively worked (cycle time) and time waiting in a queue.<br><br><b>How to read it</b><br>Long queue segments are the real problem. Waiting is invisible in most reports and is usually the majority of elapsed time.<br><br><b>How to improve it</b><br>Attack the queues, not the coding. Refine sooner, review faster, and stop starting work you cannot immediately progress.",
   age: "<b>What it is</b><br>How long each unfinished item has existed, in bands sized for a two-week sprint.<br><br><b>Why these bands</b><br>Monthly bands are useless at sprint scale — everything lands in the first bucket. Anything past 14 days has already survived a full sprint.<br><br><b>How to improve it</b><br>Review the oldest item first at every stand-up. Age, not priority, is the best predictor of an item never finishing.",
   cycle: "<b>What it is</b><br>Every closed item plotted on the day it finished, against how many calendar days it took from being started. The three lines are the 50th, 85th and 95th percentiles of that set.<br><br><b>How to read it</b><br>The 85th percentile is the sentence to take outward: <i>85% of what we finish, we finish within N days</i>. It is a statement about the system rather than a promise about any one item, which is exactly why it survives contact with a stakeholder.<br><br><b>Watch the dots, not the line</b><br>A cluster drifting upward is the distribution changing. A single dot far above it is one item worth naming &mdash; click it.<br><br><b>How to improve it</b><br>Shrink the spread before you chase the median. A team whose 85th percentile is close to its median can be relied on; one with a long tail cannot, however fast its typical item is.",
   wip: "<b>What it is</b><br>Everything not yet finished, plotted against how old it already is, with the percentile lines from the closed items beside it.<br><br><b>Why it is the tile to act on</b><br>Every other chart here describes work that is already done. This one describes work you can still change. An item sitting above the 85th percentile line has already taken longer than 85% of everything this board has ever finished &mdash; and it is not finished.<br><br><b>How to improve it</b><br>Start the stand-up at the top of this chart and work down. Ageing predicts abandonment better than priority does, and an old item is rarely old for a reason anyone can still remember.",
@@ -649,9 +649,9 @@ const C = () => ({
   grid: CSSV("--grid"), axis: CSSV("--axis"), muted: CSSV("--muted"), surface: CSSV("--surface-1")
 });
 const STAGE = () => [
-  { key: "Done", label: "Done", col: CSSV("--seq-600") },
-  { key: "In Progress", label: "In progress", col: CSSV("--seq-450") },
-  { key: "To Do", label: "Not started", col: CSSV("--seq-250") }
+  { key: "Done", label: "Done", col: CSSV("--st-done") },
+  { key: "In Progress", label: "In progress", col: CSSV("--st-doing") },
+  { key: "To Do", label: "Not started", col: CSSV("--st-todo") }
 ];
 
 /* ------------------------------------------------------------ data plumbing */
@@ -2478,7 +2478,7 @@ function renderFlowTime(m, items) {
     .sort((a, b) => b.lead - a.lead);
   if (!rows.length) { host.innerHTML = '<div class="note">No completed items with both a start and a resolved date in this selection.</div>'; return; }
   const shown = rows.slice(0, 11), truncated = rows.length - shown.length;
-  const c = C(), waitCol = CSSV("--seq-250"), workCol = CSSV("--seq-600");
+  const c = C(), waitCol = CSSV("--wait"), workCol = CSSV("--worked");
   const W = cw(host), rowH = 22, P = { t: 8, r: 58, b: 30, l: 74 };
   const H = P.t + shown.length * rowH + P.b, iw = W - P.l - P.r;
   const maxL = Math.max.apply(null, shown.map(r => r.lead)) * 1.02 || 1;
@@ -3006,7 +3006,7 @@ function renderPred(m) {
   const maxY = Math.max.apply(null, h.map(d => Math.max(cm(d), cp(d)))) * 1.12;
   const bandW = iw / h.length, bw = Math.min(20, bandW / 2.7);
   const y = v => P.t + ih - (v / maxY) * ih;
-  const s = svgEl(W, H), commitCol = CSSV("--seq-250"), doneCol = CSSV("--seq-600");
+  const s = svgEl(W, H), commitCol = CSSV("--commit"), doneCol = CSSV("--completed");
 
   yTicks(maxY, 4).forEach(t => {
     s.add('<line class="grid-line" x1="' + P.l + '" y1="' + y(t) + '" x2="' + (W - P.r) + '" y2="' + y(t) + '"/>');

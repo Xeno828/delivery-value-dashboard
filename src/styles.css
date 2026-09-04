@@ -4,6 +4,12 @@
   --muted:#6f6d67; --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,0.10);
   --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
   --seq-100:#cde2fb; --seq-250:#86b6ef; --seq-350:#5598e7; --seq-450:#2a78d6; --seq-600:#184f95;
+  /* Meaning tokens over the ramp: waiting is paler than worked, not started
+     paler than in progress paler than done, committed paler than completed —
+     in both themes. The dark theme reverses the ramp for contrast, which
+     inverted these roles under captions that named the pale part. */
+  --wait:#86b6ef; --worked:#184f95; --st-todo:#86b6ef; --st-doing:#2a78d6; --st-done:#184f95;
+  --commit:#86b6ef; --completed:#184f95;
   --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
   /* UI text/control tokens, kept SEPARATE from the chart series colours above.
      --s1 stays exactly as the validated palette specifies it, because changing
@@ -22,6 +28,8 @@
   --muted:#898781; --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
   --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
   --seq-100:#184f95; --seq-250:#256abf; --seq-350:#2a78d6; --seq-450:#3987e5; --seq-600:#86b6ef;
+  --wait:#86b6ef; --worked:#2a78d6; --st-todo:#86b6ef; --st-doing:#5598e7; --st-done:#2a78d6;
+  --commit:#86b6ef; --completed:#2a78d6;
   --good-ink:#0ca30c; --warn-ink:#fab219; --serious-ink:#ec835a; --crit-ink:#e66767;
   --good-wash:#122712; --warn-wash:#2b2312; --serious-wash:#2b1d15; --crit-wash:#2b1414; --info-wash:#12203a;
   --link:#7fb2f0; --accent-bg:#256abf; --info-ink:#5598e7;

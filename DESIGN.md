@@ -244,7 +244,7 @@ A warm neutral ground with colour reserved for series, severity and action.
 ### Primary
 - **Accent Blue** (`accent-blue`, #256abf): the one control colour. Primary buttons, pressed segments, the active tab underline, focus rings and links. It is a shade darker than the chart's Delivery Blue so it clears 4.5:1 as text, and the two must never be swapped.
 - **Delivery Blue** (`delivery-blue`, #2a78d6): the lead chart series. Work remaining, items done, committed, work in progress; the line a reader follows first. Validated for colour-vision deficiency with its neighbours and not to be altered for contrast.
-- **Delivery Blue ramp** (`delivery-blue-100` to `delivery-blue-600`): a five-step sequential scale of the same hue for stacked stages (not started, in progress, done) and for the waiting-versus-worked split. Lighter is earlier or idler; darker is later or active.
+- **Delivery Blue ramp** (`delivery-blue-100` to `delivery-blue-600`): a five-step sequential scale of the same hue for ordinal ramps such as the age bands. Lighter is earlier or idler; darker is later or active. The stage stack (`st-todo`, `st-doing`, `st-done`), the waiting-versus-worked split (`wait`, `worked`) and the commitment pair (`commit`, `completed`) are meaning tokens rather than ramp steps, so the relation holds in the dark theme too, where the ramp itself is reversed for contrast. A caption names a legend entry, never a shade.
 
 ### Secondary
 - **Scope Orange** (`scope-orange`, #eb6834): the second series and the only warm one in a chart. Total scope on the burndown, unplanned work on the load tile. When it rises, work was added.
