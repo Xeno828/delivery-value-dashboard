@@ -167,6 +167,23 @@ def test_a_sprint_that_has_not_started_has_no_pace():
           near(M.facts(done)["delivery"]["time_elapsed_pct"], 1.0))
 
 
+def test_nothing_priced_is_not_zero_value():
+    """A sum over no priced items is withheld, not reported as 0.
+
+    The KPI tile printed "$0" over "0 of 5 closed items priced" in a tenant;
+    the pack's closed_estimate was the 0 behind it. Both withhold now.
+    """
+    ds = json.load(open(ROOT / "data" / "sample-sprint.json"))
+    for i in ds["issues"]:
+        i.pop("businessValue", None); i.pop("valueBasis", None)
+    v = M.facts(ds)["value"]
+    check("with nothing priced the closed estimate is withheld, not 0",
+          v["closed_estimate"] is None and v["items_with_estimate"] == 0, (v["closed_estimate"], v["items_with_estimate"]))
+    check("and the pack says why, keeping the honest count of unpriced items",
+          (v.get("value_withheld") or "").startswith("no completed item carries a value estimate") and
+          v["items_without_estimate"] > 0, (v.get("value_withheld"), v["items_without_estimate"]))
+
+
 def test_reporting_scope():
     """The facts pack reports the sprint; the forecaster uses all history.
     Conflating them puts '89% complete' on a report about a sprint that is
@@ -1811,6 +1828,7 @@ if __name__ == "__main__":
     test_facts()
     test_demo_file_is_self_consistent()
     test_a_sprint_that_has_not_started_has_no_pace()
+    test_nothing_priced_is_not_zero_value()
     print("reporting scope vs forecasting scope")
     test_reporting_scope()
     print("change detection")

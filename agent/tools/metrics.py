@@ -985,7 +985,12 @@ def facts(ds, previous=None, scope="sprint"):
             },
         },
         "value": {
-            "closed_estimate": round(sum(OC.value_of(i, cfg) for i in valued)),
+            # A sum over no priced items is not a figure; the mirror of the KPI
+            # tile in src/app.js, which prints a dash rather than a zero there.
+            "closed_estimate": round(sum(OC.value_of(i, cfg) for i in valued)) if valued else None,
+            "value_withheld": (None if valued else
+                               "no completed item carries a value estimate, so there is no value figure — "
+                               "nothing has been priced, which is not the same as nothing being worth anything"),
             "items_with_estimate": len(valued),
             "items_without_estimate": len(done) - len(valued),
             "bases": [{"key": i["key"], "amount": OC.value_of(i, cfg), "basis": i.get("valueBasis") or ""}

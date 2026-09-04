@@ -3022,10 +3022,21 @@ function renderKpis(m) {
       barPct: m.total ? m.overdue.length / m.total : 0, barCol: CSSV("--serious"),
       tt: "Open items whose due date has already passed. A due date nobody re-negotiates is a commitment quietly broken.",
       drill: { t: "Overdue open items", items: m.overdue } },
-    { lab: "Value closed", val: money(m.value, meta.currency), sub: m.valueItems.length + " of " + m.done.length + " closed items priced",
-      barPct: m.done.length ? m.valueItems.length / m.done.length : 0, barCol: CSSV("--s3"),
-      tt: "Estimated commercial impact of completed items. Estimates only — see the value card for the working.",
-      drill: { t: "Completed items carrying a value estimate", items: m.valueItems } }
+    /* A sum over no priced items is not a measurement. The tile printed "$0"
+       over "0 of 5 closed items priced" in a tenant — a figure that reads as
+       "delivered nothing of value", which is a different statement from
+       "nobody has priced anything", and the value card beneath already says
+       which of three reasons applies. The count stays, because it is honest. */
+    m.valueItems.length
+      ? { lab: "Value closed", val: money(m.value, meta.currency), sub: m.valueItems.length + " of " + m.done.length + " closed items priced",
+          barPct: m.done.length ? m.valueItems.length / m.done.length : 0, barCol: CSSV("--s3"),
+          tt: "Estimated commercial impact of completed items. Estimates only — see the value card for the working.",
+          drill: { t: "Completed items carrying a value estimate", items: m.valueItems } }
+      : { lab: "Value closed", val: "—",
+          sub: m.done.length ? "none of " + m.done.length + " closed items priced" : "nothing closed to price",
+          barPct: 0, barCol: CSSV("--muted"),
+          tt: "No completed item in this selection carries a value estimate, so there is no figure. A zero here would read as \u201cdelivered nothing of value\u201d, which is a different statement from \u201cnothing has been priced\u201d; the value card says which of three reasons applies.",
+          drill: { t: "Completed items carrying a value estimate", items: [] } }
   ];
 
   $("#kpis").innerHTML = tiles.map((t, i) =>

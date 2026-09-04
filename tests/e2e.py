@@ -734,6 +734,19 @@ def exec_findings(b):
           "100% of elapsed time" in txt and "Only 100%" not in txt, txt[:160])
     check("and does not report that 0% was queuing",
           "0% was queuing" not in txt and "None of it was queuing" in txt, txt[:220])
+    # Nothing priced. The Value closed tile printed "$0" over "0 of 5 closed
+    # items priced" in a tenant: a figure that reads as "delivered nothing of
+    # value" where the truth is "nobody priced anything". A dash, and the count.
+    unpriced = json.loads(json.dumps(sample))
+    for i in unpriced["issues"]:
+        i.pop("businessValue", None); i.pop("valueBasis", None)
+    page.evaluate("d => window.DVD.applyDataset(d)", unpriced)
+    page.wait_for_timeout(500)
+    tile = " ".join((page.text_content("#kpis .kpi:nth-child(8)") or "").split())
+    check("with nothing priced the value tile withholds its figure rather than printing a zero",
+          "—" in tile and not re.search(r"[$£€]\s?0\b", tile), tile)
+    check("and keeps the honest count of what was not priced",
+          re.search(r"none of \d+ closed items priced", tile) is not None, tile)
     page.close()
 
 
