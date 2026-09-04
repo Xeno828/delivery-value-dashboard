@@ -60,7 +60,7 @@ Counts, warnings, and the first eight rows exactly as the dashboard will read th
 
 Nothing is applied until you press **Apply to the dashboard**, and a ■ warning — duplicate keys, an ambiguous date format, no sprint window, no issues under the header — turns that button off and says why beside it. Fix the file, or the mapping, and come back.
 
-A multi-sprint bundle (a JSON with `contexts[]`, the shape `make bundle` and the fetcher write) skips the mapping and the sprint window: it carries its own, per sprint, and loads whole. It always replaces what is loaded.
+A multi-sprint bundle (a JSON with `contexts[]`, the shape `make bundle` and the fetcher write) skips the mapping and the sprint window: it carries its own, per sprint, and loads whole. So does a single-sprint dashboard dataset — a JSON with a `meta` block — because a file that states its sprint is not asked to guess it; loaded whole it reads exactly as it does baked in. Both always replace what is loaded. A bare JSON array of issues is a table like a CSV: it maps, and it can merge.
 
 ---
 

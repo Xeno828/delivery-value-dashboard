@@ -657,6 +657,19 @@ function handleText(text) {
       W.bundle = ds; W.jsonDataset = null; W.header = []; W.rows = [];
       return;
     }
+    /* A dashboard dataset that carries its own record — a `meta` block with
+       the sprint's name and dates — loads whole for the same reason a bundle
+       does. Through the mapping it was re-inferred: `sample-sprint.json` came
+       out as "Imported 2026-08-03, as at 2026-08-14", read -45 pp and Off
+       track (15/100) where the same file baked in reads -5 pp and Needs
+       attention (52/100), and its own Sprint 24 row was kept beside a
+       computed one, so the predictability chart drew the sprint twice. A file
+       that states its sprint is not asked to guess it. A bare issues[] array
+       still maps, and can still merge. */
+    if (ds.meta && Array.isArray(ds.issues) && ds.issues.length) {
+      W.bundle = ds; W.jsonDataset = null; W.header = []; W.rows = [];
+      return;
+    }
     W.bundle = null;
     if (!ds.issues || !ds.issues.length) throw new Error("the JSON contains no issues[] array");
     // A full dataset needs no mapping — flatten it into the same table shape so
@@ -743,17 +756,21 @@ const INFERABLE = { addedMidSprint: "— infer: created after the sprint starts 
    another has no meaning the page could show. The preview still says what
    will be applied before anything is. */
 function toBundlePreview() {
-  const b = W.bundle, iss = b.issues || [], ctxs = b.contexts;
+  const b = W.bundle, iss = b.issues || [];
+  const ctxs = Array.isArray(b.contexts) && b.contexts.length ? b.contexts : null;
   W.built = b; W.mode = "replace";
-  const boards = new Set(ctxs.map(c => String(c.boardId || c.boardName || ""))).size;
-  const stats = [
-    [ctxs.length, ctxs.length === 1 ? "sprint" : "sprints"],
-    [boards, boards === 1 ? "board" : "boards"],
-    [iss.length, "issues"]
-  ];
-  $("#prev-stats").innerHTML = stats.map(s => "<div><b>" + s[0] + "</b><span>" + s[1] + "</span></div>").join("");
-  $("#prev-warn").innerHTML = '<div class="warn ok"><span aria-hidden="true">&#10003;</span><span><b>A dashboard bundle.</b> ' +
-    "It loads whole, with each sprint's own record, so there is no column mapping and no sprint window to check. " +
+  const meta = b.meta || {};
+  const stats = ctxs
+    ? [[ctxs.length, ctxs.length === 1 ? "sprint" : "sprints"],
+       [new Set(ctxs.map(c => String(c.boardId || c.boardName || ""))).size, "boards"],
+       [iss.length, "issues"]]
+    : [[meta.sprintName || "one sprint", "sprint"],
+       [(meta.startDate ? esc(meta.startDate) : "—") + " → " + (meta.endDate ? esc(meta.endDate) : "—"), "window"],
+       [iss.length, "issues"]];
+  $("#prev-stats").innerHTML = stats.map(s => "<div><b>" + esc(String(s[0])) + "</b><span>" + s[1] + "</span></div>").join("");
+  $("#prev-warn").innerHTML = '<div class="warn ok"><span aria-hidden="true">&#10003;</span><span><b>' +
+    (ctxs ? "A dashboard bundle.</b> It loads whole, with each sprint's own record, so there is no column mapping and no sprint window to check. "
+          : "A dashboard dataset.</b> It carries its own sprint, dates and record, so it loads whole: nothing is mapped or inferred. ") +
     "It replaces whatever is loaded.</span></div>";
   const cols = ["key", "summary", "assignee", "status", "storyPoints", "created", "resolved"];
   $("#prev-table").innerHTML = "<table class='tv'><thead><tr>" +

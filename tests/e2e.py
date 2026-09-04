@@ -2109,9 +2109,12 @@ def main():
         page.evaluate("() => { document.querySelector('#step-choose details').open = true; }")
         page.fill("#paste", json.dumps(own))
         page.click("#m-paste")
-        page.wait_for_selector("#step-map:not(.hidden)", timeout=5000)
-        page.click("#m-preview")
+        # A dataset that carries its own record loads whole (1.79.42): no
+        # mapping step, no inferred window.
         page.wait_for_selector("#step-preview:not(.hidden)", timeout=5000)
+        check("a JSON dataset with its own record skips the mapping step",
+              "hidden" in (page.get_attribute("#step-map", "class") or "") and
+              "loads whole" in (page.text_content("#prev-warn") or ""), (page.text_content("#prev-warn") or "")[:90])
         page.click("#m-apply"); page.wait_for_timeout(700)
         check("a JSON dataset's own goal is what appears",
               "Goal carried by the file" in (page.text_content("#t-goal") or ""), page.text_content("#t-goal"))
@@ -2830,6 +2833,34 @@ def main():
         check("no card header on a phone is taller than what it says",
               bool(slack) and max(slack) <= 12,
               "largest gap %spx under a heading, over %d headers" % (max(slack) if slack else None, len(slack)))
+
+        # ---------- the same file gives the same verdict by either route (1.79.42) ----------
+        # sample-sprint.json through Load data used to come out as "Imported
+        # 2026-08-03, as at 2026-08-14": -45 pp and Off track (15/100) where
+        # the baked-in copy reads -5 pp and Needs attention (52/100), with
+        # Sprint 24 drawn twice in the predictability chart.
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(300)
+        CHIP2 = "() => document.getElementById('t-health').textContent.trim()"
+        baked = {"title": page.text_content("#t-title"), "chip": page.evaluate(CHIP2),
+                 "pace": " ".join((page.text_content("#kpis .kpi:nth-child(2)") or "").split()),
+                 "bars": page.eval_on_selector_all("#pred-chart rect", "n => n.length"),
+                 "sub": " ".join((page.text_content("#t-sub") or "").split())}
+        page.click("#btn-import")
+        page.evaluate("() => { document.querySelector('#step-choose details').open = true; }")
+        page.fill("#paste", (ROOT / "data" / "sample-sprint.json").read_text()); page.click("#m-paste")
+        page.wait_for_selector("#step-preview:not(.hidden)", timeout=5000)
+        check("the preview names the file's own sprint and window",
+              "Sprint 24" in (page.text_content("#prev-stats") or "") and "2026-08-03 → 2026-08-14" in (page.text_content("#prev-stats") or ""),
+              (page.text_content("#prev-stats") or "")[:80])
+        page.click("#m-apply"); page.wait_for_timeout(700)
+        loaded = {"title": page.text_content("#t-title"), "chip": page.evaluate(CHIP2),
+                  "pace": " ".join((page.text_content("#kpis .kpi:nth-child(2)") or "").split()),
+                  "bars": page.eval_on_selector_all("#pred-chart rect", "n => n.length"),
+                  "sub": " ".join((page.text_content("#t-sub") or "").split())}
+        check("loaded through the wizard, the file reads exactly as it does baked in",
+              loaded == baked, {k: (baked[k], loaded[k]) for k in baked if baked[k] != loaded[k]})
+        page.click("#btn-import"); page.click("#m-sample"); page.wait_for_timeout(500)
 
         # ---------- a sprint is never over before it has started (1.79.41) ----------
         # A tenant's not-yet-started sprint came over the bridge with a state
