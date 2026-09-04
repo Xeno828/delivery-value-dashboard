@@ -1135,10 +1135,17 @@ def transports(b):
               "-1 " not in note and "- 1 " not in note, note[:140])
         check("and no count against a denominator of zero",
               " of the 0 " not in note, note[:140])
-        check("it says value is recorded on epics and above",
-              "epics and above" in note, note[:160])
-        check("and that work below that level is not missing from the figure",
-              "not missing from it" in note, note[:200])
+        # The sentence names the rule that counted the rows above it (1.79.37):
+        # the epic rule where the data records levels, the no-level default
+        # where it does not. One of the two, and the one the data warrants.
+        levels = page.evaluate("() => (window.DVD.debug.view().valuePool || []).concat(window.DVD.debug.view().issues || [])"
+                               ".some(i => typeof i.hierarchyLevel === 'number')")
+        check("it names the counting rule the data warrants",
+              (("epics and above" in note and "not missing from it" in note) if levels
+               else ("records no hierarchy" in note and "whichever items carry it" in note)),
+              (levels, note[:200]))
+        check("and only that one",
+              ("epics and above" in note) != ("records no hierarchy" in note), note[:200])
         page.close()
 
         # ---------- the issue-type filter changes what is counted ----------
@@ -2822,6 +2829,22 @@ def main():
         check("no card header on a phone is taller than what it says",
               bool(slack) and max(slack) <= 12,
               "largest gap %spx under a heading, over %d headers" % (max(slack) if slack else None, len(slack)))
+
+        # ---------- the value basis sentence follows the data (1.79.37) ----------
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(300)
+        vb = " ".join((page.text_content("#value-body") or "").split())
+        check("a file with no hierarchy says value is counted on whichever items carry it",
+              "records no hierarchy" in vb and "epics and above" not in vb, vb[-260:])
+        lev = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        for i in lev["issues"]:
+            if i.get("businessValue"):
+                i["hierarchyLevel"] = 1
+        page.evaluate("d => window.DVD.applyDataset(d)", lev); page.wait_for_timeout(600)
+        vb = " ".join((page.text_content("#value-body") or "").split())
+        check("a file that records levels gets the epic sentence",
+              "epics and above" in vb and "records no hierarchy" not in vb, vb[-260:])
+        page.click("#btn-import"); page.click("#m-sample"); page.wait_for_timeout(500)
 
         # ---------- Merge needs only the key (1.79.36) ----------
         # The wizard's own advice — layer a value file on a Jira export — was

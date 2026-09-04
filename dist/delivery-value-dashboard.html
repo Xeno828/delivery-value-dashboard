@@ -4276,8 +4276,16 @@ function renderValue(m) {
           " that can carry a value estimate " + (unpriced === 1 ? "does not" : "do not") +
           ", so their contribution is counted as zero. "
         : "Everything completed that can carry a value estimate has one. ") +
-      "Value is recorded on epics and above, so work below that level is not counted here " +
-      "and is not missing from it. Figures are forecasts made at " +
+      /* Which rule counted these. The epic sentence was printed beneath a priced
+         Bug and a priced Story in every file that records no hierarchy — which
+         is every CSV — and the one line a reader is told to challenge was wrong
+         about the rows above it. ADR 0025: an issue with no recorded level
+         still counts. */
+      (valueLevelsKnown()
+        ? "Value is recorded on epics and above, so work below that level is not counted here " +
+          "and is not missing from it. "
+        : "This file records no hierarchy, so value is counted on whichever items carry it, once each. ") +
+      "Figures are forecasts made at " +
       "planning time and are not reconciled against booked revenue — the basis line under each item is what to challenge.</div></div>";
   host.onclick = e => {
     const b = e.target.closest("[data-vkey]"); if (!b) return;
@@ -4738,6 +4746,14 @@ function seriesRefusalHtml(thin) {
 /** Where a record-fed tile says its record lives: a reader of a forwarded
  *  file is holding a file; a reader inside the app is looking at a board. */
 function recordHome() { return S.live ? "this board's data" : "this file"; }
+
+/** Does anything in view carry a hierarchy level? Decides which counting rule
+ *  the value card describes: the epic rule where levels exist, the no-level
+ *  default where the data records none. */
+function valueLevelsKnown() {
+  return (S.view.valuePool || []).concat(S.view.issues || [])
+    .some(i => typeof i.hierarchyLevel === "number" && isFinite(i.hierarchyLevel));
+}
 
 /** What the page says above a trend, once, from the tool that counted it.
  *  Empty when the series has nothing a chart cannot show for itself. */
