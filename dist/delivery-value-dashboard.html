@@ -2916,7 +2916,10 @@ function renderExec(m) {
       "so the fix is a work-in-progress cap rather than more effort. This reads the sprint record, not the filtered issues.", null);
 
   const ico = { critical: ["--critical", "!"], warning: ["--warning", "▲"], serious: ["--serious", "▲"], good: ["--good", "✓"], info: ["--s1", "i"] };
-  $("#exec-list").innerHTML = pts.slice(0, 6).map((p, ix) => {
+  // No cap. Seven findings can fire and the list held six, dropping the
+  // seventh — always the work-in-progress one — without a word. One more
+  // line costs nothing; a truncated list reads as a complete one.
+  $("#exec-list").innerHTML = pts.map((p, ix) => {
     const [col, ch] = ico[p.sev];
     return "<li><span class='ic' data-sev='" + p.sev + "' style='background:" + CSSV(col) +
       "' aria-hidden='true'>" + ch + "</span>" +
@@ -5319,6 +5322,7 @@ function renderRisk(m, items) {
   const host = $("#risk-body"), risks = [];
   const push = (sev, t, d, a, its) => risks.push({ sev, t, d, a, its: its || [] });
   const rank = { critical: 0, serious: 1, warning: 2, info: 3, good: 4 };
+  const RISK_ROWS = 9;
 
   m.critical.filter(i => days(i.created, asOf()) > 14).forEach(i =>
     push("critical", i.key + " — highest priority, " + Math.round(days(i.created, asOf())) + " days old",
@@ -5400,7 +5404,7 @@ function renderRisk(m, items) {
   risks.sort((a, b) => rank[a.sev] - rank[b.sev]);
   const chip = { critical: ["c-crit", "■", "Critical"], serious: ["c-serious", "▲", "Serious"],
                  warning: ["c-warn", "▲", "Watch"], info: ["c-info", "i", "Note"], good: ["c-good", "✓", "Working well"] };
-  host.innerHTML = risks.slice(0, 9).map((r, ix) => {
+  host.innerHTML = risks.slice(0, RISK_ROWS).map((r, ix) => {
     const [cls, ic, lab] = chip[r.sev];
     return '<div class="riskrow"><div class="rh"><span class="chip ' + cls + '"><span aria-hidden="true">' + ic + "</span>" + lab + "</span>" +
       '<span class="rt">' + esc(r.t) + "</span></div>" +
@@ -5418,6 +5422,14 @@ function renderRisk(m, items) {
     : notRun.length
     ? "No risks triggered by the rules that could be run here."
     : "No risks triggered against the current filters.") + "</div>";
+  /* No silent caps. The critical rule fires once per issue, so a board with
+     a dozen stale highest-priority items produced more than nine risks, and
+     the register showed nine as if they were all. The rows are ranked by
+     severity, so what is shown is the most severe; what is not is counted. */
+  if (risks.length > RISK_ROWS)
+    host.innerHTML += '<div class="note" style="margin-top:8px">Showing the ' + RISK_ROWS + " most severe of " +
+      risks.length + " risks. The " + (risks.length - RISK_ROWS) + " not shown are the same rules over other issues, " +
+      "lower in the ranking; narrow the filters to bring them up.</div>";
 
   if (notRun.length && !m.empty)
     host.innerHTML += '<div class="note" style="margin-top:8px">' +

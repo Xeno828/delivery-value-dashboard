@@ -758,6 +758,31 @@ def exec_findings(b):
           "—" in tile and not re.search(r"[$£€]\s?0\b", tile), tile)
     check("and keeps the honest count of what was not priced",
           re.search(r"none of \d+ closed items priced", tile) is not None, tile)
+    # Two caps against a named rule. Seven findings can fire and the list held
+    # six; the register held nine risks and the critical rule fires per issue.
+    seven = json.loads(json.dumps(sample))
+    seven["history"][-3]["wipItems"], seven["history"][-1]["wipItems"] = 4, 9
+    seven["history"][-3]["completedItems"], seven["history"][-1]["completedItems"] = 12, 10
+    page.evaluate("d => window.DVD.applyDataset(d)", seven)
+    page.wait_for_timeout(500)
+    n = page.eval_on_selector_all("#exec-list li", "n => n.length")
+    txt = " ".join((page.text_content("#exec-list") or "").split())
+    check("all seven findings are listed when seven fire; the list has no cap",
+          n == 7 and "Work in progress has risen" in txt, (n, txt[-120:]))
+    many = json.loads(json.dumps(sample))
+    openers = [i for i in many["issues"] if i.get("statusCategory") != "Done"][:11]
+    for i in openers:
+        i["priority"] = "Highest"; i["created"] = "2026-06-01"
+    page.evaluate("d => window.DVD.applyDataset(d)", many)
+    page.wait_for_timeout(500)
+    rows = page.eval_on_selector_all("#risk-body .riskrow", "n => n.length")
+    note = " ".join((page.text_content("#risk-body") or "").split())
+    check("the risk register shows its nine most severe and says how many it did not show",
+          rows == 9 and re.search(r"Showing the 9 most severe of 1\d risks", note) is not None, (rows, note[-200:]))
+    page.evaluate("d => window.DVD.applyDataset(d)", sample)
+    page.wait_for_timeout(300)
+    check("under the cap the register says nothing about a cap",
+          "most severe of" not in (page.text_content("#risk-body") or ""))
     page.close()
 
 
