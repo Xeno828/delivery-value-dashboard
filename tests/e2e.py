@@ -2225,13 +2225,14 @@ def main():
               page.eval_on_selector_all("[data-tile]", "n => n.length") == len(TIDS))
         # The button read "Tiles · Everything" on a sprint board while the
         # popover beneath it said "4 hidden": the flow tiles a sprint board does
-        # not draw. The label names what the preset shows and carries the count
-        # whenever anything is hidden, whoever hid it.
+        # not draw. The label names what the preset shows; the count is the
+        # reader's (1.79.39) and appears once they hide a tile themselves —
+        # the picker explains the tiles a board or a saved copy leaves out.
         btn = " ".join((page.text_content("#btn-view") or "").split())
         check("the Tiles button does not say Everything while tiles are hidden",
               "Everything" not in btn, btn)
-        check("it names the set it shows and counts it",
-              "All sprint tiles" in btn and re.search(r"\b\d+ of %d\b" % len(TIDS), btn) is not None, btn)
+        check("it names the set it shows without counting what the reader did not hide",
+              "All sprint tiles" in btn and re.search(r"\b\d+ of %d\b" % len(TIDS), btn) is None, btn)
         check("the popover's preset carries the same name",
               "All sprint tiles" in (page.text_content('[data-preset="all"]') or ""),
               page.text_content('[data-preset="all"]'))
@@ -2829,6 +2830,44 @@ def main():
         check("no card header on a phone is taller than what it says",
               bool(slack) and max(slack) <= 12,
               "largest gap %spx under a heading, over %d headers" % (max(slack) if slack else None, len(slack)))
+
+        # ---------- more words the fifth critique read (1.79.39) ----------
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(300)
+        page.click("#dist-chart rect[data-drill]"); page.wait_for_timeout(400)
+        ps = " ".join((page.text_content("#p-sub") or "").split())
+        check("the per-person drill-down names the measure in view", ps.startswith("Items assigned to"), ps[:60])
+        page.keyboard.press("Escape"); page.wait_for_timeout(200)
+        risk = " ".join((page.text_content("#risk-body") or "").split())
+        check("plural overdue items are past their due dates",
+              "items are past its" not in risk and ("past their due dates" in risk or "is past its due date" in risk), risk[:120])
+        check("a flagged risk's title ends before the next sentence starts",
+              re.search(r"[a-z0-9)] It is also flagged", risk) is None, risk[:200])
+        ex = " ".join((page.text_content("#exec-list") or "").split())
+        check("one other completed item carries, several carry",
+              re.search(r"\b1 other completed items\b", ex) is None and
+              re.search(r"other completed items? carr(y|ies) no value estimate", ex) is not None, ex[:120])
+        src = (ROOT / "src" / "app.js").read_text()
+        check("the ranked-list note is singular for one remaining item",
+              'truncated === 1 ? " is" : " are"' in src)
+        # The Forge resolver states which statuses it read from Jira's own
+        # categories; a tenant's footer said "To Do → To Do" for one of them.
+        inf = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        inf["orgConfig"] = {"inferredStatuses": [{"status": "To Do", "readAs": "To Do", "from": "category"}]}
+        page.evaluate("d => window.DVD.applyDataset(d)", inf); page.wait_for_timeout(600)
+        foot = page.text_content("#foot") or ""
+        check("a status read as its own name is not printed as an arrow to itself",
+              "To Do (by its name)" in foot and "To Do → To Do" not in foot, foot[-200:])
+        page.click("#btn-import"); page.click("#m-sample"); page.wait_for_timeout(500)
+        bv = " ".join((page.text_content("#btn-view") or "").split())
+        check("the Tiles button counts only what the reader turned off",
+              bv == "Tiles · All sprint tiles", bv)
+        page.evaluate("() => { const ids = window.DVD.debug.tileIds().filter(id => id !== 'c-risk'); window.DVD.debug.setShown(ids); }")
+        page.wait_for_timeout(300)
+        bv = " ".join((page.text_content("#btn-view") or "").split())
+        check("and shows the count once the reader has", " of 18" in bv and "Custom" in bv, bv)
+        page.evaluate("() => window.DVD.debug.setShown(window.DVD.debug.presets().all)")
+        page.wait_for_timeout(300)
 
         # ---------- tense follows the clock (1.79.38) ----------
         page.set_viewport_size({"width": 1500, "height": 1000})

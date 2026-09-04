@@ -1445,7 +1445,9 @@ function inferredSentence() {
   return "<br>" + rows.length + " status" + (one ? "" : "es") + " this board uses "
     + (one ? "is" : "are") + " not named in the organisation config, so "
     + (one ? "it was" : "each was") + " read from other evidence: "
-    + rows.map(r => esc(r.status) + " → " + esc(r.readAs)).join(", ") + ".";
+    // "To Do → To Do" read as a tautology; a status read as its own name is
+    // said that way.
+    + rows.map(r => r.status === r.readAs ? esc(r.status) + " (by its name)" : esc(r.status) + " → " + esc(r.readAs)).join(", ") + ".";
 }
 
 function openWorkflow(on) {
@@ -3041,7 +3043,7 @@ function renderExec(m) {
   }
   if (m.value && !m.valueWithheld) {
     add("good", money(m.value, meta.currency) + " of estimated value closed this sprint across " + m.valueItems.length + " item" + (m.valueItems.length > 1 ? "s" : "") + ".",
-      "Estimates with a stated basis, not booked revenue. " + (m.total - m.valueItems.length - m.open.length) + " other completed items carry no value estimate, so this figure is a floor, not a total.",
+      "Estimates with a stated basis, not booked revenue. " + otherUnpriced(m) + " no value estimate, so this figure is a floor, not a total.",
       { title: "Completed work with an estimated value", items: m.valueItems });
   }
   const hist = S.view.history || [];
@@ -3441,7 +3443,7 @@ function renderDist(m, items) {
   host.onclick = e => {
     const t = e.target.closest("[data-drill]"); if (!t) return;
     const d = JSON.parse(t.dataset.drill);
-    openDrill(d.p + " — " + d.st.toLowerCase(), "Story points assigned to " + d.p + " currently at stage “" + d.st + "”.",
+    openDrill(d.p + " — " + d.st.toLowerCase(), (U().isItems ? "Items" : "Story points") + " assigned to " + d.p + " currently at stage “" + d.st + "”.",
       items.filter(i => i.assignee === d.p && i.statusCategory === d.st));
   };
   S.tables.dist = { cols: ["Person", "Done (" + U().short + ")", "In progress (" + U().short + ")",
@@ -3496,7 +3498,7 @@ function renderFlowTime(m, items) {
     '<span style="margin-left:auto;color:var(--text-primary);font-weight:600">' +
       pct(1 - totalWait / (totalLead || 1)) + " of elapsed time was active work</span></div>" + s.out() +
     (truncated > 0 ? '<div class="note" style="margin-top:6px">Showing the ' + shown.length + " longest of " + rows.length +
-      " closed items. The remaining " + truncated + " are in the table view — nothing is hidden, only ranked.</div>" : "");
+      " closed items. The remaining " + truncated + (truncated === 1 ? " is" : " are") + " in the table view — nothing is hidden, only ranked.</div>" : "");
   host.onclick = e => {
     const t = e.target.closest("[data-key]"); if (!t) return;
     const it = items.find(i => i.key === t.dataset.key);
@@ -4790,6 +4792,12 @@ function recordHome() { return S.live ? "this board's data" : "this file"; }
  *  sprints read "Sprint health" beside "no single sprint clock"; a score across
  *  a project's boards is not a sprint's either. The name is the guard against
  *  comparing scores that were never measured the same way. */
+/** "1 other completed item carries", "10 other completed items carry". */
+function otherUnpriced(m) {
+  const n = m.total - m.valueItems.length - m.open.length;
+  return n === 1 ? "1 other completed item carries" : n + " other completed items carry";
+}
+
 /** Is this history row the sprint still running on the board in view? */
 function liveRow(d) {
   const c = S.view.ctx;
@@ -5580,11 +5588,13 @@ function renderRisk(m, items) {
 
   m.critical.filter(i => days(i.created, asOf()) > 14).forEach(i =>
     push("critical", i.key + " — highest priority, " + Math.round(days(i.created, asOf())) + " days old",
-      i.summary + (i.flagged ? " It is also flagged as blocked." : ""),
+      // A summary is a title, not a sentence; give it its full stop before a
+      // sentence follows it.
+      i.flagged ? i.summary.replace(/[.!?]?\s*$/, ".") + " It is also flagged as blocked." : i.summary,
       "Give it a named owner and a decision deadline this week, or explicitly drop its priority. Leaving it at the top of the list without movement corrodes the priority scheme for everything else.", [i]));
 
   if (m.overdue.length)
-    push(m.overdue.length >= 3 ? "serious" : "warning", m.overdue.length + " open item" + (m.overdue.length > 1 ? "s are" : " is") + " past its due date",
+    push(m.overdue.length >= 3 ? "serious" : "warning", m.overdue.length + " open item" + (m.overdue.length > 1 ? "s are past their due dates" : " is past its due date"),
       "Total " + n1(sum(m.overdue, i => i.storyPoints)) + " story points. Due dates that pass without a conversation stop being believed.",
       "Re-date or close each one at the next stand-up. A due date is a promise to someone outside the team.", m.overdue);
 
@@ -6231,12 +6241,18 @@ function applyTiles() {
     if (B) B.classList.toggle("span-full", onB && !onA);
   });
   const name = presetOf(S.shown), hidden = TILE_IDS.length - on.length;
+  /* The count on the button is the reader's doing: "All sprint tiles · 12 of
+     18" implied six tiles hidden by choice when four did not apply to the
+     board and two are off in a saved copy. Those are the picker's to explain;
+     the button counts only what the reader turned off. The title keeps the
+     whole arithmetic either way. */
+  const readerHidden = presetSet("all", S.presetKind || "sprint").filter(id => on.indexOf(id) < 0).length;
   const btn = $("#btn-view");
-  // The count travels with the name whenever anything is hidden, whoever hid it.
   // The preset and the count are detail a phone's toolbar drops (see the
   // 760px rule); the button's title carries them either way.
   btn.innerHTML = hidden
-    ? 'Tiles<span class="btn-detail"> · ' + esc(presetLabel(name)) + " · " + on.length + " of " + TILE_IDS.length + "</span>"
+    ? 'Tiles<span class="btn-detail"> · ' + esc(presetLabel(name)) +
+      (readerHidden ? " · " + on.length + " of " + TILE_IDS.length : "") + "</span>"
     : "Tiles";
   btn.title = hidden ? hidden + " of " + TILE_IDS.length + " tiles hidden in this view" +
                        (off.length ? ", " + off.length + " of them because this board runs no sprints" : "")
