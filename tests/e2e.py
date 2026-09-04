@@ -2834,6 +2834,33 @@ def main():
               bool(slack) and max(slack) <= 12,
               "largest gap %spx under a heading, over %d headers" % (max(slack) if slack else None, len(slack)))
 
+        # ---------- one rule for a Status filter, and a filter is one when it narrows (1.79.44) ----------
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(300)
+        t = lambda n: " ".join((page.text_content("#kpis .kpi:nth-child(%d)" % n) or "").split())
+        page.evaluate("() => window.DVD.debug.setFilter('status', 'Done')"); page.wait_for_timeout(400)
+        check("under a Status filter Delivered withholds its share with pace's sentence",
+              t(1).startswith("Delivered—") and "not measured under a Status filter" in t(1) and "%" not in t(1), t(1))
+        check("and so does the carry-over count", "—" in t(6) and "not measured under a Status filter" in t(6), t(6))
+        vd = " ".join((page.text_content("#exec-verdict") or "").split())
+        check("and the verdict opens on what matched, not on a share",
+              vd.startswith("12 items match the Status filter") and "(100%)" not in vd, vd[:140])
+        page.evaluate("() => window.DVD.debug.setFilter('status', '')"); page.wait_for_timeout(400)
+        page.evaluate("() => window.DVD.debug.setFilter('q', 'BLC-4')"); page.wait_for_timeout(400)
+        check("a search that matches every issue is not a filter: the figure, the delta and the head all stand",
+              re.search(r"\$[\d,]+", t(8)) is not None and "last sprint" in t(1) and
+              " ".join((page.text_content("#band-basis") or "").split()) == "Headline numbers · all 22 issues",
+              (t(8)[:40], t(1)[-30:], page.text_content("#band-basis")))
+        page.evaluate("() => window.DVD.debug.setFilter('q', '')"); page.wait_for_timeout(400)
+        bundle = json.loads((ROOT / "data" / "sample-bundle.json").read_text())
+        page.evaluate("d => window.DVD.applyDataset(d)", bundle); page.wait_for_timeout(700)
+        page.evaluate("() => window.DVD.debug.selectContext(window.DVD.debug.view().contexts.find(c => c.isRollup && !c.isCrossTeam).id)")
+        page.wait_for_timeout(900)
+        ex = page.text_content("#exec-list") or ""
+        check("where pace is not measured the scope finding does not say the team absorbed it without slipping",
+              "without slipping" not in ex, ex[:120])
+        page.click("#btn-import"); page.click("#m-sample"); page.wait_for_timeout(500)
+
         # ---------- a record belongs to one board and one sprint (1.79.43) ----------
         # A roll-up used to show the last member's history, load, releases and
         # DORA under the roll-up's name — one board's figures, unnamed, under

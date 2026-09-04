@@ -2160,6 +2160,11 @@ const noItems = what =>
 
 function derive(items) {
   const now = asOf(), end = S.view.meta.endDate;
+  /* A filter is a filter when it narrows the selection. Find = "BLC-4" matched
+     all 22 issues and still withheld value, hid the delta and made the band
+     head say "all 22" in the same breath: the rules below are about a
+     selection that differs from the view, not about a control being set. */
+  const narrowed = items.length !== S.view.issues.length;
   const done = items.filter(i => i.statusCategory === "Done");
   const open = items.filter(i => i.statusCategory !== "Done");
   const closedTimed = done.filter(i => i.resolved && i.started && i.created);
@@ -2219,6 +2224,7 @@ function derive(items) {
      honestly nil keep their nil; shares, scores and claims about health do
      not, because there is no denominator behind them. */
   m.empty = items.length === 0;
+  m.narrowed = narrowed;
   m.addedSP = sum(m.added, i => i.storyPoints);
   m.addedU = sum(m.added, U().val);
   m.scopeAddedPct = m.empty ? null
@@ -2231,7 +2237,7 @@ function derive(items) {
      belonging to somebody else — and under an Epic filter it read "2 of 1".
      A ratio whose halves come from two sets is not a figure, so under any
      filter the value tiles refuse and say why. */
-  m.valueWithheld = filtersActive()
+  m.valueWithheld = narrowed
     ? "Value is recorded on epics and counted once per epic, and the filters select items; " +
       "a total over one set beside a count over another would not be a figure. Clear the " +
       "filters to see it — the evidence is absent, not noisy."
@@ -2271,7 +2277,8 @@ function derive(items) {
      one guard in a mutation test printed **Pace vs clock −45 pp** for a board
      that had committed to nothing. One place to be wrong is enough. */
   m.timeElapsed = wd.length && !m.sprintNotStarted ? passed / wd.length : null;
-  const statusFiltered = !!S.filters.status;
+  const statusFiltered = !!S.filters.status && narrowed;
+  m.statusFiltered = statusFiltered;
   m.paceGap = (m.timeElapsed != null && m.totalU && !statusFiltered) ? (m.doneU / m.totalU) - m.timeElapsed : null;
 
   /* Why pace and scope could not be taken, when they could not — two different
@@ -2382,7 +2389,7 @@ function derive(items) {
      the sprint's score into one person's, which is one dropdown from the
      ranking of individuals this page does not produce; it read 75/100 for one
      name against the team's 52. Both are withheld and say why. */
-  if (S.filters.status || S.filters.assignee) {
+  if ((S.filters.status || S.filters.assignee) && m.narrowed) {
     const kindNow = healthKindFor(S.view.ctx);
     m.healthKind = kindNow;
     m.healthParts = null;
@@ -3006,7 +3013,10 @@ function renderExec(m) {
      window does. The two counts are honest either way and are the more useful
      sentence here anyway — what a flow board's reader wants is how much
      finished and how much is still in flight. */
-  v.push(m.isFlowBoard
+  v.push(m.statusFiltered
+    ? "<strong>" + m.total + " item" + (m.total === 1 ? "" : "s") + " match the Status filter</strong>; a share done " +
+      "would be the filter's, not the sprint's, so none is stated."
+    : m.isFlowBoard
     ? "<strong>" + m.doneCount + " item" + (m.doneCount === 1 ? " was" : "s were") +
       " finished in this window and " + m.open.length + " " +
       (m.open.length === 1 ? "is" : "are") + " still open</strong>" +
@@ -3053,6 +3063,10 @@ function renderExec(m) {
         (m.added.length === 1 ? " item, " : " items, ") + n1(m.addedSP) +
         (m.addedSP === 1 ? " story point." : " story points."),
       behind ? "Delivery is behind the clock and the team was also given more work. Those are two different conversations; don't merge them."
+             // "Without slipping" is a claim about pace; where pace is not
+             // measured the sentence asserted what the page had just said it
+             // could not know.
+             : m.paceGap == null ? "The extra work is counted here; whether delivery slipped under it cannot be said for this view, because pace is not measured for it."
              : "The team absorbed the extra work without slipping, which is worth saying out loud.",
       { title: "Work added after the sprint started", items: m.added });
   }
@@ -3206,6 +3220,14 @@ function renderKpis(m) {
           barPct: 0, barCol: CSSV("--muted"),
           tt: "A share of completed work needs a scope that was committed to. This board runs no sprints, so the issues on screen are the ones open now plus the ones finished inside the window — a set that grows as the window widens. The count of finished items is in the drill-down; the percentage is not a measurement.",
           drill: { t: "Work finished in this window", items: m.done } }
+      /* The same rule that withholds pace: a Status filter decides which items
+         are on the page, so "Delivered 100%" under Status = Done is the
+         filter's arithmetic, not the sprint's. The count stays, in the panel. */
+      : m.statusFiltered
+      ? { lab: "Delivered", val: "—", sub: "not measured under a Status filter",
+          barPct: 0, barCol: CSSV("--muted"),
+          tt: "A Status filter decides which items are on the page, so the share done would be a property of the filter, not of the sprint. The items are in the drill-down.",
+          drill: { t: "Completed work", items: m.done } }
       : { lab: "Delivered", val: pct(m.totalU ? m.doneU / m.totalU : 0),
       sub: U().fmt(m.doneU) + " of " + U().fmt(m.totalU) + " " + U().label +
            (U().isItems ? " · " + n1(m.doneSP) + " pts" : " · " + m.doneCount + " items"),
@@ -3215,7 +3237,7 @@ function renderKpis(m) {
          roll-up it is a share of several sprints — "50% · 3 of 6 items" sat
          over "▲ 12 done vs 8 last sprint", one tile, two bases, no label. So
          it is drawn only when the two agree about what they measure. */
-      delta: (filtersActive() || (S.view.ctx && S.view.ctx.isRollup)) ? null : arrow(spDelta, true, cv(cur), cv(prev)),
+      delta: (m.narrowed || m.isRollup) ? null : arrow(spDelta, true, cv(cur), cv(prev)),
       tt: "Share of in-scope work completed, measured in " + U().label + ". Items is the default because it is the unit the forecaster uses; switch to points in the filter row if you need size information.",
       drill: { t: "Completed work", items: m.done } },
     // "pp" = percentage points. Never "pts" here — beside an item measure it
@@ -3263,8 +3285,9 @@ function renderKpis(m) {
        running sprint; a closed one has carried over what it carried over, and
        a roll-up of several sprints has no single boundary to carry across. */
     { lab: (m.isFlowBoard || m.isRollup) ? "Still open" : m.sprintOver ? "Carried over" : "Likely to carry over",
-      val: U().fmt(m.openU) + " " + (U().isItems ? U().n(m.openU) : U().short),
-      sub: m.open.length + (m.open.length === 1 ? " item" : " items") + " still open",
+      val: m.statusFiltered ? "—" : U().fmt(m.openU) + " " + (U().isItems ? U().n(m.openU) : U().short),
+      sub: m.statusFiltered ? "not measured under a Status filter"
+         : m.open.length + (m.open.length === 1 ? " item" : " items") + " still open",
       barPct: m.totalU ? m.openU / m.totalU : 0, barCol: CSSV("--warning"),
       tt: m.isFlowBoard
         ? "Everything not yet done. There is no boundary for it to carry over into on this board — work continues rather than rolling forward — and " + m.notStarted.length + " items have never been picked up."
