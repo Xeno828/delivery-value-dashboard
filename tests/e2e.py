@@ -981,16 +981,52 @@ def transports(b):
             ctx: window.DVD.debug.view().ctx.id
         })"""
 
+        # ---------- a static host with nothing answering (1.79.28) ----------
+        # Served from a plain file server the page has the loopback transport
+        # and nobody on the other end. That is a file: both connection-fed
+        # tiles stay off, and shown, the forecast offers no control it cannot
+        # answer. Deciding this by protocol kept them on for any http host.
+        sport = 8735
+        sproc = subprocess.Popen([sys.executable, "-m", "http.server", str(sport), "--bind", "127.0.0.1"],
+                                 cwd=str(ROOT), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            for _ in range(50):
+                try:
+                    urllib.request.urlopen("http://127.0.0.1:%d/" % sport, timeout=1); break
+                except Exception:
+                    time.sleep(0.1)
+            sp = b.new_page(viewport={"width": 1500, "height": 1000})
+            sp.goto("http://127.0.0.1:%d/dist/delivery-value-dashboard.html" % sport)
+            sp.wait_for_timeout(900)
+            check("a static host still yields the loopback transport",
+                  sp.evaluate("() => window.DVD.debug.transport()") == "loopback")
+            check("but with nothing answering, the forecast and brief tiles are off, as in a file",
+                  sp.eval_on_selector("#c-forecast", "e => e.classList.contains('hidden')") and
+                  sp.eval_on_selector("#c-brief", "e => e.classList.contains('hidden')"))
+            check("and the view still reads as the preset",
+                  "All sprint tiles" in (sp.text_content("#btn-view") or ""), sp.text_content("#btn-view"))
+            sp.evaluate("() => window.DVD.debug.setShown(window.DVD.debug.tileIds())")
+            sp.wait_for_timeout(400)
+            check("shown without a connection, the forecast tile offers no control above its refusal",
+                  sp.eval_on_selector_all("#forecast-body input, #forecast-body .seg", "n => n.length") == 0 and
+                  "is not in this copy" in (sp.text_content("#forecast-body") or ""),
+                  (sp.text_content("#forecast-body") or "")[:80])
+            sp.close()
+        finally:
+            sproc.terminate()
+
         # ---------- loopback ----------
         page = b.new_page(viewport={"width": 1500, "height": 1000})
         page.goto(url)
-        page.wait_for_timeout(400)
+        page.wait_for_timeout(900)
         check("over http the page finds the loopback transport",
               page.evaluate("() => window.DVD.debug.transport()") == "loopback",
               page.evaluate("() => window.DVD.debug.transport()"))
-        check("and with a connection the forecast and brief tiles are on by default",
+        check("and once a connection answers, the forecast and brief tiles come on",
               page.eval_on_selector("#c-forecast", "e => !e.classList.contains('hidden')") and
               page.eval_on_selector("#c-brief", "e => !e.classList.contains('hidden')"))
+        check("with the view still reading as the preset it was",
+              "All sprint tiles" in (page.text_content("#btn-view") or ""), page.text_content("#btn-view"))
         # Selected through the page's own entry point, not by poking state, so
         # the fetch really happens and the render is the one a user would get.
         page.evaluate("id => window.DVD.debug.selectContext(id)", cid)

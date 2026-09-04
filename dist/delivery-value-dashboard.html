@@ -4295,7 +4295,8 @@ function renderForecast() {
        reading a forwarded file to run a make target. How to run the
        connection is behind the tile's "i", where the person who can act on
        it will look; the tool's name stays there too. */
-    el.innerHTML = ctrl + '<div class="fc-offline"><b>' + what + " is not in this copy.</b>" +
+    // No control above a sentence that says the control cannot answer.
+    el.innerHTML = '<div class="fc-offline"><b>' + what + " is not in this copy.</b>" +
       '<div class="note">It is computed by the live connection, not by this file, so that the ' +
       "number here and the number in a written brief are the same number. Where the connection is " +
       "running this tile fills in; in a copy sent on, it says this. Everything else on this page works " +
@@ -4607,7 +4608,7 @@ function seriesRefusalHtml(thin) {
 
 /** Where a record-fed tile says its record lives: a reader of a forwarded
  *  file is holding a file; a reader inside the app is looking at a board. */
-function recordHome() { return LIVE ? "this board's data" : "this file"; }
+function recordHome() { return S.live ? "this board's data" : "this file"; }
 
 /** What the page says above a trend, once, from the tool that counted it.
  *  Empty when the series has nothing a chart cannot show for itself. */
@@ -5818,7 +5819,13 @@ const FILE_OFF = {
   "c-forecast": "the forecast is computed by the live connection, not by this file",
   "c-brief": "who receives the brief is configured in the app, against the site the data came from"
 };
-const inFile = () => !LIVE;
+/* "In a file" is decided by whether anything answered, not by the protocol.
+   It was decided by protocol, so a copy served from any static host — an
+   intranet folder, a wiki attachment — kept both tiles on and offered an
+   empty "How many items?" input above the sentence saying no forecast was in
+   the copy. Until the connection answers, the page is a file; when it does,
+   reapplyPresetForConnection() brings the two tiles on. */
+const inFile = () => !S.live;
 function presetSet(name, kind) {
   const ids = PRESET_SETS[name][kind];
   return inFile() ? ids.filter(id => !FILE_OFF[id]) : ids;
@@ -5859,6 +5866,16 @@ function reapplyPresetForBoard() {
   const name = S.presetKind == null ? "all" : presetOfKind(S.shown, S.presetKind);
   S.presetKind = kind;
   if (name !== "custom") S.shown = new Set(presetSet(name, kind));
+}
+
+/** The connection has just answered. A preset resolved while the page was a
+ *  file left the two connection-fed tiles off; the same preset, resolved now,
+ *  has them on. A view the reader chose tile by tile is theirs and is left
+ *  alone. `name` is read by the caller *before* S.live is set, because once it
+ *  is, the file's "all" no longer matches any preset. */
+function reapplyPresetForConnection(name) {
+  if (name === "custom") return;
+  setShown(presetSet(name, S.presetKind || "sprint"));
 }
 
 /** `presetOf`, but against a stated board kind rather than the current one —
@@ -6434,7 +6451,9 @@ async function probeLive() {
     }
     const j = r.body;
     if (!j || !Array.isArray(j.contexts)) return;
+    const preset = presetOfKind(S.shown, S.presetKind || "sprint");
     S.live = { source: j.source || "server", label: j.label || "live server" };
+    reapplyPresetForConnection(preset);
 
     // The server computes forecasts with its own config. If this file was baked
     // with a different one, the page and the tile would report the same sprint
