@@ -2823,6 +2823,44 @@ def main():
               bool(slack) and max(slack) <= 12,
               "largest gap %spx under a heading, over %d headers" % (max(slack) if slack else None, len(slack)))
 
+        # ---------- Merge needs only the key (1.79.36) ----------
+        # The wizard's own advice — layer a value file on a Jira export — was
+        # refused with "Pick a column for: Summary, Status, Created date".
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(300)
+        seed0 = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        k0, k1 = seed0["issues"][0]["key"], seed0["issues"][1]["key"]
+        vfile = "key,businessValue,valueBasis\n%s,123400,A basis a reader can argue with\n%s,5600,Another\n" % (k0, k1)
+        page.click("#btn-import")
+        page.evaluate("() => { document.querySelector('#step-choose details').open = true; }")
+        page.fill("#paste", vfile); page.click("#m-paste")
+        page.wait_for_selector("#step-map:not(.hidden)", timeout=5000)
+        page.click("#m-preview"); page.wait_for_timeout(300)
+        n2 = " ".join((page.text_content("#m-notice-2") or "").split())
+        check("under Replace a value-only file is still refused, naming the columns",
+              "Pick a column for: Summary, Status, Created date" in n2 and page.is_visible("#step-map"), n2[:100])
+        page.check('input[name="mergemode"][value="merge"]'); page.wait_for_timeout(200)
+        chips = page.eval_on_selector_all("#map-body .chip", "n => n.map(e => e.textContent.trim())")
+        check("choosing Merge re-marks the other required columns as kept from what is loaded",
+              sum(1 for c in chips if c.endswith("kept from what is loaded")) == 3 and
+              not any(c.endswith("required") for c in chips), chips[:6])
+        check("and offers the loaded sprint's window rather than an inferred one",
+              page.input_value("#w-name") == seed0["meta"]["sprintName"] and
+              page.input_value("#w-start") == seed0["meta"]["startDate"],
+              (page.input_value("#w-name"), page.input_value("#w-start")))
+        page.click("#m-preview")
+        page.wait_for_selector("#step-preview:not(.hidden)", timeout=5000)
+        check("and the preview is reached", (page.text_content("#m-notice-2") or "").strip() == "")
+        page.click("#m-apply"); page.wait_for_timeout(700)
+        check("merging a value-only file keeps every loaded issue", "22 issues" in (page.text_content("#foot") or ""),
+              (page.text_content("#foot") or "")[:60])
+        check("and does not move the sprint", seed0["meta"]["sprintName"] in (page.text_content("#t-title") or ""),
+              page.text_content("#t-title"))
+        vals = page.evaluate("k => window.DVD.data.issues.filter(i => k.includes(i.key)).map(i => [i.businessValue, i.summary])", [k0, k1])
+        check("and updates only the fields the file carried",
+              sorted(v[0] for v in vals) == [5600, 123400] and all(v[1] and v[1] != "(no summary)" for v in vals), vals)
+        page.click("#btn-import"); page.click("#m-sample"); page.wait_for_timeout(500)
+
         # ---------- the band under a filter (1.79.35) ----------
         page.set_viewport_size({"width": 1500, "height": 1000})
         page.wait_for_timeout(300)

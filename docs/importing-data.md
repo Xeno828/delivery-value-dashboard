@@ -43,7 +43,7 @@ Pre-filled from your data: earliest start, latest end. It drives the burndown, t
 ### Replace or merge
 
 - **Replace** — the uploaded rows become the whole dataset. Use this for a fresh sprint export.
-- **Merge** — rows with a matching key are updated, new keys are added, and *only fields your file actually supplied* overwrite existing values. This is how you layer business-value estimates on top of a Jira export: upload the Jira file with **Replace**, then a two-column `key,businessValue,valueBasis` file with **Merge**. There is a template for exactly that in `data/templates/`.
+- **Merge** — rows with a matching key are updated, new keys are added, and *only fields your file actually supplied* overwrite existing values. Only the key column is required; the mapping table marks every other required field *kept from what is loaded*. This is how you layer business-value estimates on top of a Jira export: upload the Jira file with **Replace**, then a two-column `key,businessValue,valueBasis` file with **Merge**. There is a template for exactly that in `data/templates/`.
 
 ## Step 3 — preview before applying
 

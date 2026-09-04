@@ -357,7 +357,7 @@
         <h4>How should this be applied?</h4>
         <div class="radios">
           <label><input type="radio" name="mergemode" value="replace" checked> <span><b>Replace everything</b><br><span class="note">The uploaded rows become the whole dataset. Nothing loaded before is kept except the organisation&rsquo;s calendar and currency; a tile that reads a record your file does not carry &mdash; sprint history, releases, release metrics &mdash; says so.</span></span></label>
-          <label><input type="radio" name="mergemode" value="merge"> <span><b>Merge into what is loaded</b><br><span class="note">Rows with a matching key are updated; new keys are added, and the loaded sprint goal, history, releases and release metrics are kept. Use this to layer a value-estimate file on top of a Jira export.</span></span></label>
+          <label><input type="radio" name="mergemode" value="merge"> <span><b>Merge into what is loaded</b><br><span class="note">Rows with a matching key are updated; new keys are added, and the loaded sprint goal, history, releases and release metrics are kept. Only the key is required: a column your file does not carry keeps what is loaded. Use this to layer a value-estimate file on top of a Jira export.</span></span></label>
         </div>
 
         <div id="m-notice-2" role="alert"></div>

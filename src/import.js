@@ -701,13 +701,39 @@ function toStep2() {
     (W.jsonDataset ? " This looks like a dashboard dataset, so the mapping is already exact." : "");
 
   drawMapTable();
-  const win = inferWindow(buildIssues().issues);
-  W.window = win;
+  W.inferred = inferWindow(buildIssues().issues);
+  W.window = W.inferred;
+  fillWindow(windowFor(mergeChosen() ? "merge" : "replace"));
+  show("step-map");
+}
+
+/* The sprint window the form offers depends on the mode. A merge does not
+   move the sprint, so it offers the loaded sprint's name and dates; a replace
+   offers what the file implies. Under Merge the form used to offer "Imported
+   2026-08-03" for a value file with no dates, and a reader who took the
+   suggestion renamed the sprint. Re-offered when the radio changes, but only
+   while the reader has not typed into the fields. */
+function windowFor(mode) {
+  const inf = W.inferred || {};
+  if (mode !== "merge") return inf;
+  const pm = API.data.meta || {};
+  return { sprintName: pm.sprintName || inf.sprintName, startDate: pm.startDate || inf.startDate,
+           endDate: pm.endDate || inf.endDate, asOfDate: pm.asOfDate || inf.asOfDate };
+}
+function fillWindow(win) {
   $("#w-name").value = win.sprintName || "";
   $("#w-start").value = win.startDate || "";
   $("#w-end").value = win.endDate || "";
   $("#w-asof").value = win.asOfDate || "";
-  show("step-map");
+  W.autoWindow = readWindowForm();
+}
+function readWindowForm() {
+  return { sprintName: $("#w-name").value, startDate: $("#w-start").value,
+           endDate: $("#w-end").value, asOfDate: $("#w-asof").value };
+}
+function windowUntouched() {
+  const a = W.autoWindow || {}, f = readWindowForm();
+  return Object.keys(f).every(k => f[k] === (a[k] || ""));
 }
 
 const INFERABLE = { addedMidSprint: "— infer: created after the sprint starts —" };
@@ -769,6 +795,9 @@ function drawMapTable() {
     // A column with nothing under it is not "matched" three times over.
     else if (ix >= 0 && !W.rows.length) { status = '<span class="chip c-warn"><span aria-hidden="true">&#9650;</span>no rows to read</span>'; cls = ""; }
     else if (ix >= 0) { status = '<span class="chip c-good"><span aria-hidden="true">&#10003;</span>matched</span>'; cls = ""; }
+    // Under Merge a column the file does not carry is not missing: the loaded
+    // row keeps its value. Only the key is required there.
+    else if (f.req && mergeChosen() && f.k !== "key") { status = '<span class="chip c-info"><span aria-hidden="true">i</span>kept from what is loaded</span>'; cls = ""; }
     else if (f.req) { status = '<span class="chip c-crit"><span aria-hidden="true">&#9632;</span>required</span>'; cls = "req"; }
     else { status = '<span class="chip c-info"><span aria-hidden="true">i</span>will be blank</span>'; cls = ""; }
     return '<tr class="' + cls + '"><td><b>' + esc(f.lab) + '</b><div class="ex">' + esc(f.hint) + "</div></td>" +
@@ -777,6 +806,10 @@ function drawMapTable() {
       '<td class="ex">' + esc(sample == null ? "" : String(sample).slice(0, 60)) + "</td>" +
       "<td>" + status + "</td></tr>";
   }).join("");
+  $$('input[name="mergemode"]').forEach(r => { r.onchange = () => {
+    drawMapTable();
+    if (windowUntouched()) fillWindow(windowFor(mergeChosen() ? "merge" : "replace"));
+  }; });
   $("#map-body").onchange = e => {
     const sel = e.target.closest("select[data-field]"); if (!sel) return;
     W.map[sel.dataset.field] = Number(sel.value);
@@ -789,18 +822,33 @@ $("#m-back").onclick = () => show("step-choose");
 $("#m-back2").onclick = () => show(W.bundle ? "step-choose" : "step-map");
 
 /* ------------------------------------------------------------- step 3 */
+/* Which radio is chosen, read live: the mapping table's status column depends
+   on it before the preview does. */
+const mergeChosen = () => (($('input[name="mergemode"]:checked') || {}).value || "replace") === "merge";
+
 $("#m-preview").onclick = () => {
-  const missing = FIELDS.filter(f => f.req && W.map[f.k] < 0);
+  W.mode = mergeChosen() ? "merge" : "replace";
+  /* Under Merge only the key is required. The page's own advice — "layer a
+     value-estimate file on top of a Jira export" — was refused by this check
+     with "Pick a column for: Summary, Status, Created date", because a value
+     file has none of them and does not need them: a column the file does not
+     carry keeps what is loaded, which is what the radio promises. */
+  const missing = FIELDS.filter(f => f.req && W.map[f.k] < 0 && (W.mode !== "merge" || f.k === "key"));
   if (missing.length)
     return notice(2, "Pick a column for: " + missing.map(f => f.lab).join(", "),
-      "The dashboard cannot count without " + (missing.length === 1 ? "it" : "them") + ".");
+      W.mode === "merge"
+        ? "Merging matches rows by key, so the file has to say which column holds it."
+        : "The dashboard cannot count without " + (missing.length === 1 ? "it" : "them") + ".");
   clearNotices();
-  W.mode = ($('input[name="mergemode"]:checked') || {}).value || "replace";
+  // Under Merge a window the file could not supply is the loaded sprint's,
+  // not a blank: a value file carries no dates, and a merge does not move
+  // the sprint.
+  const pm = W.mode === "merge" ? (API.data.meta || {}) : {};
   W.window = {
-    sprintName: $("#w-name").value.trim() || "Imported sprint",
-    startDate: $("#w-start").value || null,
-    endDate: $("#w-end").value || null,
-    asOfDate: $("#w-asof").value || new Date().toISOString().slice(0, 10)
+    sprintName: $("#w-name").value.trim() || pm.sprintName || "Imported sprint",
+    startDate: $("#w-start").value || pm.startDate || null,
+    endDate: $("#w-end").value || pm.endDate || null,
+    asOfDate: $("#w-asof").value || pm.asOfDate || new Date().toISOString().slice(0, 10)
   };
   const { dataset, warnings } = assemble();
   W.built = dataset;
