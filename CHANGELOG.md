@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.79.46
+
+**A question with no answer is not a loading state.** Served from a static host, the page has the loopback transport and a probe that answers nothing; import a CSV or a JSON and the context has no board, so the trend series is never asked for — and the predictability and Team load tiles said *Reading the trend…* for as long as the page stayed open, with no way out. Over `file://` the same import refused correctly. The note now shows only while a question is in flight, the *could not be reached* refusal only once one was asked, and a question unanswered after twenty seconds becomes that refusal rather than a note; a new dataset resets all three so its own board is asked about afresh. With nothing to ask, the record in hand is the record, and the tiles say what it holds. `tests/e2e.py` imports a CSV on the bare static server and holds both tiles on the thin-history sentence.
+
 ## 1.79.45
 
 **Lighter is idler in both themes.** The dark theme reverses the Delivery Blue ramp for contrast — its palest step becomes the darkest — and three charts drew their meaning straight off the ramp, so in dark the flow-time chart's waiting segment was the dark one and "Done" in the per-person stack flipped from darkest to lightest, under a caption fixed in the markup that said *The pale part is time spent waiting*. `DESIGN.md`'s own rule, *lighter is earlier or idler; darker is later or active*, held in one theme only. The waiting/worked split, the not-started/in-progress/done stack and the committed/completed pair now read meaning tokens (`--wait`, `--worked`, `--st-todo`, `--st-doing`, `--st-done`, `--commit`, `--completed`) that keep their relative lightness in both themes; the ordinal ramp keeps its reversal for the age bands, where it is an ordering and not a role. The caption and the help mark name legend entries instead of a shade. `tests/e2e.py` computes the luminance of each token in both themes and holds the three orderings.

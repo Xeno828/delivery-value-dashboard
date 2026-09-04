@@ -1020,6 +1020,16 @@ def transports(b):
                   sp.eval_on_selector_all("#forecast-body input, #forecast-body .seg", "n => n.length") == 0 and
                   "is not in this copy" in (sp.text_content("#forecast-body") or ""),
                   (sp.text_content("#forecast-body") or "")[:80])
+            # An import over http has no board to ask about, so nothing is asked
+            # — and the trend tiles used to say "Reading the trend…" for as long
+            # as the page stayed open (1.79.46).
+            wizard(sp, "jira-export.csv")
+            sp.wait_for_timeout(1200)
+            pt = " ".join((sp.text_content("#pred-chart") or "").split())
+            lt = " ".join((sp.text_content("#load-body") or "").split())
+            check("after an import over http the trend tiles settle on the record in hand, not a loading note",
+                  "Reading the trend" not in pt and "Reading the trend" not in lt and
+                  "holds 1 sprint" in pt and "absent, not noisy" in pt, (pt[:100], lt[:60]))
             sp.close()
         finally:
             sproc.terminate()

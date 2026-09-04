@@ -4806,10 +4806,14 @@ function fetchRecipients() {
 function fetchSeries(cid) {
   if (!LIVE) { S.series = null; return; }
   S.series = undefined;
-  LIVE.get("history", { id: cid }).then(r => {
-    S.series = r.ok && r.body ? r.body : null;
-    render();
-  }).catch(() => { S.series = null; render(); });
+  S.seriesAsked = true; S.seriesPending = true;
+  const settle = body => { S.seriesPending = false; S.series = body; render(); };
+  LIVE.get("history", { id: cid }).then(r => settle(r.ok && r.body ? r.body : null))
+    .catch(() => settle(null));
+  // A question with no answer is not a loading state forever. Twenty seconds
+  // is longer than any transport here takes; after it the note becomes the
+  // could-not-be-reached refusal, and a late answer still lands if one comes.
+  setTimeout(() => { if (S.seriesPending && S.series === undefined) settle(null); }, 20000);
 }
 
 /**
@@ -4830,11 +4834,14 @@ function seriesRefusalHtml(thin) {
     return '<div class="fc-refusal"><b>No trend for this board.</b> ' + esc(s.why) + "</div>";
   }
   // Still being asked. Not a refusal and not thin data — saying either would be
-  // a verdict on evidence that has not arrived.
-  if (s === undefined && LIVE) return '<div class="note">Reading the trend&hellip;</div>';
+  // a verdict on evidence that has not arrived. Only while a question is in
+  // flight: over http a context with no board — every CSV and JSON import —
+  // asks nothing, and the note read "Reading the trend…" for as long as the
+  // page stayed open. With nothing to ask, the record in hand is the record.
+  if (s === undefined && LIVE && S.seriesPending) return '<div class="note">Reading the trend&hellip;</div>';
   // Asked, and the transport could not be reached at all. Distinct from a
   // transport that refused, which has a reason worth printing.
-  if (s === null && LIVE) {
+  if (s === null && LIVE && S.seriesAsked) {
     return '<div class="fc-refusal"><b>No trend for this board.</b> The server ' +
       "could not be reached, so its sprints were not read.</div>";
   }
@@ -6957,6 +6964,8 @@ window.DVD = {
   },
   /** Replace the working dataset and repaint everything. */
   applyDataset: function (d) {
+    // A new dataset is a new question about a new board, or none.
+    S.series = undefined; S.seriesBoard = null; S.seriesPending = false; S.seriesAsked = false;
     S.data = normalise(d);
     S.ctx = S.data.defaultContextId;
     S.filters = { assignee: "", epic: "", type: "", status: "", q: "" };
