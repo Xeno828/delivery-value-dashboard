@@ -326,6 +326,10 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
   border-radius:0 8px 8px 0;font-size:12.5px;line-height:1.55;color:var(--text-primary)}
 /* The verdict's refusal keeps the verdict's size: it is the headline read. */
 .exec .verdict .refusal{font-size:inherit;line-height:inherit}
+/* The page-level refusal in the KPI band: the same callout at verdict size,
+   with the cause and the action in it, over the tiles that keep their own. */
+.page-refusal{font-size:15px;line-height:1.55;padding:14px 16px}
+.page-refusal .note{display:block;font-size:12.5px;margin-top:8px}
 .fc-offline{padding:12px 14px;border:1px dashed var(--border);border-radius:9px;
   font-size:12.5px;line-height:1.55}
 .seq-un{margin:6px 0 6px;padding-left:18px;display:grid;gap:3px}

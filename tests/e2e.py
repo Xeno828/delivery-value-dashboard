@@ -650,6 +650,14 @@ def empty_selection(b):
     # banner over the whole grid would pass every check above and lose both.
     check("the footer still reports the count it is refusing to score",
           "showing 0" in page.text_content("#foot"), page.text_content("#foot")[:80])
+    # The page-level statement, in the first tile. Ten identical callouts in
+    # one viewport each said a true thing and none was read as the answer;
+    # the band's now carries the cause and the one action that changes it.
+    band = " ".join((page.text_content("#kpis") or "").split())
+    check("the band carries the page-level refusal with the cause named",
+          "Nothing to report for this selection" in band and "Nothing is loaded" in band, band[:160])
+    check("and says what the tiles below are doing",
+          "in its own words" in band and "record" in band, band[-160:])
     basis = " ".join((page.text_content("#exec-basis") or "").split())
     check("with nothing loaded the basis line names the source as the cause",
           "Nothing loaded" in basis and "filters" not in basis, basis[:100])
@@ -690,6 +698,9 @@ def empty_selection(b):
     basis = " ".join((page.text_content("#exec-basis") or "").split())
     check("a filter that matches nothing is named as the cause, not the source",
           "match the current filters" in basis and "Nothing loaded" not in basis, basis[:120])
+    band = " ".join((page.text_content("#kpis") or "").split())
+    check("the band's page-level refusal names the filter and the way back",
+          "No issues match the current filters" in band and "Clear a filter" in band, band[:200])
     check("and the basis line says how many issues the filter excluded",
           re.search(r"among the \d+ loaded", basis) is not None, basis[:120])
     foot = " ".join((page.text_content("#foot") or "").split())

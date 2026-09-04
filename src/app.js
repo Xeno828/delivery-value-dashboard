@@ -1975,8 +1975,26 @@ function renderKpis(m) {
        nobody has loaded anything into. The strip goes as one, because a mixed
        row — some figures, some dashes — invites the reader to trust the ones
        that still carry a number. */
-    $("#kpis").innerHTML = '<div class="kpi-none"><div class="refusal">' +
-      esc(noItems("none of these figures were measured")) + "</div></div>";
+    /* The page-level refusal, in the first tile. Ten identical amber callouts
+       shared one viewport in this state and each said its own true thing, so
+       none of them was read as the page's answer. This one is: the tile's own
+       sentence, then the cause and the one thing that changes it, then what
+       the tiles below are doing. The tiles keep their own words — ADR 0010
+       rules out a banner *instead of* them, not a statement above them. No
+       digits here: the count belongs to the basis line under the verdict. */
+    const loaded = S.view.issues.length > 0;
+    const filtering = loaded && Object.values(S.filters).some(Boolean);
+    const cause = filtering
+      ? "No issues match the current filters. Clear a filter, or the search, to bring them back."
+      : S.live
+        ? "Nothing is loaded yet. Choose a sprint in the bar above and its issues will be read from there."
+        : "Nothing is loaded. Load a file, or reload the demo data, and this page fills in.";
+    $("#kpis").innerHTML = '<div class="kpi-none"><div class="refusal page-refusal">' +
+      "<b>Nothing to report for this selection.</b> " +
+      esc(noItems("none of these figures were measured")) + "<br>" + esc(cause) +
+      '<span class="note">Every tile below that reads the issues says so in its own words. ' +
+      "The burndown, predictability, release quality, team load and releases tiles read the " +
+      "sprint\u2019s record rather than the issues, and show whatever the record holds.</span></div></div>";
     $("#kpis").onclick = null;
     return;
   }
