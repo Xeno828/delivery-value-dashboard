@@ -2869,6 +2869,14 @@ def main():
         page.wait_for_timeout(300)
         tb = page.eval_on_selector(".topbar", "e => Math.round(e.getBoundingClientRect().height)")
         check("at 1280 wide the toolbar is one row too", tb < 110, "%spx" % tb)
+        # CI's Linux Chromium sets a wider face than macOS's system font and
+        # the row broke there while passing here (1.79.33). Held under a wide
+        # face on purpose, so the check does not depend on the machine.
+        page.evaluate("() => { document.body.style.fontFamily = 'Verdana, sans-serif'; }")
+        page.wait_for_timeout(200)
+        tbw = page.eval_on_selector(".topbar", "e => Math.round(e.getBoundingClientRect().height)")
+        check("and stays one row under a wider font", tbw < 110, "%spx" % tbw)
+        page.evaluate("() => { document.body.style.fontFamily = ''; }")
         # A preset that shows one tile of a shared row without the other still
         # sums every row to twelve — the Executive preset stranded DORA.
         sums = """() => { const rows = {};

@@ -46,8 +46,15 @@ a{color:var(--link)}
 /* The title block yields before the actions wrap: its sub-line, not the
    heading, set a 439px width at 1280 and pushed six controls onto a second
    row. It shrinks to 300px and lets the sub-line wrap instead. */
-.title{flex:1 1 300px;min-width:0}
-.topbar-actions{flex:0 1 auto;min-width:0}
+/* The title keeps 360px, or the whole row on a phone: below that its
+   sub-line wrapped to four lines under a wide face and the row grew anyway. */
+.title{flex:1 1 240px;min-width:min(100%,360px)}
+/* The actions claim free space first, up to their own width, and the title
+   takes what is left, wrapping its sub-line. A basis well under the buttons'
+   width keeps them on the title's row when a wider font (Linux's, in CI)
+   makes them overrun; they then wrap among themselves rather than the whole
+   group dropping to a second row. */
+.topbar-actions{flex:100 1 480px;min-width:0;max-width:max-content;justify-content:flex-end}
 .title h1{margin:0;font-size:20px;letter-spacing:-.01em}
 .title .sub{color:var(--text-secondary);font-size:12.5px;margin-top:3px}
 /* The sprint goal is context for the verdict, not for the toolbar: it sits

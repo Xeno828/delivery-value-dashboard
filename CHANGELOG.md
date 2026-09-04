@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.79.33
+
+**The toolbar's one row holds under a wider font.** 1.79.30 kept the toolbar to one row at 1280 wide by letting the title block shrink — and CI, whose Linux Chromium sets a wider face than the macOS system font, measured 131px on the same commit that measured 101px here, because the action group's own width is what the flex line is laid out against and on that machine it no longer fit beside a 300px title. The actions now claim free space first, up to their own width, from a basis well under it, and the title takes what is left and wraps its sub-line; where even that is too wide the buttons wrap among themselves instead of the whole group dropping to a second row. `tests/e2e.py` measures the toolbar at 1280 under the page's own font and again with a wide face forced, so the check no longer depends on which machine runs it.
+
 ## 1.79.32
 
 **Per-person bars are in alphabetical order.** *Where each person's work sits* sorted its rows by total, descending. The card exists to show where a person's items stand, and `CLAUDE.md` allows exactly that — *ownership counts are fine; league tables are not* — but a list of people ordered by how much each has is a league table with the numbers written beside the names, one sort key from the ranking of individuals the product refuses to compute. The fourth critique asked whether alphabetical order was a constraint worth writing down; it is, and `DESIGN.md`'s don'ts now carry it. A name is looked up, not placed. `tests/e2e.py` reads the row labels and holds them in alphabetical order.
