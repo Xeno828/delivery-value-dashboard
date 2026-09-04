@@ -2235,7 +2235,8 @@ function derive(items) {
      one guard in a mutation test printed **Pace vs clock −45 pp** for a board
      that had committed to nothing. One place to be wrong is enough. */
   m.timeElapsed = wd.length && !m.sprintNotStarted ? passed / wd.length : null;
-  m.paceGap = (m.timeElapsed != null && m.totalU) ? (m.doneU / m.totalU) - m.timeElapsed : null;
+  const statusFiltered = !!S.filters.status;
+  m.paceGap = (m.timeElapsed != null && m.totalU && !statusFiltered) ? (m.doneU / m.totalU) - m.timeElapsed : null;
 
   /* Why pace and scope could not be taken, when they could not — two different
      reasons that both produced `paceGap == null` and were both reported as
@@ -2253,7 +2254,10 @@ function derive(items) {
      rolling thirty days, so there is no line for delivery to be behind. */
   const noSprint = "this board does not use sprints, so nothing was committed by a date " +
     "and there is no clock to measure delivery against";
-  m.paceUnknown = window ? noSprint
+  m.paceUnknown = statusFiltered
+    ? "a Status filter decides which items are on the page, so the share done is the filter's " +
+      "and not the sprint's — pace is not measured against it"
+    : window ? noSprint
     : m.sprintNotStarted
     ? "this sprint has not started — it begins on " + fmtD(wd[0]) +
       ", so there is no clock yet to measure delivery against"
@@ -2266,7 +2270,8 @@ function derive(items) {
   /* The same fact in the width of a KPI sub-label. It used to read "no
      calendar" for all four causes, including a rollup that has dates and a
      points view of issues nobody estimated. */
-  m.paceUnknownShort = window ? "no sprints on this board"
+  m.paceUnknownShort = statusFiltered ? "not measured under a Status filter"
+    : window ? "no sprints on this board"
     : m.sprintNotStarted ? "not started · sprint starts " + fmtD(wd[0])
     : m.timeElapsed == null
     ? (rollup ? "no single sprint clock" : "no sprint dates")
@@ -2321,6 +2326,28 @@ function derive(items) {
     m.health = null;
     m.healthBand = null;
     m.healthRefusal = noItems("there is no sprint health to score");
+    return m;
+  }
+  /* Two filters under which the composite is not a measurement of the sprint.
+     A Status filter decides which items are on the page, so the share done —
+     and with it pace — is a property of the filter: Status = Done scored
+     78/100 and turned the chip green by construction. A Person filter turns
+     the sprint's score into one person's, which is one dropdown from the
+     ranking of individuals this page does not produce; it read 75/100 for one
+     name against the team's 52. Both are withheld and say why. */
+  if (S.filters.status || S.filters.assignee) {
+    const kindNow = isWindow(S.view.ctx) ? "Flow health" : "Sprint health";
+    m.healthKind = kindNow;
+    m.healthParts = null;
+    m.health = null;
+    m.healthBand = null;
+    m.healthRefusal = S.filters.status
+      ? kindNow + " is not scored under a Status filter: the filter decides which items are on " +
+        "the page, so the share it would score is a property of the filter, not of the sprint — " +
+        "the evidence is absent, not noisy."
+      : kindNow + " is not scored for one person: it is a property of the whole sprint, and a " +
+        "score per person is a ranking of individuals, which this page does not produce — " +
+        "withheld by rule, not for want of evidence.";
     return m;
   }
   /* A component that could not be measured is dropped from the composition and
@@ -2941,7 +2968,7 @@ function renderExec(m) {
     (U().isItems
       ? (m.totalSP ? ", carrying " + n1(m.doneSP) + " of " + n1(m.totalSP) + " story points." : ".")
       : ", worth " + n1(m.doneSP) + " of " + n1(m.totalSP) + " story points."));
-  if (m.timeElapsed != null)
+  if (m.paceGap != null)
     v.push(" The sprint is <strong>" + pct(m.timeElapsed) + " elapsed</strong>, so delivery is " +
       (behind ? "<strong>behind the clock</strong> by roughly " + Math.round(-m.paceGap * 100) + " percentage points"
               : "<strong>tracking with the clock</strong>") + ".");
@@ -3119,7 +3146,13 @@ function renderKpis(m) {
       : { lab: "Delivered", val: pct(m.totalU ? m.doneU / m.totalU : 0),
       sub: U().fmt(m.doneU) + " of " + U().fmt(m.totalU) + " " + U().label +
            (U().isItems ? " · " + n1(m.doneSP) + " pts" : " · " + m.doneCount + " items"),
-      barPct: m.totalU ? m.doneU / m.totalU : 0, barCol: CSSV("--s1"), delta: arrow(spDelta, true, cv(cur), cv(prev)),
+      barPct: m.totalU ? m.doneU / m.totalU : 0, barCol: CSSV("--s1"),
+      /* The delta reads the sprint record and compares whole sprints. Under a
+         filter the value above it is a share of the filtered items, and on a
+         roll-up it is a share of several sprints — "50% · 3 of 6 items" sat
+         over "▲ 12 done vs 8 last sprint", one tile, two bases, no label. So
+         it is drawn only when the two agree about what they measure. */
+      delta: (filtersActive() || (S.view.ctx && S.view.ctx.isRollup)) ? null : arrow(spDelta, true, cv(cur), cv(prev)),
       tt: "Share of in-scope work completed, measured in " + U().label + ". Items is the default because it is the unit the forecaster uses; switch to points in the filter row if you need size information.",
       drill: { t: "Completed work", items: m.done } },
     // "pp" = percentage points. Never "pts" here — beside an item measure it

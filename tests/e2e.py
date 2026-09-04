@@ -2823,6 +2823,44 @@ def main():
               bool(slack) and max(slack) <= 12,
               "largest gap %spx under a heading, over %d headers" % (max(slack) if slack else None, len(slack)))
 
+        # ---------- the band under a filter (1.79.35) ----------
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(300)
+        CHIP = "() => document.getElementById('t-health').textContent.trim()"
+        TT = "() => document.getElementById('t-health').dataset.tt"
+        first_tile = lambda: " ".join((page.text_content("#kpis .kpi:nth-child(1)") or "").split())
+        pace_tile = lambda: " ".join((page.text_content("#kpis .kpi:nth-child(2)") or "").split())
+        check("at rest the Delivered tile carries its delta", "last sprint" in first_tile(), first_tile())
+        page.evaluate("() => window.DVD.debug.setFilter('assignee', window.DVD.data.issues.find(i => i.assignee).assignee)")
+        page.wait_for_timeout(400)
+        check("under a Person filter the delta is not drawn: it compares whole sprints",
+              "last sprint" not in first_tile(), first_tile())
+        check("and the chip is not scored for one person",
+              "not scored" in page.evaluate(CHIP) and "ranking of individuals" in page.evaluate(TT),
+              (page.evaluate(CHIP), page.evaluate(TT)[:120]))
+        check("while pace, which the Person filter does not construct, is still measured",
+              " pp" in pace_tile() and "elapsed" in pace_tile(), pace_tile())
+        page.evaluate("() => window.DVD.debug.setFilter('assignee', '')")
+        page.evaluate("() => window.DVD.debug.setFilter('status', 'Done')"); page.wait_for_timeout(400)
+        check("under a Status filter the pace tile refuses",
+              "not measured under a Status filter" in pace_tile() and " pp" not in pace_tile(), pace_tile())
+        check("and the chip refuses, naming the filter",
+              "not scored" in page.evaluate(CHIP) and "Status filter" in page.evaluate(TT), page.evaluate(TT)[:120])
+        check("and the verdict does not call a filter-built share 'tracking with the clock'",
+              "with the clock" not in (page.text_content("#exec-verdict, .verdict") or ""),
+              (page.text_content("#exec-verdict, .verdict") or "")[:160])
+        check("and the delta is not drawn", "last sprint" not in first_tile(), first_tile())
+        page.evaluate("() => window.DVD.debug.setFilter('status', '')"); page.wait_for_timeout(400)
+        check("cleared, the delta, the pace and the score are back",
+              "last sprint" in first_tile() and " pp" in pace_tile() and "/100)" in page.evaluate(CHIP),
+              (first_tile()[:60], page.evaluate(CHIP)))
+        bundle = json.loads((ROOT / "data" / "sample-bundle.json").read_text())
+        page.evaluate("d => window.DVD.applyDataset(d)", bundle); page.wait_for_timeout(700)
+        page.evaluate("() => window.DVD.debug.selectContext(window.DVD.debug.view().contexts.find(c => c.isRollup).id)")
+        page.wait_for_timeout(700)
+        check("on a roll-up the delta is not drawn either", "last sprint" not in first_tile(), first_tile())
+        page.click("#btn-import"); page.click("#m-sample"); page.wait_for_timeout(500)
+
         # ---------- value refuses under a filter (1.79.34) ----------
         # Value is counted on epics, once each; the filters select items. Under
         # a Person filter the tile kept the sprint's whole total over that
