@@ -303,7 +303,7 @@ Dark theme values for every token live in `src/styles.css` under `:root[data-the
 
 A single centred column up to 1560px wide with 16px top and 20px side padding, on a twelve-column grid with a 10px gutter. Cards declare a span (3 to 12) and every row must sum to twelve at every breakpoint; the browser suite asserts it at three widths. Cards stretch to the height of their row and keep their contents top-aligned.
 
-The page stacks in a fixed order: topbar (title, sprint line, goal, badges and actions), the context bar (Project → Board → Sprint), the filter row, the KPI band (eight tiles in one row, four at 1280px, two at 640px), the exec summary at span 12 beneath it — the band is the executive's scan line and comes before the paragraph that explains it — then chart pairs at 7 + 5, then 6 + 6, 8 + 4, and two full-width rows for the brief recipients and the risk register. The risk register flows into two columns from 1000px and three from 1500px.
+The page stacks in a fixed order: topbar (title, sprint line, source badge and actions, one row at desktop widths — Print and Export CSV behind a More menu), the context bar (Project → Board → Sprint), the filter row, the KPI band (the health pill at its right end, then eight tiles in one row down to 1180px, four to 640px, two below), the exec summary at span 12 beneath it — the band is the executive's scan line and comes before the paragraph that explains it, and the sprint goal opens that card — then chart pairs at 7 + 5, then 6 + 6, 8 + 4, and two full-width rows for the brief recipients and the risk register. The risk register flows into two columns from 1000px and three from 1500px.
 
 Below 1180px every span from 3 to 8 becomes 6 and span 9 becomes 12, so the grid halves rather than promoting wide tiles to full width and stranding their partners. Below 760px everything is span 12 and card tools drop under the title onto their own row. Below 900px the exec summary collapses from a 1.15fr / 2fr pair to one column.
 
@@ -359,7 +359,7 @@ Refined and restrained: every control looks like the browser's own, only tidier.
 - **Variants:** good, warn, serious, critical, info, each ink on its wash. The glyph is part of the chip: ● for good, ▲ for warn and serious, ■ for critical.
 - **Filter chip:** 11.5px on info wash with an inline × in secondary ink.
 - **Source badge:** a pill on plane with an 8px status dot and 12px secondary text.
-- **Health pill:** 13px at 650, 7px 14px, on the severity wash with matching ink. Says "· in story points" after the score when the measure has left the default, because the score moves with it.
+- **Health pill:** 13px at 650, 7px 14px, on the severity wash with matching ink, at the right end of the KPI band it summarises. Says "· in story points" after the score when the measure has left the default, because the score moves with it.
 
 ### Cards / Containers
 - **Corner Style:** 12px.
@@ -380,7 +380,7 @@ The executive's scan line. Paper card at 11px 13px 12px, label at 11.5px/600 in 
 - **Error / Disabled:** rejected input is stated in warn ink at 600 on its own line; a disabled arrow sits at 32% opacity and keeps its place rather than disappearing.
 
 ### Navigation
-The page has no navigation bar; the topbar carries identity and actions, and the context bar carries the Project → Board → Sprint pickers with uppercase labels, 1px separators and a secondary-ink meta line. Tabs inside the import dialog are text buttons at 600 with a 2px transparent underline that turns link-blue when selected.
+The page has no navigation bar; the topbar carries identity and actions in one row (theme, Tiles, Workflow when it applies, More, Load data), and the context bar carries the Project → Board → Sprint pickers with uppercase labels, 1px separators and a secondary-ink meta line. Tabs inside the import dialog are text buttons at 600 with a 2px transparent underline that turns link-blue when selected.
 
 ### Refusal callout
 The signature component. A block at 11px 13px with a 3px left rule in warn ink, warn wash behind, square on the left and 8px on the right, 12.5px text on a 1.55 line. It prints the tool's sentence verbatim and ends with the clause about the evidence being absent rather than noisy. A note beneath the sentence, inside the callout, is set in secondary ink, never muted: muted on the wash falls under 4.5:1 in the dark theme. Over an empty selection the KPI band's callout is the page-level form: the same component at verdict size (15px, 14px 16px padding) with a bold lead, the cause and the action, and a note on what the tiles beneath are doing; the tiles beneath keep their own sentences. The affirmative twin uses good ink and good wash for "saved" confirmations. The offline notice is the same block with a dashed hairline instead of a rule and no wash.

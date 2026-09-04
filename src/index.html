@@ -18,14 +18,9 @@
     <div class="title">
       <h1 id="t-title">Delivery Value Dashboard</h1>
       <div class="sub" id="t-sub"></div>
-      <div class="goal" id="t-goal"></div>
     </div>
     <div class="topbar-actions">
       <span class="src-badge" id="t-src"><i class="dot"></i><span></span></span>
-      <!-- Focusable: its tooltip is the score's full working, which ADR 0010 made
-           the disclosure a reader argues with, and a disclosure only a pointer
-           can reach is not one. -->
-      <span class="health-chip" id="t-health" tabindex="0"></span>
       <button class="btn" id="btn-theme" title="Switch light / dark">Dark</button>
       <div class="viewpick">
         <button class="btn" id="btn-view" aria-expanded="false" aria-haspopup="dialog"
@@ -41,8 +36,16 @@
         <div class="vp-pop hidden" id="wf-pop" role="dialog" aria-modal="false"
              aria-labelledby="wf-h"></div>
       </div>
-      <button class="btn" id="btn-print">Print</button>
-      <button class="btn" id="btn-export">Export CSV</button>
+      <!-- Two actions a reader reaches for rarely, behind one control: the
+           toolbar wrapped to three rows at 1280 wide with all of them out. -->
+      <div class="viewpick">
+        <button class="btn" id="btn-more" aria-haspopup="menu" aria-expanded="false"
+                aria-controls="more-menu">More <span aria-hidden="true">&#9662;</span></button>
+        <div class="vp-menu hidden" id="more-menu" role="menu" aria-label="More actions">
+          <button type="button" role="menuitem" id="btn-export">Export CSV</button>
+          <button type="button" role="menuitem" id="btn-print">Print</button>
+        </div>
+      </div>
       <button class="btn primary" id="btn-import">Load data</button>
     </div>
   </div>
@@ -82,13 +85,21 @@
          them. ADR 0032. -->
     <!-- A named group: eight buttons in a row, each announced by its whole
          text, need a landmark that says what the row is before the first. -->
-    <div class="span12" id="c-kpis"><div class="kpis" id="kpis" role="group" aria-label="Headline numbers"></div></div>
+    <div class="span12" id="c-kpis">
+      <!-- The verdict's summary sits with the figures it summarises, at the
+           band's end: the verdict comes second (ADR 0032), and this chip is
+           its shortest form. Focusable: its tooltip is the score's full
+           working, the disclosure a reader argues with. -->
+      <div class="band-hd"><span class="health-chip" id="t-health" tabindex="0"></span></div>
+      <div class="kpis" id="kpis" role="group" aria-label="Headline numbers"></div>
+    </div>
 
     <div class="card span12" id="c-exec">
       <div class="card-hd">
         <div><h2>What this sprint means <button type="button" class="info" data-tip="exec">i</button></h2>
         <div class="cap" id="exec-cap">Plain-language read of the numbers below. Every point links to the issues behind it.</div></div>
       </div>
+      <div class="goal" id="t-goal"></div>
       <div class="exec">
         <div>
           <div class="verdict" id="exec-verdict"></div>

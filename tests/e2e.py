@@ -2148,7 +2148,43 @@ def main():
         check("the KPI band is the first tile, before the verdict",
               TIDS[:2] == ["c-kpis", "c-exec"], TIDS[:2])
         band_y = page.evaluate("() => document.getElementById('c-kpis').getBoundingClientRect().top + scrollY")
-        check("and it starts inside the first screen at 1500 wide", band_y < 420, band_y)
+        check("and it starts inside the first screen at 1500 wide", band_y < 300, band_y)
+        # The chrome above the band was the tallest thing on the page: a
+        # 175px toolbar at 1440 and 218px at 1280, its action cluster wrapping
+        # to three rows beside the title. The goal moved into the verdict
+        # card, the health chip to the band's end, Print and Export behind
+        # one control.
+        top_h = page.eval_on_selector(".topbar", "e => e.getBoundingClientRect().height")
+        check("the toolbar is one row at 1500 wide", top_h < 110, top_h)
+        check("the health chip sits at the band's end, not in the toolbar",
+              page.eval_on_selector("#t-health", "e => e.closest('#c-kpis') !== null && e.closest('.topbar') === null"))
+        check("the sprint goal sits in the verdict card",
+              page.eval_on_selector("#t-goal", "e => e.closest('#c-exec') !== null") and
+              "Sprint goal" in (page.text_content("#c-exec") or ""))
+        check("Print and Export CSV wait behind More",
+              not page.is_visible("#btn-print") and not page.is_visible("#btn-export") and page.is_visible("#btn-more"))
+        page.click("#btn-more")
+        page.wait_for_timeout(150)
+        check("and appear when it opens, with focus on the first",
+              page.is_visible("#btn-print") and page.evaluate("() => document.activeElement.id") == "btn-export")
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(150)
+        check("Escape closes More and returns focus to it",
+              not page.is_visible("#btn-print") and page.evaluate("() => document.activeElement.id") == "btn-more")
+        page.set_viewport_size({"width": 1280, "height": 900})
+        page.wait_for_timeout(300)
+        tops = page.eval_on_selector_all("#kpis .kpi", "n => [...new Set(n.map(e => Math.round(e.getBoundingClientRect().top)))]")
+        check("at 1280 wide the band is one row of eight", len(tops) == 1, tops)
+        page.set_viewport_size({"width": 1100, "height": 900})
+        page.wait_for_timeout(300)
+        # A tile without a delta used to be a line shorter than one with, so the
+        # two rows of four differed by the delta alone. The placeholder keeps
+        # its height; rows may still differ where a long sub-line wraps.
+        dh = page.eval_on_selector_all("#kpis .kpi", "n => n.map(e => { const d = e.querySelector('.k-delta'); return d ? [d.textContent.length, Math.round(d.getBoundingClientRect().height)] : null; })")
+        check("a tile without a delta keeps the delta's height",
+              all(x is not None and (x[0] > 0 or x[1] >= 16) for x in dh), dh)
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(300)
         check("the tiles sit in the DOM in that order", dom_order() == TIDS, dom_order()[:3])
 
         open_picker(page)
@@ -2159,7 +2195,7 @@ def main():
               page.eval_on_selector('[data-move=bottom][data-move-id="%s"]' % TIDS[-1], "e => e.disabled"))
         check("each row has one Move button opening a menu, not a pair of arrows",
               page.eval_on_selector_all("[data-move-menu]", "n => n.length") == len(TIDS) and
-              page.eval_on_selector_all(".vp-menu[role=menu] [role=menuitem]", "n => n.length") == 4 * len(TIDS))
+              page.eval_on_selector_all("#vp-list .vp-menu[role=menu] [role=menuitem]", "n => n.length") == 4 * len(TIDS))
 
         kpi_pre_order = page.text_content("#kpis")
         # Two moves up, each through the row's menu; the list rebuilds and the

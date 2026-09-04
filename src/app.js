@@ -2126,7 +2126,8 @@ function renderKpis(m) {
       '<span class="k-lab">' + esc(t.lab) + "</span>" +
       '<span class="k-val">' + esc(String(t.val)) + "</span>" +
       '<span class="k-sub">' + esc(t.sub) + "</span>" +
-      (t.delta ? '<br><span class="k-delta" style="color:' + t.delta.c + '">' + t.delta.i + " " + esc(t.delta.t) + "</span>" : "") +
+      (t.delta ? '<span class="k-delta" style="color:' + t.delta.c + '">' + t.delta.i + " " + esc(t.delta.t) + "</span>"
+               : '<span class="k-delta"></span>') +
       '<span class="k-bar"><i style="width:' + Math.round(clamp(t.barPct, 0, 1) * 100) + "%;background:" + t.barCol + '"></i></span>' +
     "</button>").join("");
   $("#kpis").onclick = e => {
@@ -4593,6 +4594,37 @@ function issuesCSV(items) {
 $("#btn-export").onclick = () => download((S.view.meta.sprintName || "sprint").replace(/\W+/g, "-").toLowerCase() + "-issues.csv", issuesCSV(filtered()), "text/csv");
 $("#p-csv").onclick = () => download("drill-down.csv", issuesCSV(S.lastDrill), "text/csv");
 $("#btn-print").onclick = () => print();
+
+/* Print and Export CSV behind one control. The toolbar's action cluster
+   measured 1,221px and wrapped to three rows beside the title at 1280 wide,
+   with the band it stood over pushed to y=313. */
+function openMore(on) {
+  const btn = $("#btn-more"), menu = $("#more-menu");
+  menu.classList.toggle("hidden", !on);
+  btn.setAttribute("aria-expanded", String(on));
+  if (on) {
+    const r = btn.getBoundingClientRect();
+    menu.style.top = (r.bottom + 4) + "px";
+    menu.style.left = Math.max(8, r.right - 150) + "px";
+    menu.style.minWidth = "150px";
+    menu.querySelector("[role=menuitem]").focus();
+  } else btn.focus();
+}
+$("#btn-more").onclick = () => openMore($("#more-menu").classList.contains("hidden"));
+$("#more-menu").onkeydown = e => {
+  const items = [...$("#more-menu").querySelectorAll("[role=menuitem]")], i = items.indexOf(document.activeElement);
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    items[(e.key === "ArrowDown" ? i + 1 : i - 1 + items.length) % items.length].focus();
+  } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); openMore(false); }
+  else if (e.key === "Tab") { $("#more-menu").classList.add("hidden"); $("#btn-more").setAttribute("aria-expanded", "false"); }
+};
+$("#more-menu").addEventListener("click", e => { if (e.target.closest("[role=menuitem]")) openMore(false); });
+addEventListener("mousedown", e => {
+  if (!$("#more-menu").classList.contains("hidden") && !e.target.closest("#btn-more, #more-menu")) {
+    $("#more-menu").classList.add("hidden"); $("#btn-more").setAttribute("aria-expanded", "false");
+  }
+});
 
 /* =====================================================================
    theme

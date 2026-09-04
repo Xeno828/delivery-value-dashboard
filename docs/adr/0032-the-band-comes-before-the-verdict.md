@@ -16,6 +16,10 @@ The verdict does not lose by going second. It is the working under the figures: 
 
 **A different order per reader.** The Executive preset already exists, and it too began with the verdict. Presets choose *which* tiles; the default order is the page's one reading order, and it is the same for both readers because the delivery manager who defends the numbers scans the band as well.
 
+## Amended 2026-09-04: the chip goes with the band, and the chrome above it shrinks
+
+The third critique measured the toolbar at 175px on a 1440-wide screen and 218px at 1280 — its action cluster, 1,221px wide with the source badge, the health chip and six buttons, wrapping to three rows beside the title — so the band this record put first still began 270 to 313px down, and at 375 wide 697px down. Three moves, none of them a new decision: the sprint goal into the verdict card it is context for; Print and Export CSV behind one *More* control; and the health chip out of the toolbar to the right end of the band. The chip is the verdict's shortest form, and this record already says the verdict comes after the figures; a summary of the band that stood two containers above it was the one place the order was still the old way round. The band now breaks to two rows at 1180px, where the grid halves, rather than at 1280, where a common laptop sat on the wrong side of the line.
+
 ## What holds it
 
 The source order in `src/index.html` and the `TILES` list in `src/app.js` agree, `tests/e2e.py` asserts the default order is the source order, that the band is the first tile by name, and that it starts inside the first screen at 1500 wide. A reader's saved reorder still travels in the URL and still wins over the default.
