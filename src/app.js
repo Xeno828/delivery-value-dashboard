@@ -2289,7 +2289,11 @@ function renderDist(m, items) {
     const mine = items.filter(i => i.assignee === p);
     return { p, mine, seg: st.map(s => ({ s, v: sum(mine.filter(i => i.statusCategory === s.key), U().val),
       items: mine.filter(i => i.statusCategory === s.key) })), tot: sum(mine, U().val) };
-  }).sort((a, b) => b.tot - a.tot);
+  // Alphabetical, not by volume. Sorted by total this was an ownership count
+  // presented in league-table order — one sort key from the ranking of
+  // individuals the product refuses to compute. A name is looked up, not
+  // placed.
+  }).sort((a, b) => a.p.localeCompare(b.p));
 
   const W = cw(host), rowH = 34, P = { t: 6, r: 46, b: 22, l: 92 };
   const H = P.t + rows.length * rowH + P.b, iw = W - P.l - P.r;

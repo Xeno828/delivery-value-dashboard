@@ -410,5 +410,6 @@ Paper at 9px radius with the float shadow, 9px 11px padding, 12px text up to 290
 - **Don't** write a hex literal in markup or script; every colour is a named token.
 - **Don't** put white text on a status fill; severity is ink on wash.
 - **Don't** dim a disabled or unsupported element with opacity alone; keep its colour and carry the reason in text.
+- **Don't** order people by volume. Per-person bars are alphabetical: sorted by total they are a league table, which the product refuses to produce.
 - **Don't** let a control set the page's minimum width; wrap it, or give the tools their own row.
 - **Don't** add a radius outside the `rounded` scale or a second shadow at rest; the border defines the card, and a new corner size is a new step with a name before it is a value in a rule.

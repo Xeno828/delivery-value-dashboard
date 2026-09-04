@@ -2823,6 +2823,11 @@ def main():
               bool(slack) and max(slack) <= 12,
               "largest gap %spx under a heading, over %d headers" % (max(slack) if slack else None, len(slack)))
 
+        # ---------- names are looked up, not placed (1.79.32) ----------
+        names = page.eval_on_selector_all("#dist-chart text.ser-lab", "n => n.map(e => e.textContent)")
+        check("the per-person bars are in alphabetical order, not league-table order",
+              len(names) > 2 and names == sorted(names, key=str.casefold), names[:5])
+
         # ---------- words the fourth critique read (1.79.31) ----------
         page.set_viewport_size({"width": 1500, "height": 1000})
         page.wait_for_timeout(300)
