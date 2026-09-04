@@ -112,7 +112,7 @@ A third mode, **Sequence asks**, runs `intake.py --sequence` for the selected bo
 
 Rejected input says so rather than quietly reverting, and a request too large for the simulation's 400-working-day horizon states that the dates are a floor rather than an estimate — without that, every percentile reads exactly the horizon and looks like an answer.
 
-Because it needs the local server, this tile shows an offline notice rather than a forecast in an emailed copy. If you are sending a view on, untick it under **Tiles**.
+Because it needs the local server, this tile is off by default in an emailed copy, along with the brief-recipients tile; both are one tick away under **Tiles**, which says why they are off, and shown they say they are not in this copy.
 
 ## Repository layout
 

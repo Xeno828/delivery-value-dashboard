@@ -110,6 +110,8 @@ a{color:var(--link)}
 .span3{grid-column:span 3}.span4{grid-column:span 4}.span5{grid-column:span 5}
 .span6{grid-column:span 6}.span7{grid-column:span 7}.span8{grid-column:span 8}
 .span9{grid-column:span 9}.span12{grid-column:span 12}
+/* A tile whose row partner is hidden takes the whole row; set by applyTiles. */
+.grid > .span-full{grid-column:span 12}
 /* Halve everything instead of promoting the wide tiles to full width. Sending
    a span-7 to 12 strands its span-5 partner alone on a half-empty row, which
    is what made 761-1180px the emptiest the page ever looked: four orphaned
@@ -1507,7 +1509,7 @@ const HELP = {
   thr: "<b>What it is</b><br>Items finished in each calendar week. The dashed line is the mean.<br><br><b>Why weeks</b><br>A per-day series on a board without a sprint boundary is mostly zeroes and reads as a team that keeps stopping. Weeks are the smallest honest grain.<br><br><b>Why quiet weeks stay in</b><br>They are part of the distribution, not gaps in it. Dropping them is the most common way a forecast turns optimistic, because a model that never samples a zero will never predict a stall.<br><br><b>What it is for</b><br>This is the series the Monte Carlo forecast samples. It is here so the forecast can be checked rather than taken on trust.",
   cfd: "<b>What it is</b><br>How many items sat in each status category on each day, stacked. The height of the middle band is work in progress; the vertical gap between the top two lines is everything waiting to be started.<br><br><b>How to read it</b><br>Bands that widen are queues forming. The two outer lines diverging means work is arriving faster than it is leaving, which no amount of effort inside the team will fix.<br><br><b>Three bands, not one per column</b><br>A full cumulative flow diagram has a band for every column on the board. Nothing in this dataset records which column an issue sat in on a given day, so these are the three status <i>categories</i> instead. That is a real limitation and it is stated rather than hidden &mdash; a three-band chart labelled as a seven-column one would be a different picture of the same board.",
   pred: "<b>What it is</b><br>What the team committed to versus what it completed, one bar pair per sprint. As many sprints as the board has, up to six &mdash; a new board shows two, and the tile says so rather than implying six.<br><br><b>How to read it</b><br>The number that matters is consistency, not height. A team that reliably delivers 34 points is more useful to a business than one that swings between 20 and 50.<br><br><b>How to improve it</b><br>Set the next commitment from the average of the last three completions, not from optimism &mdash; and where there have not been three, the tile names how many it averaged instead of claiming three.",
-  forecast: "<b>What it is</b><br>A Monte Carlo simulation run by <code>agent/tools/forecast.py</code> &mdash; the same tool the reporting agent uses, reached over the local live-mode connection. The page does not compute it and does not reimplement it, so the tile and a written brief cannot disagree about the same sprint.<br><br><b>What it samples</b><br>Every recorded day of this <i>team's</i> history, not just the sprint on screen. One sprint offers too few observations to sample and the tool refuses; the team's full record is what makes an answer possible. Only the <i>remaining work</i> comes from the selected sprint.<br><br><b>How to read it</b><br>Quote the 85th percentile, not the median. A median is a coin flip by construction, and a commitment set there misses half the time.<br><br><b>When it refuses</b><br>Below its evidence thresholds it says so rather than widening the range. That sentence is the answer, printed as the tool wrote it.",
+  forecast: "<b>What it is</b><br>A Monte Carlo simulation run by <code>agent/tools/forecast.py</code> &mdash; the same tool the reporting agent uses, reached over the local live-mode connection. In a saved copy there is no connection, so the tile says so; to run one locally, start <code>make serve-live</code> and reload. The page does not compute it and does not reimplement it, so the tile and a written brief cannot disagree about the same sprint.<br><br><b>What it samples</b><br>Every recorded day of this <i>team's</i> history, not just the sprint on screen. One sprint offers too few observations to sample and the tool refuses; the team's full record is what makes an answer possible. Only the <i>remaining work</i> comes from the selected sprint.<br><br><b>How to read it</b><br>Quote the 85th percentile, not the median. A median is a coin flip by construction, and a commitment set there misses half the time.<br><br><b>When it refuses</b><br>Below its evidence thresholds it says so rather than widening the range. That sentence is the answer, printed as the tool wrote it.",
   dora: "<b>What it is</b><br>The four DORA measures: how often you release, how often a release breaks something, how long a change takes to reach customers, and how fast you recover.<br><br><b>How to read it</b><br>Deployment frequency and lead time measure speed; change failure rate and recovery time measure safety. Improving one at the cost of the other is not progress.<br><br><b>How to improve it</b><br>Smaller, more frequent releases usually improve all four at once.",
   load: "<b>What it is</b><br>Two load signals, both taken from issue status and nothing else: how much work is started but unfinished, and how much of each sprint arrived after planning.<br><br><b>Why not hours</b><br>This organisation does not operate overtime, and a chart of hours would imply a time-tracking regime that does not exist. Output per person went too &mdash; on its own it is a productivity-per-head number, and this dashboard does not measure people.<br><br><b>How to read it</b><br>Work in progress rising while completion stays flat means more is being started than finished, and every extra item in flight slows the ones already there. Rising unplanned work means the commitment is being displaced after it was agreed.<br><br><b>How to improve it</b><br>Cap work in progress per person, and fix intake at the front rather than asking for more effort at the back.",
   value: "<b>What it is</b><br>Estimated commercial impact of the items closed this sprint, counting only items where someone recorded how the number was arrived at.<br><br><b>How to read it</b><br>These are forecasts, not booked revenue. The basis line is more important than the figure.<br><br><b>How to improve it</b><br>Require a one-line basis on any item claiming value, and revisit the estimate 90 days later against actuals.",
@@ -4251,11 +4253,15 @@ function renderForecast() {
   if (!S.live) {
     const tool = q === "sequence" ? "agent/tools/intake.py" : "agent/tools/forecast.py";
     const what = q === "sequence" ? "Sequencing asks" : "A forecast";
-    el.innerHTML = ctrl + '<div class="fc-offline"><b>' + what + " needs the live-mode connection.</b>" +
-      '<div class="note">It is run by <code>' + tool + "</code>, not by this file — so that the " +
-      "number here and the number in a written brief are the same number. Start it with " +
-      "<code>make serve-live</code> and reload.<br><br>Everything else on this page works offline, and if you are " +
-      "sending this file on, untick this tile under <b>Tiles</b>.</div></div>";
+    /* The reader's sentence, not the developer's. This told an executive
+       reading a forwarded file to run a make target. How to run the
+       connection is behind the tile's "i", where the person who can act on
+       it will look; the tool's name stays there too. */
+    el.innerHTML = ctrl + '<div class="fc-offline"><b>' + what + " is not in this copy.</b>" +
+      '<div class="note">It is computed by the live connection, not by this file, so that the ' +
+      "number here and the number in a written brief are the same number. Where the connection is " +
+      "running this tile fills in; in a copy sent on, it says this. Everything else on this page works " +
+      "without it.</div></div>";
     return;
   }
 
@@ -4702,7 +4708,9 @@ function renderBrief(el) {
   if (r === null || !r.available) {
     el.innerHTML = '<div class="fc-refusal"><b>No recipient list.</b> ' +
       esc((r && r.why) || "The server did not answer.") +
-      (r && r.status ? '<div class="note">The connection answered ' + esc(String(r.status)) +
+      // The status is evidence about a connection; where there is no live
+      // connection it is only a number on an executive's last card.
+      (r && r.status && S.live ? '<div class="note">The connection answered ' + esc(String(r.status)) +
         " for the recipients route.</div>" : "") + "</div>";
     return;
   }
@@ -5725,10 +5733,25 @@ function presetLabel(k) {
 }
 
 /** The preset sets for the board on screen. */
+/* Two tiles whose only possible state in a saved copy is a refusal: the
+   forecast is computed by the live connection, and who receives the brief is
+   configured in the app. A file has neither, so both are off in every preset
+   of a file — one tick away in the picker, which says why — and on wherever
+   there is a connection. The emailed page used to end on a refusal addressed
+   to a developer, which is the failure this removes. */
+const FILE_OFF = {
+  "c-forecast": "the forecast is computed by the live connection, not by this file",
+  "c-brief": "who receives the brief is configured in the app, against the site the data came from"
+};
+const inFile = () => !LIVE;
+function presetSet(name, kind) {
+  const ids = PRESET_SETS[name][kind];
+  return inFile() ? ids.filter(id => !FILE_OFF[id]) : ids;
+}
 function PRESETS_NOW() {
   const kind = isWindow(S.view && S.view.ctx) ? "flow" : "sprint";
   const out = {};
-  Object.keys(PRESET_SETS).forEach(k => { out[k] = PRESET_SETS[k][kind]; });
+  Object.keys(PRESET_SETS).forEach(k => { out[k] = presetSet(k, kind); });
   return out;
 }
 
@@ -5760,14 +5783,14 @@ function reapplyPresetForBoard() {
   if (S.presetKind === kind) return;
   const name = S.presetKind == null ? "all" : presetOfKind(S.shown, S.presetKind);
   S.presetKind = kind;
-  if (name !== "custom") S.shown = new Set(PRESET_SETS[name][kind]);
+  if (name !== "custom") S.shown = new Set(presetSet(name, kind));
 }
 
 /** `presetOf`, but against a stated board kind rather than the current one —
  *  needed while switching, when the two disagree by definition. */
 function presetOfKind(shown, kind) {
   for (const k of Object.keys(PRESET_SETS)) {
-    const p = PRESET_SETS[k][kind];
+    const p = presetSet(k, kind);
     if (p.length === shown.size && p.every(id => shown.has(id))) return k;
   }
   return "custom";
@@ -5899,6 +5922,12 @@ function applyTiles() {
     const el = $("#" + id);
     if (el) el.classList.toggle("hidden", on.indexOf(id) < 0);
   });
+  /* The predictability chart and the forecast share a row at 7 + 5. A saved
+     copy hides the forecast in every preset, which left the chart alone in an
+     eleven-column row — the hole the grid rule forbids at every breakpoint.
+     The tile left alone takes the row. */
+  const pred = $("#c-pred");
+  if (pred) pred.classList.toggle("span-full", on.indexOf("c-pred") >= 0 && on.indexOf("c-forecast") < 0);
   const name = presetOf(S.shown), hidden = TILE_IDS.length - on.length;
   const btn = $("#btn-view");
   // The count travels with the name whenever anything is hidden, whoever hid it.
@@ -6032,7 +6061,12 @@ function paintPicker() {
       row.title = gone ? FLOW_UNAVAILABLE[id] : "";
     }
   });
-  const hidden = S.order.filter(id => !S.shown.has(id) && off.indexOf(id) < 0);
+  /* Three absences, said separately: what the reader turned off, what this
+     board cannot support, and what a saved copy has no connection for. The
+     third used to be counted under the first, which told a reader they had
+     hidden two tiles they had never touched. */
+  const fileOff = inFile() ? S.order.filter(id => FILE_OFF[id] && !S.shown.has(id)) : [];
+  const hidden = S.order.filter(id => !S.shown.has(id) && off.indexOf(id) < 0 && fileOff.indexOf(id) < 0);
   // Name what is hidden rather than only counting it. A view that quietly
   // drops a tile reads as a complete page to whoever receives it. The same
   // goes for the order: a page in someone else's sequence should say so
@@ -6045,11 +6079,17 @@ function paintPicker() {
   $("#vp-count").innerHTML = (hidden.length
     ? "<b>" + hidden.length + " hidden:</b> " + esc(hidden.map(label).join(", "))
     : off.length ? "Every tile this board supports is shown."
+    : fileOff.length ? "Every tile this copy can show is shown."
     : "All " + TILE_IDS.length + " tiles shown.") +
     (off.length
       ? "<br><b>" + off.length + " not available on this board:</b> " +
         esc(off.map(id => label(id) + " — " + FLOW_UNAVAILABLE[id]).join("; ")) +
         ". This board runs no sprints."
+      : "") +
+    (fileOff.length
+      ? "<br><b>" + fileOff.length + " off in a saved copy:</b> " +
+        esc(fileOff.map(id => label(id) + " — " + FILE_OFF[id]).join("; ")) +
+        ". This file has no connection; tick " + (fileOff.length === 1 ? "it" : "either") + " to see it say so."
       : "") +
     (orderIsDefault() ? "" : "<br><b>Custom order.</b>");
 }
@@ -6549,11 +6589,11 @@ S.ctx = S.data.defaultContextId;
   const attr = document.documentElement.getAttribute("data-tiles");
   let ids;
   if (t) ids = t.split(",");
-  else if (v && PRESET_SETS[v]) ids = PRESET_SETS[v].sprint;
+  else if (v && PRESET_SETS[v]) ids = presetSet(v, "sprint");
   else if (attr !== null) ids = attr.split(",");
-  else ids = PRESET_SETS.all.sprint;
+  else ids = presetSet("all", "sprint");
   S.shown = new Set(ids.map(s => s.trim()).filter(id => TILE_IDS.indexOf(id) >= 0));
-  if (!S.shown.size) S.shown = new Set(PRESET_SETS.all.sprint);
+  if (!S.shown.size) S.shown = new Set(presetSet("all", "sprint"));
   /* Which board kind the set above was resolved for. Seeded rather than left
      null so that a `?view=` or `?tiles=` in the URL is recognised as the
      reader's own choice on the first board switch, instead of being replaced

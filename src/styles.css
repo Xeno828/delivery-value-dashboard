@@ -103,6 +103,8 @@ a{color:var(--link)}
 .span3{grid-column:span 3}.span4{grid-column:span 4}.span5{grid-column:span 5}
 .span6{grid-column:span 6}.span7{grid-column:span 7}.span8{grid-column:span 8}
 .span9{grid-column:span 9}.span12{grid-column:span 12}
+/* A tile whose row partner is hidden takes the whole row; set by applyTiles. */
+.grid > .span-full{grid-column:span 12}
 /* Halve everything instead of promoting the wide tiles to full width. Sending
    a span-7 to 12 strands its span-5 partner alone on a half-empty row, which
    is what made 761-1180px the emptiest the page ever looked: four orphaned

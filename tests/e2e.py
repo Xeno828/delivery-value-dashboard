@@ -920,6 +920,9 @@ def transports(b):
         check("over http the page finds the loopback transport",
               page.evaluate("() => window.DVD.debug.transport()") == "loopback",
               page.evaluate("() => window.DVD.debug.transport()"))
+        check("and with a connection the forecast and brief tiles are on by default",
+              page.eval_on_selector("#c-forecast", "e => !e.classList.contains('hidden')") and
+              page.eval_on_selector("#c-brief", "e => !e.classList.contains('hidden')"))
         # Selected through the page's own entry point, not by poking state, so
         # the fetch really happens and the render is the one a user would get.
         page.evaluate("id => window.DVD.debug.selectContext(id)", cid)
@@ -2062,8 +2065,8 @@ def main():
         page.wait_for_timeout(200)
         ex = vis()
         check("the executive view is the agent's exec-brief shape",
-              ex == ["c-kpis", "c-exec", "c-pred", "c-forecast", "c-dora",
-                     "c-value", "c-rel", "c-risk"], ex)
+              ex == ["c-kpis", "c-exec", "c-pred", "c-dora",
+                     "c-value", "c-rel", "c-risk"], ex)   # no forecast: this is a file
         check("the executive view keeps the narrative",
               "c-exec" in ex and len(page.text_content("#exec-list").strip()) > 40)
         # A view that quietly drops tiles reads as a whole page to whoever gets it.
@@ -2076,7 +2079,7 @@ def main():
         tm = vis()
         check("the team view is the agent's team-report shape",
               tm == ["c-kpis", "c-exec", "c-burn", "c-dist", "c-flow", "c-age",
-                     "c-pred", "c-forecast", "c-load", "c-risk"], tm)
+                     "c-pred", "c-load", "c-risk"], tm)
         check("the team view keeps the narrative too", "c-exec" in tm)
 
         # The whole feature is only safe if it changes what is shown and
@@ -2250,12 +2253,32 @@ def main():
         # than showing a number, a spinner that never resolves, or a blank card.
         page.goto(DIST.as_uri())
         page.wait_for_timeout(900)
+        # In a saved copy the forecast and the brief can only refuse, so both
+        # are off in every preset and one tick away; the picker says why.
+        check("a saved copy hides the forecast and the brief by default",
+              page.eval_on_selector("#c-forecast", "e => e.classList.contains('hidden')") and
+              page.eval_on_selector("#c-brief", "e => e.classList.contains('hidden')"))
+        check("and still reads as the preset it is, not a custom view",
+              "All sprint tiles" in (page.text_content("#btn-view") or ""), page.text_content("#btn-view"))
+        open_picker(page)
+        vp = " ".join((page.text_content("#vp-count") or "").split())
+        check("the picker says the two are off because this is a saved copy",
+              "off in a saved copy" in vp and "Monte Carlo forecast" in vp, vp[-220:])
+        page.keyboard.press("Escape")
+        page.evaluate("() => window.DVD.debug.setShown(window.DVD.debug.tileIds())")
+        page.wait_for_timeout(400)
         fb = " ".join((page.text_content("#forecast-body") or "").split())
-        check("the forecast tile explains itself with no live connection",
-              "needs the live-mode connection" in fb, fb[:90])
+        check("shown, the forecast tile says it is not in this copy, in the reader's words",
+              "is not in this copy" in fb and "make" not in fb and "forecast.py" not in fb, fb[:120])
         check("the offline forecast tile shows no percentile figures",
               "% of simulations" not in fb and "Confidence" not in fb, fb[:90])
-        check("the offline tile names how to get one", "make serve-live" in fb, fb[-80:])
+        page.focus("#c-forecast .info")
+        page.wait_for_timeout(250)
+        check("how to run the connection is behind the tile's help mark",
+              "make serve-live" in (page.text_content("#tip") or ""), (page.text_content("#tip") or "")[-120:])
+        page.keyboard.press("Escape")
+        brief = " ".join((page.text_content("#brief-body") or "").split())
+        check("the brief tile in a saved copy prints no status code", "404" not in brief and "answered" not in brief, brief[:120])
 
         # ---------- the page and the tools agree about the calendar ----------
         # The page mirrors agent/tools/orgconfig.py in JavaScript, because the
