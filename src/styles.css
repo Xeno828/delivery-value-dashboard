@@ -345,7 +345,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
    screen: the popover is anchored right:0, so on a 320px viewport a fixed width
    would hang off the left edge of the page. */
 .vp-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:40;width:320px;text-align:left;
-  max-width:calc(100vw - 40px);
+  max-width:calc(100vw - 40px);max-height:calc(100vh - 120px);overflow:auto;
   background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);
   box-shadow:var(--shadow);padding:13px 14px}
 .vp-pop h4{margin:0 0 2px;font-size:13px;font-weight:650}
@@ -365,21 +365,24 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 /* The row's Move button and its menu. The menu is the Atlassian keyboard
    pattern for reordering: four moves, arrows walk them, Escape closes. */
 .vp-movebtn{width:auto;height:22px;padding:0 7px;font-size:11.5px;gap:3px;border-radius:6px}
-.vp-menu{position:absolute;right:0;top:calc(100% + 2px);z-index:42;min-width:118px;display:flex;flex-direction:column;
+.vp-menu{position:fixed;z-index:42;min-width:118px;display:flex;flex-direction:column;
   background:var(--surface-1);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow);padding:4px}
 .vp-menu button{background:none;border:0;text-align:left;font-size:12.5px;padding:6px 9px;border-radius:6px;
   color:var(--text-primary)}
 .vp-menu button:hover{background:var(--plane)}
 .vp-menu button:disabled{color:var(--muted);cursor:default;background:none}
 .vp-menu button:focus-visible{outline:2px solid var(--link);outline-offset:-2px}
-.vp-move .icon-btn{width:22px;height:20px;font-size:8px;border-radius:6px}
+
 /* An arrow a tile cannot travel on is disabled rather than removed: dropping it
    would shift the other arrow under the pointer mid-click, and the row would
    change width as tiles reached the ends of the list. */
-.vp-move .icon-btn:disabled{opacity:.32;cursor:default}
-.vp-move .icon-btn:disabled:hover{background:var(--surface-1);color:var(--text-secondary)}
+
 /* Visible as well as announced. The tile that moved is somewhere down the page,
    usually behind the popover, so a reorder confirms nothing on its own. */
+/* On a phone the toolbar wraps and the button that anchors the popover can
+   sit near the left edge, which put the popover's left edge at -10px. A sheet
+   inside the viewport instead of a popover hanging off a button. */
+@media(max-width:760px){.vp-pop{position:fixed;left:10px;right:10px;top:16px;width:auto;max-height:calc(100vh - 32px)}}
 .vp-live{font-size:11.5px;color:var(--text-secondary);line-height:1.4}
 .vp-live:not(:empty){margin-top:9px}
 .vp-count{font-size:11.5px;color:var(--text-secondary);margin-top:10px;padding-top:9px;

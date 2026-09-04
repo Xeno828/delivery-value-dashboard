@@ -2163,6 +2163,27 @@ def main():
               "Custom order" in page.text_content("#vp-count"), page.text_content("#vp-count")[-40:])
         check("the order travels in the URL", "order=c-kpis" in page.url, page.url[-70:])
 
+        # The popover measured 761px with no bound: at a 720px-tall viewport its
+        # two actions were off-screen, and at 375 wide its left edge was at -10.
+        page.set_viewport_size({"width": 1280, "height": 720})
+        page.wait_for_timeout(300)
+        box = page.eval_on_selector("#view-pop", "e => { const r = e.getBoundingClientRect(); return [r.top, r.bottom, r.left, innerHeight]; }")
+        check("the picker stays inside a short viewport and scrolls instead",
+              box[1] <= box[3] and page.eval_on_selector("#view-pop", "e => e.scrollHeight > e.clientHeight"), box)
+        page.set_viewport_size({"width": 375, "height": 812})
+        page.wait_for_timeout(300)
+        left = page.eval_on_selector("#view-pop", "e => e.getBoundingClientRect().left")
+        check("on a phone the picker is a sheet inside the viewport", left >= 0, left)
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(300)
+        # A Move menu opened from a scrolling popover is not clipped by it.
+        page.click('[data-move-menu="c-risk"]')
+        page.wait_for_timeout(150)
+        menu = page.eval_on_selector('[data-move-menu="c-risk"] + .vp-menu', "e => { const r = e.getBoundingClientRect(); return [getComputedStyle(e).position, r.width, r.height, r.left]; }")
+        check("a Move menu escapes the popover's scroll box", menu[0] == "fixed" and menu[1] > 0 and menu[2] > 0 and menu[3] >= 8, menu)
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(150)
+
         page.click("#vp-order-reset")
         page.wait_for_timeout(300)
         check("the default order can be restored", order() == TIDS and dom_order() == TIDS, order()[:3])

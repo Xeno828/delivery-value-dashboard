@@ -339,7 +339,7 @@ function paintWorkflow() {
     ? "The workflow was set in this view and no longer matches the file as received"
     : rows.length
       ? rows.length + " status" + (rows.length === 1 ? "" : "es") +
-        " this board uses are not named in the organisation config"
+        " this board uses " + (rows.length === 1 ? "is" : "are") + " not named in the organisation config"
       : "What each status on this board means";
 
   const cat = {};
@@ -620,6 +620,12 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && tipFor) hi
 /* Each "i" is named for the card it explains. The name is read from the
    heading rather than written eighteen times, so a renamed card renames its
    help with it. The one outside a heading explains the measure toggle. */
+/* The table toggles were named "▤": their purpose lived in a title only.
+   Named from the card's heading, as the help marks and the tables are. */
+$$("[data-table]").forEach(b => {
+  const h = b.closest(".card") && b.closest(".card").querySelector("h2");
+  if (h) b.setAttribute("aria-label", "Show " + h.textContent.replace(/\s*i\s*$/, "").trim() + " as a table");
+});
 $$(".info[data-tip]").forEach(b => {
   if (b.getAttribute("aria-label")) return;
   const h = b.closest("h2");
@@ -4878,10 +4884,20 @@ function openMoveMenu(id, on, refocus = true) {
     b.nextElementSibling.classList.toggle("hidden", !mine);
   });
   if (on) {
+    // Placed from the button's rect, fixed, so the popover's own scrolling
+    // cannot clip it; the popover is bounded to the viewport for the same
+    // reason a menu must escape it.
+    const btn = $('[data-move-menu="' + id + '"]'), menu = btn && btn.nextElementSibling;
+    if (btn && menu) {
+      const r = btn.getBoundingClientRect();
+      menu.style.top = (r.bottom + 2) + "px";
+      menu.style.left = Math.max(8, r.right - 130) + "px";
+    }
     const first = $$('.vp-menu:not(.hidden) [data-move]').find(x => !x.disabled);
     if (first) first.focus();
   } else if (refocus) focusMover(id);
 }
+$("#view-pop").addEventListener("scroll", () => closeMoveMenus(false));
 function closeMoveMenus(refocus = false) {
   const open = $$('[data-move-menu][aria-expanded="true"]')[0];
   if (open) openMoveMenu(open.dataset.moveMenu, false, refocus);
@@ -4942,7 +4958,7 @@ function buildPicker() {
   pop.innerHTML =
     '<h4 id="vp-h">Tiles in this view</h4>' +
     '<div class="note">Hiding a tile changes what is shown, never what is counted. ' +
-    'Both presets keep the narrative. The arrows reorder the page; tiles keep their ' +
+    'Both presets keep the narrative. Each row\u2019s Move menu reorders the page; tiles keep their ' +
     'widths as they move, so an order of your own can leave a row short.</div>' +
     '<div class="vp-presets" role="group" aria-label="Preset views">' +
       Object.keys(PRESET_SETS).map(k =>
@@ -5064,9 +5080,23 @@ function paintPicker() {
     (orderIsDefault() ? "" : "<br><b>Custom order.</b>");
 }
 
+/** Bounded to the viewport from where it actually opens: under a toolbar
+ *  that wraps to three rows at 1280 wide the popover starts 180px down, and
+ *  a bound written as a fixed slice of the viewport still ran 60px past it.
+ *  Re-measured on resize, because the bound is a property of the viewport
+ *  the popover is open in, not the one it was opened in. */
+function boundPicker() {
+  const pop = $("#view-pop");
+  if (pop.classList.contains("hidden")) return;
+  pop.style.maxHeight = Math.max(240, innerHeight - pop.getBoundingClientRect().top - 16) + "px";
+}
+addEventListener("resize", boundPicker);
+
 function openPicker(on) {
   closeMoveMenus(false);
-  $("#view-pop").classList.toggle("hidden", !on);
+  const pop = $("#view-pop");
+  pop.classList.toggle("hidden", !on);
+  if (on) boundPicker();
   $("#btn-view").setAttribute("aria-expanded", String(on));
   if (on) { paintPicker(); $("#view-pop").querySelector("[data-preset]").focus(); }
   else $("#btn-view").focus();

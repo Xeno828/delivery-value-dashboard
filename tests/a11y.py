@@ -264,6 +264,11 @@ def main():
         names = page.eval_on_selector_all(".card [id$='-table'] table.tv", "n => n.map(t => t.getAttribute('aria-label') || '')")
         check("every table view is named for its card",
               len(names) > 0 and all(n.startswith("Table view: ") and len(n) > 15 for n in names), names[:3])
+        check("every table toggle is named for its card, not by its glyph",
+              page.eval_on_selector_all("[data-table]", "n => n.length > 0 && n.every(b => /^Show .+ as a table$/.test(b.getAttribute('aria-label') || ''))"),
+              page.eval_on_selector_all("[data-table]", "n => n.map(b => b.getAttribute('aria-label')).slice(0, 2)"))
+        check("the close buttons are named Close, not by their glyph",
+              page.eval_on_selector_all("#p-close, #m-close", "n => n.every(b => b.getAttribute('aria-label') === 'Close')"))
         check("the KPI band is a named group",
               page.eval_on_selector("#kpis", "e => e.getAttribute('role') === 'group' && !!e.getAttribute('aria-label')"))
         check("decorative svg is not announced",
@@ -517,6 +522,11 @@ def main():
         page.focus('[data-move-menu="%s"]' % before[0])
         page.keyboard.press("Enter")
         page.wait_for_timeout(200)
+        # The Move label rendered at 8px: the retired arrows' rule for icon
+        # buttons in that cell outranked the button's own size.
+        check("the Move buttons are legible, not 8px",
+              page.eval_on_selector('[data-move-menu]', "e => parseFloat(getComputedStyle(e).fontSize) >= 11"),
+              page.eval_on_selector('[data-move-menu]', "e => getComputedStyle(e).fontSize"))
         check("the Move button opens a menu and says so",
               page.eval_on_selector('[data-move-menu="%s"]' % before[0], "e => e.getAttribute('aria-expanded') === 'true'") and
               page.evaluate("() => document.activeElement.getAttribute('role') === 'menuitem'"))

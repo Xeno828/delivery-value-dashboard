@@ -352,7 +352,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
    screen: the popover is anchored right:0, so on a 320px viewport a fixed width
    would hang off the left edge of the page. */
 .vp-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:40;width:320px;text-align:left;
-  max-width:calc(100vw - 40px);
+  max-width:calc(100vw - 40px);max-height:calc(100vh - 120px);overflow:auto;
   background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);
   box-shadow:var(--shadow);padding:13px 14px}
 .vp-pop h4{margin:0 0 2px;font-size:13px;font-weight:650}
@@ -372,21 +372,24 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
 /* The row's Move button and its menu. The menu is the Atlassian keyboard
    pattern for reordering: four moves, arrows walk them, Escape closes. */
 .vp-movebtn{width:auto;height:22px;padding:0 7px;font-size:11.5px;gap:3px;border-radius:6px}
-.vp-menu{position:absolute;right:0;top:calc(100% + 2px);z-index:42;min-width:118px;display:flex;flex-direction:column;
+.vp-menu{position:fixed;z-index:42;min-width:118px;display:flex;flex-direction:column;
   background:var(--surface-1);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow);padding:4px}
 .vp-menu button{background:none;border:0;text-align:left;font-size:12.5px;padding:6px 9px;border-radius:6px;
   color:var(--text-primary)}
 .vp-menu button:hover{background:var(--plane)}
 .vp-menu button:disabled{color:var(--muted);cursor:default;background:none}
 .vp-menu button:focus-visible{outline:2px solid var(--link);outline-offset:-2px}
-.vp-move .icon-btn{width:22px;height:20px;font-size:8px;border-radius:6px}
+
 /* An arrow a tile cannot travel on is disabled rather than removed: dropping it
    would shift the other arrow under the pointer mid-click, and the row would
    change width as tiles reached the ends of the list. */
-.vp-move .icon-btn:disabled{opacity:.32;cursor:default}
-.vp-move .icon-btn:disabled:hover{background:var(--surface-1);color:var(--text-secondary)}
+
 /* Visible as well as announced. The tile that moved is somewhere down the page,
    usually behind the popover, so a reorder confirms nothing on its own. */
+/* On a phone the toolbar wraps and the button that anchors the popover can
+   sit near the left edge, which put the popover's left edge at -10px. A sheet
+   inside the viewport instead of a popover hanging off a button. */
+@media(max-width:760px){.vp-pop{position:fixed;left:10px;right:10px;top:16px;width:auto;max-height:calc(100vh - 32px)}}
 .vp-live{font-size:11.5px;color:var(--text-secondary);line-height:1.4}
 .vp-live:not(:empty){margin-top:9px}
 .vp-count{font-size:11.5px;color:var(--text-secondary);margin-top:10px;padding-top:9px;
@@ -847,7 +850,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
   <div class="p-hd">
     <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
       <div><h3 id="p-title">Issues</h3><div class="p-sub" id="p-sub"></div></div>
-      <button class="icon-btn" id="p-close" title="Close">✕</button>
+      <button class="icon-btn" id="p-close" title="Close" aria-label="Close">✕</button>
     </div>
   </div>
   <div class="p-body" id="p-body"></div>
@@ -862,7 +865,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
       <div><h3 id="m-title">Load your own data</h3>
       <div class="note">Nothing you load leaves your browser. Files are read locally and held in memory only.</div></div>
-      <button class="icon-btn" id="m-close" title="Close">&#10005;</button>
+      <button class="icon-btn" id="m-close" title="Close" aria-label="Close">&#10005;</button>
     </div>
 
     <div class="tabs" role="tablist">
@@ -1298,7 +1301,7 @@ function paintWorkflow() {
     ? "The workflow was set in this view and no longer matches the file as received"
     : rows.length
       ? rows.length + " status" + (rows.length === 1 ? "" : "es") +
-        " this board uses are not named in the organisation config"
+        " this board uses " + (rows.length === 1 ? "is" : "are") + " not named in the organisation config"
       : "What each status on this board means";
 
   const cat = {};
@@ -1579,6 +1582,12 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && tipFor) hi
 /* Each "i" is named for the card it explains. The name is read from the
    heading rather than written eighteen times, so a renamed card renames its
    help with it. The one outside a heading explains the measure toggle. */
+/* The table toggles were named "▤": their purpose lived in a title only.
+   Named from the card's heading, as the help marks and the tables are. */
+$$("[data-table]").forEach(b => {
+  const h = b.closest(".card") && b.closest(".card").querySelector("h2");
+  if (h) b.setAttribute("aria-label", "Show " + h.textContent.replace(/\s*i\s*$/, "").trim() + " as a table");
+});
 $$(".info[data-tip]").forEach(b => {
   if (b.getAttribute("aria-label")) return;
   const h = b.closest("h2");
@@ -5837,10 +5846,20 @@ function openMoveMenu(id, on, refocus = true) {
     b.nextElementSibling.classList.toggle("hidden", !mine);
   });
   if (on) {
+    // Placed from the button's rect, fixed, so the popover's own scrolling
+    // cannot clip it; the popover is bounded to the viewport for the same
+    // reason a menu must escape it.
+    const btn = $('[data-move-menu="' + id + '"]'), menu = btn && btn.nextElementSibling;
+    if (btn && menu) {
+      const r = btn.getBoundingClientRect();
+      menu.style.top = (r.bottom + 2) + "px";
+      menu.style.left = Math.max(8, r.right - 130) + "px";
+    }
     const first = $$('.vp-menu:not(.hidden) [data-move]').find(x => !x.disabled);
     if (first) first.focus();
   } else if (refocus) focusMover(id);
 }
+$("#view-pop").addEventListener("scroll", () => closeMoveMenus(false));
 function closeMoveMenus(refocus = false) {
   const open = $$('[data-move-menu][aria-expanded="true"]')[0];
   if (open) openMoveMenu(open.dataset.moveMenu, false, refocus);
@@ -5901,7 +5920,7 @@ function buildPicker() {
   pop.innerHTML =
     '<h4 id="vp-h">Tiles in this view</h4>' +
     '<div class="note">Hiding a tile changes what is shown, never what is counted. ' +
-    'Both presets keep the narrative. The arrows reorder the page; tiles keep their ' +
+    'Both presets keep the narrative. Each row\u2019s Move menu reorders the page; tiles keep their ' +
     'widths as they move, so an order of your own can leave a row short.</div>' +
     '<div class="vp-presets" role="group" aria-label="Preset views">' +
       Object.keys(PRESET_SETS).map(k =>
@@ -6023,9 +6042,23 @@ function paintPicker() {
     (orderIsDefault() ? "" : "<br><b>Custom order.</b>");
 }
 
+/** Bounded to the viewport from where it actually opens: under a toolbar
+ *  that wraps to three rows at 1280 wide the popover starts 180px down, and
+ *  a bound written as a fixed slice of the viewport still ran 60px past it.
+ *  Re-measured on resize, because the bound is a property of the viewport
+ *  the popover is open in, not the one it was opened in. */
+function boundPicker() {
+  const pop = $("#view-pop");
+  if (pop.classList.contains("hidden")) return;
+  pop.style.maxHeight = Math.max(240, innerHeight - pop.getBoundingClientRect().top - 16) + "px";
+}
+addEventListener("resize", boundPicker);
+
 function openPicker(on) {
   closeMoveMenus(false);
-  $("#view-pop").classList.toggle("hidden", !on);
+  const pop = $("#view-pop");
+  pop.classList.toggle("hidden", !on);
+  if (on) boundPicker();
   $("#btn-view").setAttribute("aria-expanded", String(on));
   if (on) { paintPicker(); $("#view-pop").querySelector("[data-preset]").focus(); }
   else $("#btn-view").focus();
