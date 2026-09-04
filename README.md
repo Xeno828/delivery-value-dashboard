@@ -264,7 +264,7 @@ Hiding a tile changes what is shown and never what is counted: every figure stil
 
 ### Putting the tiles in your own order
 
-Each row in the **Tiles** popover carries an up and a down arrow. They move the tile itself rather than setting a CSS `order`, so the tab order and the screen-reader reading order follow the picture — and they are ordinary buttons, so the whole feature works from the keyboard. Drag and drop would not have.
+Each row in the **Tiles** popover carries a **Move** button that opens a menu of four moves: to top, up, down, to bottom. A move relocates the tile itself rather than setting a CSS `order`, so the tab order and the screen-reader reading order follow the picture — and the menu is ordinary buttons, so the whole feature works from the keyboard (Enter opens it on the first move the tile can make, arrows walk it, Escape closes it). Drag and drop would not have; the menu is the pattern Atlassian's own reorderable lists use inside Jira.
 
 Order and selection are separate: `?tiles=` says which tiles, `?order=` says in what sequence, and un-ticking a tile never reshuffles the page. **Default order** puts everything back.
 

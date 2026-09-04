@@ -509,34 +509,51 @@ def main():
                                                  "!!e.getAttribute('aria-labelledby')"))
 
         # 2.1.1 — reordering must not need a pointer. Drag and drop alone would
-        # have put this feature out of reach of anyone working from a keyboard,
-        # which is why the arrows are the mechanism and not a convenience.
+        # put this feature out of reach of anyone working from a keyboard, so
+        # the mechanism is the one Atlassian's own reorderable lists use: a
+        # Move button per row opening a menu of four moves. Enter opens it
+        # with focus on the first move the tile can make; Enter makes it.
         before = page.evaluate("() => window.DVD.debug.order()")
-        page.focus('[data-move=down][data-move-id="%s"]' % before[0])
+        page.focus('[data-move-menu="%s"]' % before[0])
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(200)
+        check("the Move button opens a menu and says so",
+              page.eval_on_selector('[data-move-menu="%s"]' % before[0], "e => e.getAttribute('aria-expanded') === 'true'") and
+              page.evaluate("() => document.activeElement.getAttribute('role') === 'menuitem'"))
+        check("focus lands on the first move the first tile can make, which is down",
+              page.evaluate("() => document.activeElement.getAttribute('data-move')") == "down")
         page.keyboard.press("Enter")
         page.wait_for_timeout(300)
         after = page.evaluate("() => window.DVD.debug.order()")
         check("a tile moves from the keyboard alone",
               after[:2] == [before[1], before[0]], after[:3])
 
-        # 2.4.3 — the list is rebuilt around the button that was pressed. If
+        # 2.4.3 — the list is rebuilt around the control that was pressed. If
         # focus is not put back, it falls to the body, and inside a popover that
-        # reads as the popover having closed.
-        active = lambda: page.evaluate(
-            "() => [document.activeElement.getAttribute('data-move-id'),"
-            " document.activeElement.getAttribute('data-move')]")
-        check("focus stays on the arrow that moved the tile",
-              active() == [before[0], "down"], active())
+        # reads as the popover having closed. It goes back to the tile's Move
+        # button, which is there whatever end the tile has reached.
+        active = lambda: page.evaluate("() => document.activeElement.getAttribute('data-move-menu')")
+        check("focus returns to the Move button of the tile that moved",
+              active() == before[0], active())
 
-        # At the end of the list that arrow is disabled, so focus goes to the one
-        # the tile can still travel on rather than nowhere.
         page.evaluate("() => window.DVD.debug.setOrder(window.DVD.debug.tileIds())")
         page.wait_for_timeout(250)
-        page.focus('[data-move=up][data-move-id="%s"]' % before[1])
+        page.focus('[data-move-menu="%s"]' % before[1])
         page.keyboard.press("Enter")
+        page.wait_for_timeout(200)
+        page.keyboard.press("Enter")   # the first move the second tile can make: to top
         page.wait_for_timeout(300)
-        check("focus follows a tile that reaches the top of the list",
-              active() == [before[1], "down"], active())
+        check("to top is one move from the keyboard, and focus follows the tile",
+              page.evaluate("() => window.DVD.debug.order()")[0] == before[1] and active() == before[1], active())
+        # Escape closes an open menu back onto its button, without moving anything.
+        page.focus('[data-move-menu="%s"]' % before[0])
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(150)
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(150)
+        check("Escape closes the menu and returns focus to its button",
+              page.is_visible("#view-pop") and active() == before[0] and
+              page.eval_on_selector('[data-move-menu="%s"]' % before[0], "e => e.getAttribute('aria-expanded') === 'false'"))
 
         # 4.1.3 — the tile that moved is somewhere down the page, usually behind
         # the popover, so the move is invisible from where it was made.

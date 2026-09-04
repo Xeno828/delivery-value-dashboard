@@ -4830,16 +4830,23 @@ function applyOrder() {
   S.order.forEach(id => { const el = $("#" + id); if (el) g.appendChild(el); });
 }
 
-function moveTile(id, delta) {
-  const from = S.order.indexOf(id), to = from + delta;
-  if (from < 0 || to < 0 || to >= S.order.length) return;
+function moveTile(id, delta) { moveTileTo(id, delta < 0 ? "up" : "down"); }
+
+/** Move a tile one step or to an end. Four moves rather than two: reaching
+ *  the top of eighteen tiles took seventeen presses of one arrow, and every
+ *  reorder people actually make is "put this first" or "put this last". */
+function moveTileTo(id, dir) {
+  const from = S.order.indexOf(id), last = S.order.length - 1;
+  if (from < 0) return;
+  const to = dir === "top" ? 0 : dir === "bottom" ? last : dir === "up" ? from - 1 : from + 1;
+  if (to < 0 || to > last || to === from) return;
   S.order.splice(to, 0, S.order.splice(from, 1)[0]);
   applyOrder();
   syncTileUrl();
   paintPicker();
   const t = TILES.find(x => x.id === id);
   announcePicker(t.label + " moved to position " + (to + 1) + " of " + S.order.length + ".");
-  focusMover(id, delta);
+  focusMover(id);
 }
 
 function resetOrder() {
@@ -4852,16 +4859,32 @@ function resetOrder() {
                      : "Tile order restored to the default.");
 }
 
-/** Keep focus on the tile that just moved. Rebuilding the list replaces the
- *  button that was pressed, and a control that disappears from under the
+/** Keep focus with the tile that just moved. Rebuilding the list replaces
+ *  the control that was pressed, and a control that disappears from under the
  *  keyboard drops focus to the body — which, inside a popover, reads as the
- *  popover having closed. When the tile has reached an end its arrow is now
- *  disabled, so focus goes to the one it can still travel on. */
-function focusMover(id, delta) {
-  const on = d => $('[data-move="' + d + '"][data-move-id="' + id + '"]');
-  const first = on(delta < 0 ? "up" : "down"), other = on(delta < 0 ? "down" : "up");
-  const target = (first && !first.disabled) ? first : (other || first);
-  if (target) target.focus();
+ *  popover having closed. Focus goes back to the tile's Move button, which is
+ *  always there whatever end the tile has reached. */
+function focusMover(id) {
+  const b = $('[data-move-menu="' + id + '"]');
+  if (b) b.focus();
+}
+
+/** One Move menu open at a time. Opening focuses the first move the tile can
+ *  make; closing puts focus back on the button unless told otherwise. */
+function openMoveMenu(id, on, refocus = true) {
+  $$("[data-move-menu]").forEach(b => {
+    const mine = b.dataset.moveMenu === id && on;
+    b.setAttribute("aria-expanded", String(mine));
+    b.nextElementSibling.classList.toggle("hidden", !mine);
+  });
+  if (on) {
+    const first = $$('.vp-menu:not(.hidden) [data-move]').find(x => !x.disabled);
+    if (first) first.focus();
+  } else if (refocus) focusMover(id);
+}
+function closeMoveMenus(refocus = false) {
+  const open = $$('[data-move-menu][aria-expanded="true"]')[0];
+  if (open) openMoveMenu(open.dataset.moveMenu, false, refocus);
 }
 
 /** Says what just happened, in the popover and to a screen reader. A reorder
@@ -4950,15 +4973,25 @@ function buildPickerList() {
   const list = $("#vp-list"), last = S.order.length - 1;
   list.innerHTML = S.order.map((id, i) => {
     const t = TILES.find(x => x.id === id);
-    const arrow = (dir, glyph, off) =>
-      '<button type="button" class="icon-btn" data-move="' + dir + '" data-move-id="' + esc(id) + '"' +
-      (off ? " disabled" : "") + ' aria-label="Move ' + esc(t.label) + " " + dir + '">' +
-      '<span aria-hidden="true">' + glyph + "</span></button>";
+    /* One "Move" button per row opening a four-item menu — to top, up, down,
+       to bottom — which is the keyboard pattern Atlassian's own reorderable
+       lists use inside Jira, and where this page lives. It replaces a pair of
+       always-visible arrows per row: thirty-six tab stops became eighteen,
+       and "put this first" is one choice instead of seventeen presses. Drag
+       and drop stays out: on its own it puts the feature beyond a keyboard. */
+    const item = (dir, text, off) =>
+      '<button type="button" role="menuitem" data-move="' + dir + '" data-move-id="' + esc(id) + '"' +
+      (off ? " disabled" : "") + ">" + text + "</button>";
     return '<li class="vp-row">' +
       '<label><input type="checkbox" data-tile="' + esc(id) + '">' +
       "<span>" + esc(t.label) + "</span></label>" +
-      '<span class="vp-move">' + arrow("up", "\u25B2", i === 0) +
-                                 arrow("down", "\u25BC", i === last) + "</span></li>";
+      '<span class="vp-move"><button type="button" class="icon-btn vp-movebtn" data-move-menu="' + esc(id) + '"' +
+      ' aria-haspopup="menu" aria-expanded="false" aria-label="Move ' + esc(t.label) + '">Move' +
+      ' <span aria-hidden="true">\u25BE</span></button>' +
+      '<div class="vp-menu hidden" role="menu" aria-label="Move ' + esc(t.label) + '">' +
+      item("top", "To top", i === 0) + item("up", "Up", i === 0) +
+      item("down", "Down", i === last) + item("bottom", "To bottom", i === last) +
+      "</div></span></li>";
   }).join("");
 
   list.querySelectorAll("[data-tile]").forEach(c =>
@@ -4967,8 +5000,23 @@ function buildPickerList() {
       c.checked ? next.add(c.dataset.tile) : next.delete(c.dataset.tile);
       setShown([...next]);
     });
+  list.querySelectorAll("[data-move-menu]").forEach(b =>
+    b.onclick = () => openMoveMenu(b.dataset.moveMenu, b.getAttribute("aria-expanded") !== "true"));
   list.querySelectorAll("[data-move]").forEach(b =>
-    b.onclick = () => moveTile(b.dataset.moveId, b.dataset.move === "up" ? -1 : 1));
+    b.onclick = () => moveTileTo(b.dataset.moveId, b.dataset.move));
+  // Arrow keys walk the open menu; Escape closes it back onto its button.
+  list.querySelectorAll(".vp-menu").forEach(menu => menu.onkeydown = e => {
+    const items = [...menu.querySelectorAll("[data-move]")].filter(x => !x.disabled);
+    const i = items.indexOf(document.activeElement);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const n = e.key === "ArrowDown" ? (i + 1) % items.length : (i - 1 + items.length) % items.length;
+      if (items[n]) items[n].focus();
+    } else if (e.key === "Escape") {
+      e.preventDefault(); e.stopPropagation();
+      closeMoveMenus(true);
+    } else if (e.key === "Tab") closeMoveMenus(false);
+  });
   vpListOrder = S.order.slice();
 }
 
@@ -5017,6 +5065,7 @@ function paintPicker() {
 }
 
 function openPicker(on) {
+  closeMoveMenus(false);
   $("#view-pop").classList.toggle("hidden", !on);
   $("#btn-view").setAttribute("aria-expanded", String(on));
   if (on) { paintPicker(); $("#view-pop").querySelector("[data-preset]").focus(); }
@@ -5035,6 +5084,7 @@ addEventListener("keydown", e => {
 });
 addEventListener("mousedown", e => {
   if (!$("#view-pop").classList.contains("hidden") && !e.target.closest(".viewpick")) openPicker(false);
+  else if (!e.target.closest(".vp-move")) closeMoveMenus(false);
 });
 
 /** Write a standalone copy of this page with the current view and the

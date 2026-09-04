@@ -346,6 +346,7 @@ Refined and restrained: every control looks like the browser's own, only tidier.
 - **Primary:** accent blue fill and border, white text; hover brightens 8%. One per surface: "Load data", "Apply", "Close" in the panel footer.
 - **Icon:** 26px square at 7px radius, secondary ink, hairline; hover to plane and full ink. Pressed state (a table view toggled on) fills info wash with link-blue text and border.
 - **Linkish:** an underlined link-blue button at 600 weight with a 2px underline offset, used for "See the 3 issues" inside a finding.
+- **Move menu:** the tile picker's per-row "Move ▾" (an icon button with text, 22px tall) opens a four-item menu — To top, Up, Down, To bottom — at 12.5px on paper with the card-rest shadow; arrows walk it, Escape closes it onto the button. Atlassian's keyboard pattern for reordering; drag and drop is not offered.
 - **Info mark:** the 14px ring beside a heading is a button named for the card ("About Burndown, with scope changes shown"). Hover, focus and click all show the same tooltip, which is announced as the mark's description while it shows; Escape dismisses it.
 - **Focus:** a 2px link-blue outline offset 1 to 2px on every focusable control; never removed.
 

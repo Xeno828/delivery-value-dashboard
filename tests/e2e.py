@@ -2124,17 +2124,36 @@ def main():
         check("the tiles sit in the DOM in that order", dom_order() == TIDS, dom_order()[:3])
 
         open_picker(page)
-        check("the first tile cannot move up and the last cannot move down",
+        check("the first tile cannot move up or to the top, and the last cannot move down or to the bottom",
               page.eval_on_selector('[data-move=up][data-move-id="%s"]' % TIDS[0], "e => e.disabled") and
-              page.eval_on_selector('[data-move=down][data-move-id="%s"]' % TIDS[-1], "e => e.disabled"))
+              page.eval_on_selector('[data-move=top][data-move-id="%s"]' % TIDS[0], "e => e.disabled") and
+              page.eval_on_selector('[data-move=down][data-move-id="%s"]' % TIDS[-1], "e => e.disabled") and
+              page.eval_on_selector('[data-move=bottom][data-move-id="%s"]' % TIDS[-1], "e => e.disabled"))
+        check("each row has one Move button opening a menu, not a pair of arrows",
+              page.eval_on_selector_all("[data-move-menu]", "n => n.length") == len(TIDS) and
+              page.eval_on_selector_all(".vp-menu[role=menu] [role=menuitem]", "n => n.length") == 4 * len(TIDS))
 
         kpi_pre_order = page.text_content("#kpis")
-        page.click('[data-move=up][data-move-id="c-risk"]')
-        page.click('[data-move=up][data-move-id="c-risk"]')
+        # Two moves up, each through the row's menu; the list rebuilds and the
+        # menu closes after each, so it is opened again for the second.
+        for _ in range(2):
+            page.click('[data-move-menu="c-risk"]')
+            page.click('[data-move=up][data-move-id="c-risk"]')
+            page.wait_for_timeout(200)
         page.wait_for_timeout(300)
         moved = order()
         check("a tile moves up two places", moved.index("c-risk") == TIDS.index("c-risk") - 2,
               moved[-4:])
+        # "Put this first" is one choice, not seventeen presses.
+        page.click('[data-move-menu="c-risk"]')
+        page.click('[data-move=top][data-move-id="c-risk"]')
+        page.wait_for_timeout(300)
+        check("a tile moves to the top in one move", order()[0] == "c-risk", order()[:2])
+        page.click('[data-move-menu="c-risk"]')
+        page.click('[data-move=bottom][data-move-id="c-risk"]')
+        page.wait_for_timeout(300)
+        check("and to the bottom in one", order()[-1] == "c-risk", order()[-2:])
+        moved = order()
         check("the DOM order follows the visual order", dom_order() == moved, dom_order()[-4:])
         # Same guarantee the tile picker makes: the view changes, the numbers
         # behind it do not.
