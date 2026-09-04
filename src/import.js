@@ -314,7 +314,8 @@ const W = {
   window: {},
   built: null,
   mode: "replace",
-  jsonDataset: null // set when the upload was already a full dataset
+  jsonDataset: null, // set when the upload was already a full dataset
+  bundle: null       // set when the upload was a multi-sprint bundle: loads whole
 };
 
 function autoMap(header) {
@@ -630,7 +631,7 @@ async function ingest(file) {
     if (ext === "xlsx") {
       const buf = await file.arrayBuffer();
       const t = await parseXLSX(buf);
-      W.header = t.header; W.rows = t.rows; W.jsonDataset = null;
+      W.header = t.header; W.rows = t.rows; W.jsonDataset = null; W.bundle = null;
     } else {
       const text = await file.text();
       handleText(text);
@@ -644,6 +645,16 @@ function handleText(text) {
   if (t.startsWith("{") || t.startsWith("[")) {
     const parsed = JSON.parse(t);
     const ds = Array.isArray(parsed) ? { issues: parsed } : parsed;
+    // A bundle — several sprints, each with its own record — is not a table
+    // and cannot be mapped as one. Flattened through the mapping it became one
+    // sprint of every issue on every board, 58 duplicate keys, and a page that
+    // read "188 of 233 items done" against a commitment "2030% above recent
+    // actuals". It goes to the loader whole, which already understands it.
+    if (Array.isArray(ds.contexts) && ds.contexts.length) {
+      W.bundle = ds; W.jsonDataset = null; W.header = []; W.rows = [];
+      return;
+    }
+    W.bundle = null;
     if (!ds.issues || !ds.issues.length) throw new Error("the JSON contains no issues[] array");
     // A full dataset needs no mapping — flatten it into the same table shape so
     // the preview still shows what will be applied.
@@ -653,7 +664,7 @@ function handleText(text) {
     W.rows = ds.issues.map(o => keys.map(k => Array.isArray(o[k]) ? o[k].join(";") : (o[k] == null ? "" : String(o[k]))));
   } else {
     const p = parseDelimited(text);
-    W.header = p.header; W.rows = p.rows; W.jsonDataset = null;
+    W.header = p.header; W.rows = p.rows; W.jsonDataset = null; W.bundle = null;
   }
 }
 
@@ -673,6 +684,7 @@ $("#m-paste").onclick = () => {
 /* ------------------------------------------------------------- step 2 */
 function toStep2() {
   clearNotices();
+  if (W.bundle) return toBundlePreview();
   const a = autoMap(W.header);
   W.map = a.map; W.extraCols = a.extra;
   Object.keys(INFERABLE).forEach(k => { if (W.map[k] < 0) W.map[k] = -2; });
@@ -696,6 +708,49 @@ function toStep2() {
 }
 
 const INFERABLE = { addedMidSprint: "— infer: created after the sprint starts —" };
+
+/* A bundle skips the mapping and the sprint window: it carries its own, per
+   sprint. It always replaces what is loaded — merging one set of sprints into
+   another has no meaning the page could show. The preview still says what
+   will be applied before anything is. */
+function toBundlePreview() {
+  const b = W.bundle, iss = b.issues || [], ctxs = b.contexts;
+  W.built = b; W.mode = "replace";
+  const boards = new Set(ctxs.map(c => String(c.boardId || c.boardName || ""))).size;
+  const stats = [
+    [ctxs.length, ctxs.length === 1 ? "sprint" : "sprints"],
+    [boards, boards === 1 ? "board" : "boards"],
+    [iss.length, "issues"]
+  ];
+  $("#prev-stats").innerHTML = stats.map(s => "<div><b>" + s[0] + "</b><span>" + s[1] + "</span></div>").join("");
+  $("#prev-warn").innerHTML = '<div class="warn ok"><span aria-hidden="true">&#10003;</span><span><b>A dashboard bundle.</b> ' +
+    "It loads whole, with each sprint's own record, so there is no column mapping and no sprint window to check. " +
+    "It replaces whatever is loaded.</span></div>";
+  const cols = ["key", "summary", "assignee", "status", "storyPoints", "created", "resolved"];
+  $("#prev-table").innerHTML = "<table class='tv'><thead><tr>" +
+    cols.map(c => "<th scope='col'>" + c + "</th>").join("") + "</tr></thead><tbody>" +
+    iss.slice(0, 8).map(i => "<tr>" + cols.map(c =>
+      "<td>" + esc(c === "summary" ? String(i[c] || "").slice(0, 44) : (i[c] == null ? "—" : String(i[c]))) + "</td>").join("") +
+      "</tr>").join("") + "</tbody></table>" +
+    (iss.length > 8 ? '<div class="note" style="padding:6px 2px">…and ' + (iss.length - 8) + " more.</div>" : "");
+  setApply(null);
+  show("step-preview");
+}
+
+/* Apply is a decision, and the preview's ■ warnings are the reasons not to
+   take it. They used to sit sixty pixels above a primary Apply that was live
+   regardless — the design said stop and the button said go. Any err-severity
+   warning now turns Apply off, and the reason is printed beside it in text,
+   not carried by a dimmed button alone. */
+function setApply(block) {
+  const ap = $("#m-apply"), why = $("#m-apply-why");
+  ap.disabled = !!block;
+  ap.classList.toggle("primary", !block);
+  why.textContent = block
+    ? "Apply is off until this is fixed: " + block[1] + ". " +
+      String(block[2] || "").replace(/<[^>]+>/g, "").split(/\.\s/)[0].replace(/\.?$/, ".")
+    : "";
+}
 
 function drawMapTable() {
   const opts = (ix, k) => '<option value="-1">— not in my file —</option>' +
@@ -726,7 +781,7 @@ function drawMapTable() {
 }
 
 $("#m-back").onclick = () => show("step-choose");
-$("#m-back2").onclick = () => show("step-map");
+$("#m-back2").onclick = () => show(W.bundle ? "step-choose" : "step-map");
 
 /* ------------------------------------------------------------- step 3 */
 $("#m-preview").onclick = () => {
@@ -757,6 +812,9 @@ $("#m-preview").onclick = () => {
   $("#prev-stats").innerHTML = stats.map(s => "<div><b>" + s[0] + "</b><span>" + s[1] + "</span></div>").join("");
 
   const warn = warnings.slice();
+  // A header and nothing under it reached Apply as "0 issues 0 done".
+  if (!iss.length) warn.push(["err", "No issues",
+    "The file has a header row and nothing under it, so there is nothing to count."]);
   const dup = {};
   iss.forEach(i => dup[i.key] = (dup[i.key] || 0) + 1);
   const dups = Object.keys(dup).filter(k => dup[k] > 1);
@@ -781,6 +839,7 @@ $("#m-preview").onclick = () => {
   if (!dataset.burndown.length) warn.push(["err", "No sprint window",
     "Without a start and end date there is no burndown and no pace-vs-clock figure. Set them on the previous step."]);
   if (!warn.length) warn.push(["ok", "Nothing looks wrong", "Every field the dashboard needs was found and read cleanly."]);
+  setApply(warn.find(w => w[0] === "err") || null);
 
   const ic = { err: "&#9632;", wrn: "&#9650;", ok: "&#10003;" };
   $("#prev-warn").innerHTML = warn.map(w =>
@@ -799,10 +858,12 @@ $("#m-preview").onclick = () => {
 };
 
 $("#m-apply").onclick = () => {
-  if (!W.built) return;
+  if (!W.built || $("#m-apply").disabled) return;
   API.applyDataset(W.built);
   closeModal();
-  toast("Loaded " + W.built.issues.length + " issues from " + W.filename);
+  const n = (W.built.contexts || []).length;
+  toast("Loaded " + W.built.issues.length + " issues" +
+    (n > 1 ? " across " + n + " sprints" : "") + " from " + W.filename);
 };
 
 /* ------------------------------------------------------- templates etc. */

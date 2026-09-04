@@ -831,6 +831,74 @@ def wizard_notices(b):
           "Pick a column for" in n2 and not dialogs and page.is_visible("#step-map"),
           (n2[:120], dialogs))
     page.keyboard.press("Escape")
+
+    # ---------- a ■ warning turns Apply off (1.79.26) ----------
+    def paste(text):
+        page.click("#btn-import")
+        page.evaluate("() => { document.querySelector('#step-choose details').open = true; }")
+        page.fill("#paste", text)
+        page.click("#m-paste")
+
+    def apply_state():
+        return page.evaluate("""() => {
+            const b = document.querySelector('#m-apply');
+            return { disabled: b.disabled, primary: b.classList.contains('primary'),
+                     why: (document.querySelector('#m-apply-why').textContent || '').trim() };
+        }""")
+
+    paste("key,summary,status,created\n")
+    page.wait_for_selector("#step-map:not(.hidden)", timeout=5000)
+    page.click("#m-preview")
+    page.wait_for_selector("#step-preview:not(.hidden)", timeout=5000)
+    st = apply_state()
+    check("a header with nothing under it cannot be applied",
+          st["disabled"] and not st["primary"], st)
+    check("and the reason is printed beside the button",
+          st["why"].startswith("Apply is off until this is fixed: No issues."), st["why"])
+    check("the reason is announced", page.get_attribute("#m-apply-why", "role") == "status")
+    page.keyboard.press("Escape")
+
+    paste("key,summary,status,created\nA-1,one,Done,2026-08-02\nA-1,two,Done,2026-08-03\nA-2,three,To Do,2026-08-04\n")
+    page.wait_for_selector("#step-map:not(.hidden)", timeout=5000)
+    page.fill("#w-start", "2026-08-01"); page.fill("#w-end", "2026-08-14")
+    page.click("#m-preview")
+    page.wait_for_selector("#step-preview:not(.hidden)", timeout=5000)
+    st = apply_state()
+    check("duplicate keys turn Apply off", st["disabled"] and not st["primary"], st)
+    check("with the warning's first sentence beside it",
+          "Duplicate keys. 1 key appears more than once" in st["why"], st["why"])
+    page.keyboard.press("Escape")
+
+    paste("key,summary,status,created\nA-1,one,Done,2026-08-02\nA-2,three,To Do,2026-08-04\n")
+    page.wait_for_selector("#step-map:not(.hidden)", timeout=5000)
+    page.fill("#w-start", "2026-08-01"); page.fill("#w-end", "2026-08-14")
+    page.click("#m-preview")
+    page.wait_for_selector("#step-preview:not(.hidden)", timeout=5000)
+    st = apply_state()
+    check("a clean preview has Apply back on, primary and unexplained",
+          not st["disabled"] and st["primary"] and st["why"] == "", st)
+    page.keyboard.press("Escape")
+
+    # ---------- a bundle loads whole ----------
+    paste((ROOT / "data" / "sample-bundle.json").read_text())
+    page.wait_for_selector("#step-preview:not(.hidden)", timeout=5000)
+    check("a bundle skips the mapping step", "hidden" in (page.get_attribute("#step-map", "class") or ""))
+    stats = page.eval_on_selector_all("#prev-stats div", "n => n.map(e => e.textContent)")
+    check("the preview counts its sprints", stats and stats[0] == "18sprints", stats)
+    check("and says it loads whole",
+          "loads whole" in (page.text_content("#prev-warn") or ""), page.text_content("#prev-warn")[:100])
+    st = apply_state()
+    check("Apply is on for a bundle", not st["disabled"] and st["primary"], st)
+    page.click("#m-back2")
+    check("Back from a bundle preview returns to the file step", page.is_visible("#step-choose"))
+    page.click("#m-paste")
+    page.wait_for_selector("#step-preview:not(.hidden)", timeout=5000)
+    page.click("#m-apply"); page.wait_for_timeout(700)
+    check("the applied bundle keeps its context bar",
+          "hidden" not in (page.get_attribute("#ctxbar", "class") or ""))
+    check("and opens on its active sprint, not a flattened one",
+          "Sprint 24" in page.text_content("#t-title") and "233" not in page.text_content("#foot"),
+          (page.text_content("#t-title"), page.text_content("#foot")[:60]))
     page.close()
 
 
