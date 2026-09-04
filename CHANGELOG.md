@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.79.47
+
+**The paste box has a name, and the accessibility suite walks the open wizard.** The sixth critique's detector pass counted one focusable control on the page with no accessible name: the import wizard's paste box, a `textarea` with a placeholder and nothing else. `tests/a11y.py` never saw it, for two reasons that are both fixed — its name sweep did not list `textarea` among the controls it checks, and it ran on the page as it opens, when the wizard is closed and its controls have no size. The box is now named *JSON or CSV text to read*, the sweep includes text areas, and it runs again with the dialog open, the paste disclosure open, and on the mapping and preview steps, so a control that exists only inside the wizard cannot ship unnamed again.
+
 ## 1.79.46
 
 **A question with no answer is not a loading state.** Served from a static host, the page has the loopback transport and a probe that answers nothing; import a CSV or a JSON and the context has no board, so the trend series is never asked for — and the predictability and Team load tiles said *Reading the trend…* for as long as the page stayed open, with no way out. Over `file://` the same import refused correctly. The note now shows only while a question is in flight, the *could not be reached* refusal only once one was asked, and a question unanswered after twenty seconds becomes that refusal rather than a note; a new dataset resets all three so its own board is asked about afresh. With nothing to ask, the record in hand is the record, and the tiles say what it holds. `tests/e2e.py` imports a CSV on the bare static server and holds both tiles on the thin-history sentence.

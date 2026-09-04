@@ -117,7 +117,7 @@ NAMES = r"""
     el.getAttribute('title') ||
     (el.labels && el.labels[0] && el.labels[0].textContent.trim()) || '');
   const bad = [];
-  document.querySelectorAll('button,a[href],select,input,[role=button],[role=tab]').forEach(el => {
+  document.querySelectorAll('button,a[href],select,input,textarea,[role=button],[role=tab]').forEach(el => {
     const r = el.getBoundingClientRect();
     if (!r.width || !r.height) return;
     if (!nameOf(el).trim()) bad.push(el.tagName + '.' + (el.className || '') + '#' + (el.id || ''));
@@ -466,6 +466,22 @@ def main():
         check("the import dialog takes focus when it opens",
               page.evaluate("() => document.activeElement.closest('.mbox') !== null"),
               page.evaluate("() => document.activeElement.id"))
+        # The name sweep above runs on the page as it opens, and the wizard is
+        # closed then: its paste box shipped with a placeholder and no name,
+        # unseen by this suite. Swept here with the dialog open, the paste
+        # disclosure open, and again on the mapping and preview steps.
+        page.evaluate("() => { document.querySelector('#step-choose details').open = true; }")
+        check("every control in the open import dialog has an accessible name",
+              page.evaluate(NAMES) == [], page.evaluate(NAMES)[:4])
+        page.set_input_files("#file", str(ROOT / "tests" / "fixtures" / "jira-export.csv"))
+        page.wait_for_selector("#step-map:not(.hidden)", timeout=15000)
+        check("and so does every control on the mapping step",
+              page.evaluate(NAMES) == [], page.evaluate(NAMES)[:4])
+        page.click("#m-preview")
+        page.wait_for_selector("#step-preview:not(.hidden)", timeout=10000)
+        check("and on the preview step", page.evaluate(NAMES) == [], page.evaluate(NAMES)[:4])
+        page.click("#m-back2"); page.click("#m-back")
+        page.wait_for_timeout(200)
         check("its tabs name the panels they control",
               page.eval_on_selector_all(".tabs button", "n => n.every(b => "
                   "document.getElementById(b.getAttribute('aria-controls') || '') !== null && "
