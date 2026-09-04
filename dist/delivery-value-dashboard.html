@@ -81,6 +81,11 @@ a{color:var(--link)}
 .filters select,.filters input[type=search]{font:inherit;font-size:12.5px;padding:6px 9px;border-radius:8px;
   border:1px solid var(--border);background:var(--plane);color:var(--text-primary);max-width:190px}
 .fgroup{display:flex;align-items:center;gap:5px}
+/* The fold is a phone affordance: no box of its own above 760px, so the
+   groups stay direct flex items of the row. */
+.f-toggle{display:none}
+.f-body{display:contents}
+.btn-detail{display:inline}
 .active-filters{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
 .fchip{font-size:11.5px;background:var(--info-wash);border:1px solid var(--border);border-radius:999px;
   padding:3px 9px;display:inline-flex;gap:6px;align-items:center}
@@ -139,6 +144,19 @@ a{color:var(--link)}
      40-90px of heading, and the first figure sat more than a screen down. */
   .card > .card-hd > div:first-child{flex-basis:auto}
   .hd-tools{justify-content:flex-start}
+  /* The chrome above the first figure, on a phone. The source badge takes a
+     line of its own above the buttons, the Tiles button drops the preset and
+     count it carries (they are one tap away and in its title), the filters
+     fold behind one line, and the context bar keeps its three pickers and
+     loses the dates and source the title block already states. */
+  .topbar-actions{gap:6px}
+  .topbar-actions .src-badge{flex-basis:100%;order:-1}
+  .btn-detail{display:none}
+  .f-toggle{display:inline-flex}
+  .filters:not(.open) .f-body{display:none}
+  .ctxbar .ctx-meta,.ctxbar .ctx-lab,.ctxbar .srcchip,.ctxbar .ctx-sep{display:none}
+  .ctxbar .ctx-f{width:100%}
+  .ctxbar .ctx-f select{flex:1;max-width:none}
 }
 
 /* ---------- exec summary ---------- */
@@ -661,6 +679,11 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
   <div class="filters ctxbar hidden" id="ctxbar"></div>
 
   <div class="filters">
+    <!-- On a phone the six filters fold behind this line, which carries the
+         count of active ones; above 760px it is not rendered and the row is
+         the row. The first figure sat 621px down a 812px screen without it. -->
+    <button type="button" class="btn f-toggle" id="f-toggle" aria-expanded="false" aria-controls="f-body">Filters &middot; none active</button>
+    <div class="f-body" id="f-body">
     <div class="fgroup"><label for="f-assignee">Person</label><select id="f-assignee"></select></div>
     <div class="fgroup"><label for="f-epic">Epic</label><select id="f-epic"></select></div>
     <!-- Several types at once, and it changes what the page *counts* rather
@@ -684,6 +707,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
       <button type="button" class="info" data-tip="unit">i</button>
     </div>
     <div class="active-filters" id="f-chips"></div>
+    </div>
   </div>
 
   <div class="grid" id="grid">
@@ -2648,8 +2672,21 @@ function renderFilters() {
       b.addEventListener("click", () => { if (S.unit !== b.dataset.unit) { S.unit = b.dataset.unit; render(); } });
     }
   });
-  const chips = Object.entries(S.filters)
-    .filter(([k, v]) => k === "types" ? Array.isArray(v) : v)
+  const active = Object.entries(S.filters)
+    .filter(([k, v]) => k === "types" ? Array.isArray(v) : v);
+  // The fold's one line says how many filters are on, since on a phone the
+  // chips are behind it.
+  const tog = $("#f-toggle");
+  tog.textContent = "Filters · " + (active.length ? active.length + " active" : "none active");
+  if (!tog.dataset.bound) {
+    tog.dataset.bound = "1";
+    tog.addEventListener("click", () => {
+      const on = !tog.parentElement.classList.contains("open");
+      tog.parentElement.classList.toggle("open", on);
+      tog.setAttribute("aria-expanded", String(on));
+    });
+  }
+  const chips = active
     .map(([k, v]) => [k, k === "types"
       ? (v.length ? v.join(", ") : "none selected") : v])
     .map(([k, v]) => '<span class="fchip">' + esc(k === "q" ? "search" : k) + ": <b>" + esc(v) +
@@ -3175,7 +3212,10 @@ function renderBurn(m) {
     s.add('<line class="grid-line" x1="' + P.l + '" y1="' + y(t) + '" x2="' + (W - P.r) + '" y2="' + y(t) + '"/>');
     s.add('<text class="axis-lab" x="' + (P.l - 7) + '" y="' + (y(t) + 3.5) + '" text-anchor="end">' + t + "</text>");
   });
-  bd.forEach((d, i) => { if (i % Math.ceil(bd.length / 7) === 0 || i === bd.length - 1)
+  // As many date labels as the width holds at ~58px each, at most seven:
+  // seven on a 335px-wide phone chart read "Aug 1Aug 14".
+  const labels = Math.max(3, Math.min(7, Math.floor(iw / 58))), stride = Math.ceil(bd.length / labels);
+  bd.forEach((d, i) => { if (i % stride === 0 || i === bd.length - 1)
     s.add('<text class="axis-lab" x="' + x(i) + '" y="' + (H - 14) + '" text-anchor="middle">' + fmtD(d.date) + "</text>"); });
   s.add('<line class="axis-line" x1="' + P.l + '" y1="' + y(0) + '" x2="' + (W - P.r) + '" y2="' + y(0) + '"/>');
 
@@ -6023,8 +6063,10 @@ function applyTiles() {
   const name = presetOf(S.shown), hidden = TILE_IDS.length - on.length;
   const btn = $("#btn-view");
   // The count travels with the name whenever anything is hidden, whoever hid it.
-  btn.textContent = hidden
-    ? "Tiles · " + presetLabel(name) + " · " + on.length + " of " + TILE_IDS.length
+  // The preset and the count are detail a phone's toolbar drops (see the
+  // 760px rule); the button's title carries them either way.
+  btn.innerHTML = hidden
+    ? 'Tiles<span class="btn-detail"> · ' + esc(presetLabel(name)) + " · " + on.length + " of " + TILE_IDS.length + "</span>"
     : "Tiles";
   btn.title = hidden ? hidden + " of " + TILE_IDS.length + " tiles hidden in this view" +
                        (off.length ? ", " + off.length + " of them because this board runs no sprints" : "")

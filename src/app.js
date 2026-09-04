@@ -1653,8 +1653,21 @@ function renderFilters() {
       b.addEventListener("click", () => { if (S.unit !== b.dataset.unit) { S.unit = b.dataset.unit; render(); } });
     }
   });
-  const chips = Object.entries(S.filters)
-    .filter(([k, v]) => k === "types" ? Array.isArray(v) : v)
+  const active = Object.entries(S.filters)
+    .filter(([k, v]) => k === "types" ? Array.isArray(v) : v);
+  // The fold's one line says how many filters are on, since on a phone the
+  // chips are behind it.
+  const tog = $("#f-toggle");
+  tog.textContent = "Filters · " + (active.length ? active.length + " active" : "none active");
+  if (!tog.dataset.bound) {
+    tog.dataset.bound = "1";
+    tog.addEventListener("click", () => {
+      const on = !tog.parentElement.classList.contains("open");
+      tog.parentElement.classList.toggle("open", on);
+      tog.setAttribute("aria-expanded", String(on));
+    });
+  }
+  const chips = active
     .map(([k, v]) => [k, k === "types"
       ? (v.length ? v.join(", ") : "none selected") : v])
     .map(([k, v]) => '<span class="fchip">' + esc(k === "q" ? "search" : k) + ": <b>" + esc(v) +
@@ -2180,7 +2193,10 @@ function renderBurn(m) {
     s.add('<line class="grid-line" x1="' + P.l + '" y1="' + y(t) + '" x2="' + (W - P.r) + '" y2="' + y(t) + '"/>');
     s.add('<text class="axis-lab" x="' + (P.l - 7) + '" y="' + (y(t) + 3.5) + '" text-anchor="end">' + t + "</text>");
   });
-  bd.forEach((d, i) => { if (i % Math.ceil(bd.length / 7) === 0 || i === bd.length - 1)
+  // As many date labels as the width holds at ~58px each, at most seven:
+  // seven on a 335px-wide phone chart read "Aug 1Aug 14".
+  const labels = Math.max(3, Math.min(7, Math.floor(iw / 58))), stride = Math.ceil(bd.length / labels);
+  bd.forEach((d, i) => { if (i % stride === 0 || i === bd.length - 1)
     s.add('<text class="axis-lab" x="' + x(i) + '" y="' + (H - 14) + '" text-anchor="middle">' + fmtD(d.date) + "</text>"); });
   s.add('<line class="axis-line" x1="' + P.l + '" y1="' + y(0) + '" x2="' + (W - P.r) + '" y2="' + y(0) + '"/>');
 
@@ -5028,8 +5044,10 @@ function applyTiles() {
   const name = presetOf(S.shown), hidden = TILE_IDS.length - on.length;
   const btn = $("#btn-view");
   // The count travels with the name whenever anything is hidden, whoever hid it.
-  btn.textContent = hidden
-    ? "Tiles · " + presetLabel(name) + " · " + on.length + " of " + TILE_IDS.length
+  // The preset and the count are detail a phone's toolbar drops (see the
+  // 760px rule); the button's title carries them either way.
+  btn.innerHTML = hidden
+    ? 'Tiles<span class="btn-detail"> · ' + esc(presetLabel(name)) + " · " + on.length + " of " + TILE_IDS.length + "</span>"
     : "Tiles";
   btn.title = hidden ? hidden + " of " + TILE_IDS.length + " tiles hidden in this view" +
                        (off.length ? ", " + off.length + " of them because this board runs no sprints" : "")

@@ -53,6 +53,11 @@
   <div class="filters ctxbar hidden" id="ctxbar"></div>
 
   <div class="filters">
+    <!-- On a phone the six filters fold behind this line, which carries the
+         count of active ones; above 760px it is not rendered and the row is
+         the row. The first figure sat 621px down a 812px screen without it. -->
+    <button type="button" class="btn f-toggle" id="f-toggle" aria-expanded="false" aria-controls="f-body">Filters &middot; none active</button>
+    <div class="f-body" id="f-body">
     <div class="fgroup"><label for="f-assignee">Person</label><select id="f-assignee"></select></div>
     <div class="fgroup"><label for="f-epic">Epic</label><select id="f-epic"></select></div>
     <!-- Several types at once, and it changes what the page *counts* rather
@@ -76,6 +81,7 @@
       <button type="button" class="info" data-tip="unit">i</button>
     </div>
     <div class="active-filters" id="f-chips"></div>
+    </div>
   </div>
 
   <div class="grid" id="grid">

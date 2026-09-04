@@ -2813,8 +2813,49 @@ def main():
         check("no card header on a phone is taller than what it says",
               bool(slack) and max(slack) <= 12,
               "largest gap %spx under a heading, over %d headers" % (max(slack) if slack else None, len(slack)))
+
+        # ---------- the first figure is on a phone's first screen (1.79.29) ----------
+        page.evaluate("() => window.scrollTo(0, 0)")
+        first = page.eval_on_selector("#kpis .kpi", "e => Math.round(e.getBoundingClientRect().top)")
+        check("on a phone the first KPI tile starts inside the first screen, with room to read it",
+              first < 560, "first tile at %spx of an 812px viewport" % first)
+        check("the filter row is folded behind one line on a phone",
+              page.is_visible("#f-toggle") and not page.is_visible("#f-assignee") and
+              page.get_attribute("#f-toggle", "aria-expanded") == "false")
+        check("which says no filter is active", (page.text_content("#f-toggle") or "").strip() == "Filters · none active",
+              page.text_content("#f-toggle"))
+        page.click("#f-toggle"); page.wait_for_timeout(150)
+        check("opening it shows the filters", page.is_visible("#f-assignee") and
+              page.get_attribute("#f-toggle", "aria-expanded") == "true")
+        page.evaluate("() => window.DVD.debug.setFilter('q', 'checkout')"); page.wait_for_timeout(300)
+        check("and the line counts what is active",
+              (page.text_content("#f-toggle") or "").strip() == "Filters · 1 active", page.text_content("#f-toggle"))
+        page.evaluate("() => window.DVD.debug.setFilter('q', '')"); page.wait_for_timeout(300)
+        page.click("#f-toggle"); page.wait_for_timeout(150)
+        check("the Tiles button drops its detail on a phone, and keeps it in its title",
+              not page.is_visible("#btn-view .btn-detail") and "hidden" in (page.get_attribute("#btn-view", "title") or ""))
+        labs = page.eval_on_selector_all("#burn-chart text.axis-lab[text-anchor=middle]",
+                                         "n => n.map(e => { const r = e.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.right)]; })")
+        labs.sort()
+        check("the burndown's date labels do not collide on a phone",
+              len(labs) >= 3 and all(labs[i + 1][0] >= labs[i][1] - 1 for i in range(len(labs) - 1)), labs)
+        # With a context bar as well: three pickers, no repeated dates or source.
+        bundle = json.loads((ROOT / "data" / "sample-bundle.json").read_text())
+        page.evaluate("d => window.DVD.applyDataset(d)", bundle)
+        page.wait_for_timeout(700)
+        page.evaluate("() => window.scrollTo(0, 0)")
+        first = page.eval_on_selector("#kpis .kpi", "e => Math.round(e.getBoundingClientRect().top)")
+        check("with the context bar showing, the first tile is still inside the first screen",
+              page.is_visible("#ctxbar") and first < 700, "first tile at %spx" % first)
+        check("the context bar keeps its three pickers on a phone",
+              page.is_visible("#c-proj") and page.is_visible("#c-board") and page.is_visible("#c-sprint"))
+        check("and drops the dates the title block already states", not page.is_visible("#ctxbar .ctx-meta"))
+        page.click("#btn-import"); page.click("#m-sample"); page.wait_for_timeout(500)
         page.set_viewport_size({"width": 1500, "height": 1000})
         page.wait_for_timeout(300)
+        check("above 760px the filter row is the row: no fold, detail on the Tiles button",
+              not page.is_visible("#f-toggle") and page.is_visible("#f-assignee") and
+              page.is_visible("#btn-view .btn-detail"))
 
         check("no console errors", not console, console[:3])
         page.screenshot(path=str(ROOT / "tests" / "last-run.png"), full_page=True)

@@ -74,6 +74,11 @@ a{color:var(--link)}
 .filters select,.filters input[type=search]{font:inherit;font-size:12.5px;padding:6px 9px;border-radius:8px;
   border:1px solid var(--border);background:var(--plane);color:var(--text-primary);max-width:190px}
 .fgroup{display:flex;align-items:center;gap:5px}
+/* The fold is a phone affordance: no box of its own above 760px, so the
+   groups stay direct flex items of the row. */
+.f-toggle{display:none}
+.f-body{display:contents}
+.btn-detail{display:inline}
 .active-filters{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
 .fchip{font-size:11.5px;background:var(--info-wash);border:1px solid var(--border);border-radius:999px;
   padding:3px 9px;display:inline-flex;gap:6px;align-items:center}
@@ -132,6 +137,19 @@ a{color:var(--link)}
      40-90px of heading, and the first figure sat more than a screen down. */
   .card > .card-hd > div:first-child{flex-basis:auto}
   .hd-tools{justify-content:flex-start}
+  /* The chrome above the first figure, on a phone. The source badge takes a
+     line of its own above the buttons, the Tiles button drops the preset and
+     count it carries (they are one tap away and in its title), the filters
+     fold behind one line, and the context bar keeps its three pickers and
+     loses the dates and source the title block already states. */
+  .topbar-actions{gap:6px}
+  .topbar-actions .src-badge{flex-basis:100%;order:-1}
+  .btn-detail{display:none}
+  .f-toggle{display:inline-flex}
+  .filters:not(.open) .f-body{display:none}
+  .ctxbar .ctx-meta,.ctxbar .ctx-lab,.ctxbar .srcchip,.ctxbar .ctx-sep{display:none}
+  .ctxbar .ctx-f{width:100%}
+  .ctxbar .ctx-f select{flex:1;max-width:none}
 }
 
 /* ---------- exec summary ---------- */
