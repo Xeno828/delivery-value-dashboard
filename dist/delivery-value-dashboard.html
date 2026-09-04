@@ -1037,6 +1037,10 @@ const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c =>
 const D  = s => (s ? new Date(s + (s.length === 10 ? "T00:00:00Z" : "")) : null);
 const days = (a, b) => (a && b) ? Math.round(((D(b) - D(a)) / 864e5) * 10) / 10 : null;
 const fmtD = s => s ? D(s).toLocaleDateString(undefined, { day: "numeric", month: "short", timeZone: "UTC" }) : "—";
+/* A moment, in the shape the rest of the page writes dates: the footer said
+   "rendered 9/4/2026, 4:56:33 PM" under a page that says "Aug 10". */
+const fmtDT = d => d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) +
+  ", " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
 const n1 = v => (Math.round(v * 10) / 10).toLocaleString();
 const pct = v => Math.round(v * 100) + "%";
 const money = (v, cur) => new Intl.NumberFormat(undefined,
@@ -2457,7 +2461,7 @@ function renderHeader(m) {
     ? "Live: " + (S.live.label || S.live.source)
     : (meta.sourceLabel || (liveData ? "Live: " + meta.source : "Demo data"));
   sb.dataset.tt = "<b>Where this data came from</b><br>" + esc(meta.sourceLabel || "Demo data") +
-    "<br>Pulled " + (meta.generatedAt ? new Date(meta.generatedAt).toLocaleString() : "unknown") +
+    "<br>Pulled " + (meta.generatedAt ? fmtDT(new Date(meta.generatedAt)) : "unknown") +
     (connected ? "<br><br>Connected to " + esc(S.live.label || S.live.source) +
                  ". The connection is live; whether the data behind it is demo or real is the line above."
                : ".<br><br>Amber means this is not a live connection.");
@@ -2636,6 +2640,9 @@ function renderTypeFilter(issues) {
   if (none) none.addEventListener("click", () => { S.filters.types = []; render(); });
 }
 
+/* A chip names the filter the way the row above it does — the chips said
+   "search:" and "assignee:" under a row labelled FIND and PERSON. */
+const FILTER_LABEL = { assignee: "Person", epic: "Epic", types: "Types", status: "Status", q: "Find" };
 function renderFilters() {
   const I = S.view.issues;
   const opts = [["f-assignee", "assignee", uniq(I.map(x => x.assignee)), "Everyone"],
@@ -2694,7 +2701,7 @@ function renderFilters() {
   const chips = active
     .map(([k, v]) => [k, k === "types"
       ? (v.length ? v.join(", ") : "none selected") : v])
-    .map(([k, v]) => '<span class="fchip">' + esc(k === "q" ? "search" : k) + ": <b>" + esc(v) +
+    .map(([k, v]) => '<span class="fchip">' + esc(FILTER_LABEL[k] || k) + ": <b>" + esc(v) +
       '</b><button data-clear="' + k + '" title="Clear">✕</button></span>').join("");
   $("#f-chips").innerHTML = chips + (chips ? '<button class="linkish" data-clear="all">Clear all</button>' : "");
 }
@@ -3131,7 +3138,7 @@ function renderKpis(m) {
        tile actually needed. */
     { lab: m.isFlowBoard ? "Still open" : "Likely to carry over",
       val: U().fmt(m.openU) + " " + (U().isItems ? U().n(m.openU) : U().short),
-      sub: m.open.length + " items still open",
+      sub: m.open.length + (m.open.length === 1 ? " item" : " items") + " still open",
       barPct: m.totalU ? m.openU / m.totalU : 0, barCol: CSSV("--warning"),
       tt: m.isFlowBoard
         ? "Everything not yet done. There is no boundary for it to carry over into on this board — work continues rather than rolling forward — and " + m.notStarted.length + " items have never been picked up."
@@ -3248,7 +3255,8 @@ function renderBurn(m) {
     const i = bd.indexOf(d);
     s.add('<line x1="' + x(i) + '" y1="' + P.t + '" x2="' + x(i) + '" y2="' + y(0) + '" stroke="' + c.s2 + '" stroke-width="1" opacity="0.35"/>');
     s.add('<circle cx="' + x(i) + '" cy="' + y(d[F.scope]) + '" r="4.5" fill="' + c.s2 + '" stroke="' + c.surface + '" stroke-width="2"/>');
-    s.add('<text class="ser-lab" x="' + (x(i) + 7) + '" y="' + (y(d[F.scope]) - 7) + '" fill="' + c.s2 + '" style="font-weight:600">+' + u.fmt(d[F.scope] - sc[k - 1][F.scope]) + " " + u.short + " added</text>");
+    s.add('<text class="ser-lab" x="' + (x(i) + 7) + '" y="' + (y(d[F.scope]) - 7) + '" fill="' + c.s2 + '" style="font-weight:600">+' + u.fmt(d[F.scope] - sc[k - 1][F.scope]) + " " +
+      (u.isItems ? u.n(d[F.scope] - sc[k - 1][F.scope]) : u.short) + " added</text>");
   }});
 
   // endpoint direct labels
@@ -5601,7 +5609,11 @@ function openDrill(title, sub, items) {
   S.drillOpener = document.activeElement;
   S.lastDrill = items || [];
   $("#p-title").textContent = title;
-  $("#p-sub").innerHTML = esc(sub || "") + (items && items.length ? " · <b>" + items.length + " issue" + (items.length > 1 ? "s" : "") +
+  // The panel's own count, unless the opener's line already states it: a KPI
+  // opened on "12 of 22 items · 41 pts · 12 issues, 41 points".
+  const n = items ? items.length : 0;
+  const stated = n && new RegExp("\\b" + n + " (of \\d+ )?(items?|issues?)\\b").test(sub || "");
+  $("#p-sub").innerHTML = esc(sub || "") + (n && !stated ? " · <b>" + n + " issue" + (n > 1 ? "s" : "") +
     ", " + n1(sum(items, i => i.storyPoints)) + " points</b>" : "");
   $("#p-body").innerHTML = (items && items.length) ? items.map(issueRow).join("")
     : '<div class="note" style="padding:18px 0">Nothing matches — which is usually good news.</div>';
@@ -6368,7 +6380,7 @@ function render() {
         "team load and releases tiles read the sprint\u2019s record and do not follow the filters)"
       : "") +
     " · measured in " + U().label +
-    " · rendered " + new Date().toLocaleString() +
+    " · rendered " + fmtDT(new Date()) +
     // Sprint elapsed-percentage, the ideal burndown line and the forecast are
     // all shares of working days. Which days those were belongs on the page,
     // not only in the config file someone else edited.
@@ -7382,8 +7394,11 @@ function toast(msg) {
 function notice(step, title, detail) {
   const el = $("#m-notice-" + step);
   if (!el) return;
+  // The detail is often a parser's message — "no rows found" — read here as
+  // the second sentence of a notice, so it starts like one.
+  const d = String(detail || "");
   el.innerHTML = '<div class="warn err"><span aria-hidden="true">&#9632;</span><span><b>' +
-    esc(title) + ".</b> " + esc(detail || "") + "</span></div>";
+    esc(title) + ".</b> " + esc(d.charAt(0).toUpperCase() + d.slice(1)) + "</span></div>";
 }
 function clearNotices() {
   ["1", "2"].forEach(s => { const el = $("#m-notice-" + s); if (el) el.innerHTML = ""; });
@@ -7529,6 +7544,8 @@ function drawMapTable() {
       : (ix === -2 ? "computed from the sprint start date below" : "");
     let status, cls;
     if (ix === -2) { status = '<span class="chip c-warn"><span aria-hidden="true">&#9650;</span>inferred</span>'; cls = ""; }
+    // A column with nothing under it is not "matched" three times over.
+    else if (ix >= 0 && !W.rows.length) { status = '<span class="chip c-warn"><span aria-hidden="true">&#9650;</span>no rows to read</span>'; cls = ""; }
     else if (ix >= 0) { status = '<span class="chip c-good"><span aria-hidden="true">&#10003;</span>matched</span>'; cls = ""; }
     else if (f.req) { status = '<span class="chip c-crit"><span aria-hidden="true">&#9632;</span>required</span>'; cls = "req"; }
     else { status = '<span class="chip c-info"><span aria-hidden="true">i</span>will be blank</span>'; cls = ""; }

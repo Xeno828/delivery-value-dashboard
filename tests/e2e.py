@@ -819,6 +819,12 @@ def wizard_notices(b):
     check("and the notice is announced",
           page.get_attribute("#m-notice-1", "role") == "alert" and
           page.get_attribute("#m-notice-2", "role") == "alert")
+    page.fill("#paste", "onlyone\n")
+    page.click("#m-paste")
+    page.wait_for_timeout(200)
+    n1 = " ".join((page.text_content("#m-notice-1") or "").split())
+    check("a parser's message is read as a sentence, so it starts like one (1.79.31)",
+          "Could not read that text. No rows found" in n1, n1[:120])
     page.fill("#paste", "foo,bar\n1,2")
     page.click("#m-paste")
     page.wait_for_selector("#step-map:not(.hidden)", timeout=5000)
@@ -848,6 +854,9 @@ def wizard_notices(b):
 
     paste("key,summary,status,created\n")
     page.wait_for_selector("#step-map:not(.hidden)", timeout=5000)
+    st_map = page.eval_on_selector_all("#map-body .chip", "n => n.map(e => e.textContent.trim())")
+    check("a header with nothing under it is not 'matched' (1.79.31)",
+          st_map and not any("matched" in t for t in st_map) and any("no rows to read" in t for t in st_map), st_map[:4])
     page.click("#m-preview")
     page.wait_for_selector("#step-preview:not(.hidden)", timeout=5000)
     st = apply_state()
@@ -2813,6 +2822,32 @@ def main():
         check("no card header on a phone is taller than what it says",
               bool(slack) and max(slack) <= 12,
               "largest gap %spx under a heading, over %d headers" % (max(slack) if slack else None, len(slack)))
+
+        # ---------- words the fourth critique read (1.79.31) ----------
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(300)
+        page.evaluate("() => window.DVD.debug.setFilter('q', 'checkout')"); page.wait_for_timeout(300)
+        chip = " ".join((page.text_content("#f-chips") or "").split())
+        check("a filter chip names the filter the way the row does", chip.startswith("Find: checkout"), chip[:40])
+        page.evaluate("() => window.DVD.debug.setFilter('q', '')"); page.wait_for_timeout(300)
+        page.click("#kpis .kpi:nth-child(1)"); page.wait_for_timeout(400)
+        psub = " ".join((page.text_content("#p-sub") or "").split())
+        check("a KPI's drill-down does not state its count twice",
+              "of 22 items" in psub and "issues," not in psub, psub)
+        page.keyboard.press("Escape"); page.wait_for_timeout(200)
+        foot = page.text_content("#foot") or ""
+        m = re.search(r"rendered (.{0,24})", foot)
+        check("the footer's render time is written like the page's other dates",
+              m and re.search(r"\d{4}, \d{2}:\d{2}", m.group(1)) and not re.search(r"[AP]M|/\d{4}", m.group(1)),
+              m.group(1) if m else foot[-80:])
+        seed = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        done = [i for i in seed["issues"] if i.get("statusCategory") == "Done"][:2]
+        opened = [i for i in seed["issues"] if i.get("statusCategory") != "Done"][:1]
+        page.evaluate("d => window.DVD.applyDataset(d)", dict(seed, issues=done + opened))
+        page.wait_for_timeout(600)
+        carry = " ".join((page.text_content("#kpis .kpi:nth-child(6)") or "").split())
+        check("one open item is '1 item still open'", "1 item still open" in carry, carry[:80])
+        page.click("#btn-import"); page.click("#m-sample"); page.wait_for_timeout(500)
 
         # ---------- small things the fourth critique read (1.79.30) ----------
         page.set_viewport_size({"width": 1500, "height": 1000})

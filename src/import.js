@@ -616,8 +616,11 @@ function toast(msg) {
 function notice(step, title, detail) {
   const el = $("#m-notice-" + step);
   if (!el) return;
+  // The detail is often a parser's message — "no rows found" — read here as
+  // the second sentence of a notice, so it starts like one.
+  const d = String(detail || "");
   el.innerHTML = '<div class="warn err"><span aria-hidden="true">&#9632;</span><span><b>' +
-    esc(title) + ".</b> " + esc(detail || "") + "</span></div>";
+    esc(title) + ".</b> " + esc(d.charAt(0).toUpperCase() + d.slice(1)) + "</span></div>";
 }
 function clearNotices() {
   ["1", "2"].forEach(s => { const el = $("#m-notice-" + s); if (el) el.innerHTML = ""; });
@@ -763,6 +766,8 @@ function drawMapTable() {
       : (ix === -2 ? "computed from the sprint start date below" : "");
     let status, cls;
     if (ix === -2) { status = '<span class="chip c-warn"><span aria-hidden="true">&#9650;</span>inferred</span>'; cls = ""; }
+    // A column with nothing under it is not "matched" three times over.
+    else if (ix >= 0 && !W.rows.length) { status = '<span class="chip c-warn"><span aria-hidden="true">&#9650;</span>no rows to read</span>'; cls = ""; }
     else if (ix >= 0) { status = '<span class="chip c-good"><span aria-hidden="true">&#10003;</span>matched</span>'; cls = ""; }
     else if (f.req) { status = '<span class="chip c-crit"><span aria-hidden="true">&#9632;</span>required</span>'; cls = "req"; }
     else { status = '<span class="chip c-info"><span aria-hidden="true">i</span>will be blank</span>'; cls = ""; }
