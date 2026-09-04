@@ -2412,6 +2412,22 @@ function derive(items) {
         "withheld by rule, not for want of evidence.";
     return m;
   }
+  /* A sprint that has run its whole course and delivered nothing is not
+     "Needs attention": the pace component bottoms out at 0/100 around −42 pp,
+     so −42 and −100 score the same, and three hygiene measures at 100/100
+     carried a sprint with one open item and nothing done to 66/100 Amber.
+     Below that floor the composite is not a measurement of delivery. */
+  if (m.totalU && !m.doneU && m.timeElapsed != null && m.timeElapsed >= 1 && !m.sprintNotStarted) {
+    const kindNow = healthKindFor(S.view.ctx);
+    m.healthKind = kindNow;
+    m.healthParts = null;
+    m.health = null;
+    m.healthBand = null;
+    m.healthRefusal = kindNow + " is not scored: the sprint has run its full course and nothing was " +
+      "delivered, and the hygiene measures cannot carry a delivery score for that — " +
+      "withheld by rule, not for want of evidence.";
+    return m;
+  }
   /* A component that could not be measured is dropped from the composition and
      named, not scored zero. Delivery pace carries the largest weight of the
      four, and scoring it 0/100 for a missing calendar took the sample sprint
@@ -2803,7 +2819,7 @@ function renderFilters() {
   // The fold's one line says how many filters are on, since on a phone the
   // chips are behind it.
   const tog = $("#f-toggle");
-  tog.textContent = "Filters · " + (active.length ? active.length + " active" : "none active");
+  tog.textContent = "Filters · " + (active.length ? active.map(([k]) => FILTER_LABEL[k] || k).join(", ") : "none active");
   if (!tog.dataset.bound) {
     tog.dataset.bound = "1";
     tog.addEventListener("click", () => {
@@ -3417,7 +3433,7 @@ function renderBurn(m) {
     s.add('<line x1="' + x(i) + '" y1="' + P.t + '" x2="' + x(i) + '" y2="' + y(0) + '" stroke="' + c.s2 + '" stroke-width="1" opacity="0.35"/>');
     s.add('<circle cx="' + x(i) + '" cy="' + y(d[F.scope]) + '" r="4.5" fill="' + c.s2 + '" stroke="' + c.surface + '" stroke-width="2"/>');
     s.add('<text class="ser-lab" x="' + (x(i) + 7) + '" y="' + (y(d[F.scope]) - 7) + '" fill="' + c.s2 + '" style="font-weight:600">+' + u.fmt(d[F.scope] - sc[k - 1][F.scope]) + " " +
-      (u.isItems ? u.n(d[F.scope] - sc[k - 1][F.scope]) : u.short) + " added</text>");
+      (u.isItems ? u.n(d[F.scope] - sc[k - 1][F.scope]) : (Math.abs(d[F.scope] - sc[k - 1][F.scope]) === 1 ? "pt" : "pts")) + " added</text>");
   }});
 
   // endpoint direct labels
@@ -3529,7 +3545,11 @@ function renderFlowTime(m, items) {
   const rows = m.closedTimed.map(i => ({ i, lead: days(i.created, i.resolved), cyc: days(i.started, i.resolved) }))
     .map(r => (r.wait = Math.max(0, r.lead - r.cyc), r))
     .sort((a, b) => b.lead - a.lead);
-  if (!rows.length) { host.innerHTML = '<div class="note">No completed items with both a start and a resolved date in this selection.</div>'; return; }
+  if (!rows.length) {
+    host.innerHTML = '<div class="fc-refusal"><b>No completed item with both a start and a resolved date in this selection.</b> ' +
+      "Nothing is plotted — the evidence is absent, not noisy.</div>";
+    return;
+  }
   const shown = rows.slice(0, 11), truncated = rows.length - shown.length;
   const c = C(), waitCol = CSSV("--wait"), workCol = CSSV("--worked");
   const W = cw(host), rowH = 22, P = { t: 8, r: 58, b: 30, l: 74 };
@@ -3742,7 +3762,7 @@ function renderWip(m) {
   host.innerHTML = s.out() + '<div class="note" style="margin-top:8px">' +
     (p85 == null
       ? "No closed item here carries both a start and a resolved date, so there are no " +
-        "percentile lines to measure this against — the ages are real, the comparison is not available."
+        "percentile lines to measure this against — the ages are real, the comparison is not available; the evidence is absent, not noisy."
       : late.length
         ? "<b>" + late.length + " open item" + (late.length === 1 ? " has" : "s have") +
           " already outlived 85% of everything this board has finished.</b> They are late now, " +
@@ -3776,7 +3796,7 @@ function renderThr(m) {
   if (!fin.length) {
     host.innerHTML = '<div class="' + (m.empty ? "refusal" : "note") + '">' + esc(m.empty
       ? noItems("there is no completed work to count")
-      : "Nothing in this selection has been completed, so there is no throughput to show.") + "</div>";
+      : "Nothing in this selection has been completed, so there is no throughput to show — the evidence is absent, not noisy.") + "</div>";
     host.onclick = null;
     S.tables.thr = { cols: ["Week starting", "Items finished"], rows: [] };
     drawTable("thr");
@@ -3870,7 +3890,7 @@ function littlesLaw(m) {
   const ratio = implied / p50;
   if (ratio >= 0.5 && ratio <= 2) return "";
   return "<br><br><b>These two readings of the same board do not line up.</b> " +
-    started + " items in progress leaving at " + n1(rate) + " a day implies about " +
+    started + (started === 1 ? " item" : " items") + " in progress leaving at " + n1(rate) + " a day implies about " +
     n1(implied) + " days in progress each, and the items that actually finished took a median of " +
     n1(p50) + ". Either the open work is sitting far longer than anything that has finished — " +
     "which the ageing chart shows by name — or start dates are not recording when work began. " +
@@ -4134,7 +4154,7 @@ function renderPred(m) {
     '<div class="note" style="margin-top:8px">Average hit rate <b>' + (avg == null ? "—" : pct(avg)) + "</b> over " +
     finished.length + " finished sprint" + (finished.length === 1 ? "" : "s") +
     (running ? ", the running one left out" : "") + "; completed output swings by <b>" +
-    U().fmt(spread) + " " + U().label + "</b> between the best and worst sprint. A commitment set from " + sprintsBasis(m.recentAvgN) + " (<b>" +
+    U().fmt(spread) + " " + U().n(spread) + "</b> between the best and worst sprint. A commitment set from " + sprintsBasis(m.recentAvgN) + " (<b>" +
     (m.recentAvg ? U().fmt(m.recentAvg) + " " + U().label : "—") + "</b>) would be met far more often than one set from ambition." +
     // The same count again, in the clause that describes the same average. This
     // said "a mean of three numbers" beside a figure the line above had just
@@ -4360,7 +4380,7 @@ function renderValue(m) {
         ? "This site has no Business Value field from this app — the version " +
           "declaring it is not installed, or an orgConfig field name points at " +
           "something that is not there."
-        : "Nothing completed here carries a value estimate yet.") + "</div>";
+        : "Nothing completed here carries a value estimate" + (m.sprintOver ? "." : " yet.")) + "</div>";
     host.onclick = null;
     return;
   }
@@ -5698,7 +5718,7 @@ function renderRisk(m, items) {
       "Start every stand-up with the oldest item rather than the newest. Anything past 30 days gets an explicit keep-or-kill decision.", oldOpen);
 
   if (m.flagged.length)
-    push("serious", m.flagged.length + " items are flagged as blocked",
+    push("serious", (m.flagged.length === 1 ? "1 item is" : m.flagged.length + " items are") + " flagged as blocked",
       m.flagged.map(i => i.key).join(", ") + ". Blocked work still consumes capacity in status meetings while producing nothing.",
       "Each blocker needs a named person outside the team and a date. If neither exists, the item " +
       (m.isFlowBoard ? "should be pulled off the board." : "should be moved out of the sprint."), m.flagged);

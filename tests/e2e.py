@@ -1630,8 +1630,10 @@ def transports(b):
         check("and a field the site does not have is a different sentence",
               "no Business Value field from this app" in absent, absent[:260])
         ready = value_tile_with({"businessValue": "ready", "valueBasis": "ready"})
+        # "yet" only while the sprint is running (1.79.48); this fixture's may
+        # have ended, so the sentence is held without its tense word.
         check("a field that is answerable blames nobody",
-              "Nothing completed here carries a value estimate yet" in ready
+              "Nothing completed here carries a value estimate" in ready
               and "administrator" not in ready, ready[:260])
         # The transport with no Jira behind it: a file's value came from a file
         # and there is no screen to send anybody to.
@@ -2844,6 +2846,33 @@ def main():
               bool(slack) and max(slack) <= 12,
               "largest gap %spx under a heading, over %d headers" % (max(slack) if slack else None, len(slack)))
 
+        # ---------- the last small things the sixth critique read (1.79.48) ----------
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(300)
+        src_all = (ROOT / "src" / "app.js").read_text()
+        check("no refusal on the page is missing its closing clause in the source",
+              "the comparison is not available." not in src_all and
+              "no throughput to show.\"" not in src_all and
+              "resolved date in this selection.</div>" not in src_all)
+        seedh = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        for i in seedh["issues"]:
+            i["status"] = "In Progress"; i["statusCategory"] = "In Progress"; i["resolved"] = None
+        seedh["meta"]["asOfDate"] = seedh["meta"]["endDate"]
+        page.evaluate("d => window.DVD.applyDataset(d)", seedh); page.wait_for_timeout(600)
+        chip_t = page.evaluate("() => document.getElementById('t-health').textContent.trim()")
+        chip_tt = page.evaluate("() => document.getElementById('t-health').dataset.tt")
+        check("a sprint that ran its course and delivered nothing is not scored",
+              "not scored" in chip_t and "nothing was delivered" in chip_tt, (chip_t, chip_tt[:120]))
+        one = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        flagged = [i for i in one["issues"] if i.get("flagged")]
+        for i in flagged[1:]:
+            i["flagged"] = False
+        page.evaluate("d => window.DVD.applyDataset(d)", one); page.wait_for_timeout(600)
+        risk = " ".join((page.text_content("#risk-body") or "").split())
+        check("one flagged item is '1 item is flagged'", "1 items are flagged" not in risk and
+              ("1 item is flagged as blocked" in risk or not flagged), risk[:100])
+        page.click("#btn-import"); page.click("#m-sample"); page.wait_for_timeout(500)
+
         # ---------- lighter is idler in both themes (1.79.45) ----------
         page.set_viewport_size({"width": 1500, "height": 1000})
         page.wait_for_timeout(300)
@@ -3285,8 +3314,8 @@ def main():
         check("opening it shows the filters", page.is_visible("#f-assignee") and
               page.get_attribute("#f-toggle", "aria-expanded") == "true")
         page.evaluate("() => window.DVD.debug.setFilter('q', 'checkout')"); page.wait_for_timeout(300)
-        check("and the line counts what is active",
-              (page.text_content("#f-toggle") or "").strip() == "Filters · 1 active", page.text_content("#f-toggle"))
+        check("and the line names what is active",
+              (page.text_content("#f-toggle") or "").strip() == "Filters · Find", page.text_content("#f-toggle"))
         page.evaluate("() => window.DVD.debug.setFilter('q', '')"); page.wait_for_timeout(300)
         page.click("#f-toggle"); page.wait_for_timeout(150)
         check("the Tiles button drops its detail on a phone, and keeps it in its title",

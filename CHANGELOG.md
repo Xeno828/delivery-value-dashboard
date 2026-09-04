@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.79.48
+
+**The last small things the sixth critique read.** A health score that should not have been one: a sprint with one item open, nothing done and its clock fully elapsed scored *Needs attention (66/100)*, because the pace component bottoms out at 0/100 around -42 percentage points, so -42 and -100 score the same, and three hygiene measures at 100/100 carried it to Amber; a sprint that has run its course and delivered nothing is now not scored, and the chip says why. Three refusals were missing the clause every other one ends with: the flow-time chart's *No completed items with both a start and a resolved date*, the throughput chart's *no throughput to show*, and the WIP chart's *the comparison is not available*. Four plurals: *1 items are flagged as blocked*, *+1 pts added*, *swings by 1 items*, *1 items in progress leaving*. A closed sprint's value card said nothing carried a value estimate *yet*. And the phone's filter fold said *Filters · 1 active* without saying which; it names them, *Filters · Person, Find*. `tests/e2e.py` holds the unscored sprint, the singular flag, the fold's names, and the absence of the three clause-less sentences from the source.
+
 ## 1.79.47
 
 **The paste box has a name, and the accessibility suite walks the open wizard.** The sixth critique's detector pass counted one focusable control on the page with no accessible name: the import wizard's paste box, a `textarea` with a placeholder and nothing else. `tests/a11y.py` never saw it, for two reasons that are both fixed — its name sweep did not list `textarea` among the controls it checks, and it ran on the page as it opens, when the wizard is closed and its controls have no size. The box is now named *JSON or CSV text to read*, the sweep includes text areas, and it runs again with the dialog open, the paste disclosure open, and on the mapping and preview steps, so a control that exists only inside the wizard cannot ship unnamed again.
