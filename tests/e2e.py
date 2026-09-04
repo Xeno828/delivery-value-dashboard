@@ -1936,6 +1936,29 @@ def main():
         check("burndown rebuilt, not inherited",
               page.eval_on_selector_all("#burn-chart polyline", "n => n.length") >= 3)
         check("charts have data", page.eval_on_selector_all("#dist-chart rect[data-drill]", "n => n.length") > 0)
+        # Replace means replace. A fresh export applied over the demo used to
+        # keep the demo's goal, five sprints of its history, its milestones and
+        # its release metrics under the new title — each captioned "from the
+        # record", which is why a reader believed them. 1.79.25.
+        check("replace drops the previous dataset's sprint goal",
+              "checkout" not in (page.text_content("#t-goal") or "").lower(),
+              page.text_content("#t-goal"))
+        check("replace drops the previous dataset's history, so no 'last sprint' delta",
+              "last sprint" not in page.text_content("#kpis .kpi:nth-child(1)"),
+              page.text_content("#kpis .kpi:nth-child(1)")[:90])
+        rel = page.text_content("#rel-body") or ""
+        check("replace drops the previous dataset's milestones",
+              "v2.2.0" not in rel and "No release record in this file" in rel, rel[:120])
+        dora = page.text_content("#dora-body") or ""
+        check("and its release metrics, which the tile says in the tool's words",
+              "No release record in this file" in dora and "absent, not noisy" in dora, dora[:140])
+        pred = page.text_content("#pred-chart") or ""
+        check("the predictability tile says how many sprints the record holds",
+              page.eval_on_selector_all("#pred-chart rect", "n => n.length") == 0 and
+              "holds 1 sprint," in pred and "absent, not noisy" in pred, pred[:140])
+        check("a record refusal is set in the refusal callout, not a note",
+              page.eval_on_selector_all("#rel-body .fc-refusal, #dora-body .fc-refusal, #pred-chart .fc-refusal",
+                                        "n => n.length") == 3)
 
         # ---------- merge a value-only file ----------
         before = page.text_content("#kpis")
@@ -1944,6 +1967,38 @@ def main():
         check("merge changed the value tile", before != after)
         check("merge kept all 22 issues", "22 issues" in page.text_content("#foot"),
               page.text_content("#foot")[:70])
+
+        # ---------- merge keeps the loaded record ----------
+        page.reload(); page.wait_for_timeout(700)
+        wizard(page, "value-estimates.csv", mode="merge")
+        check("merge over the demo keeps its sprint goal",
+              "checkout" in (page.text_content("#t-goal") or "").lower(), page.text_content("#t-goal"))
+        check("merge keeps its milestones", "v2.2.0" in (page.text_content("#rel-body") or ""))
+        check("merge keeps its release metrics", "Releases per week" in (page.text_content("#dora-body") or ""))
+        check("merge keeps its history", page.eval_on_selector_all("#pred-chart rect", "n => n.length") > 0)
+
+        # ---------- a JSON dataset brings its own record ----------
+        page.reload(); page.wait_for_timeout(700)
+        seed = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        own = {"schemaVersion": "1.0",
+               "meta": dict(seed["meta"], sprintGoal="Goal carried by the file", sprintName="File sprint"),
+               "issues": seed["issues"][:6],
+               "releases": [{"name": "File release", "targetDate": seed["meta"]["endDate"],
+                             "scopeIssues": 6, "doneIssues": 2, "status": "On track"}]}
+        page.click("#btn-import")
+        page.evaluate("() => { document.querySelector('#step-choose details').open = true; }")
+        page.fill("#paste", json.dumps(own))
+        page.click("#m-paste")
+        page.wait_for_selector("#step-map:not(.hidden)", timeout=5000)
+        page.click("#m-preview")
+        page.wait_for_selector("#step-preview:not(.hidden)", timeout=5000)
+        page.click("#m-apply"); page.wait_for_timeout(700)
+        check("a JSON dataset's own goal is what appears",
+              "Goal carried by the file" in (page.text_content("#t-goal") or ""), page.text_content("#t-goal"))
+        check("and its own releases", "File release" in (page.text_content("#rel-body") or ""),
+              (page.text_content("#rel-body") or "")[:100])
+        check("what it does not carry is refused, not inherited",
+              "No release record in this file" in (page.text_content("#dora-body") or ""))
 
         # ---------- Asana CSV ----------
         page.reload(); page.wait_for_timeout(700)

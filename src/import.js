@@ -514,7 +514,18 @@ function assemble() {
     merged = Array.from(byKey.values());
   }
 
-  const meta = Object.assign({}, prev.meta, {
+  // What the new dataset starts from. Under Merge, the dataset already loaded:
+  // that is what merging means, and its record — goal, history, releases,
+  // DORA — is the thing being layered on. Under Replace, only what the file
+  // carries: a full JSON dataset brings its own blocks, a flat CSV brings
+  // none. It used to start from the loaded dataset in both modes, so a fresh
+  // export applied over the demo kept the demo's sprint goal, five sprints of
+  // its history, its milestones and its release metrics under the new title,
+  // every one labelled "from the record" — which is exactly why a reader
+  // trusted them. The tiles those blocks feed say the record is absent instead.
+  const file = W.jsonDataset || {};
+  const base = W.mode === "merge" ? prev : file;
+  const meta = Object.assign({}, base.meta || {}, {
     sprintName: W.window.sprintName,
     startDate: W.window.startDate,
     endDate: W.window.endDate,
@@ -529,9 +540,12 @@ function assemble() {
   // four-day week and holiday list to a default Mon-Fri.
   const org = API.orgConfig();
   meta.workingDays = API.workingDays(meta.startDate, meta.endDate, org);
+  // The currency is the organisation's too, and a CSV has no column for it.
+  if (!meta.currency && prev.meta && prev.meta.currency) meta.currency = prev.meta.currency;
 
-  const history = (prev.history || []).filter(h => h.sprint !== meta.sprintName)
-    .concat([buildHistoryRow(merged, meta, prev.history)]).slice(-6);
+  const baseHistory = base.history || [];
+  const history = baseHistory.filter(h => h.sprint !== meta.sprintName)
+    .concat([buildHistoryRow(merged, meta, baseHistory)]).slice(-6);
 
   return {
     dataset: {
@@ -543,8 +557,8 @@ function assemble() {
       issues: merged,
       burndown: buildBurndown(merged, meta),
       history,
-      releases: prev.releases || [],
-      dora: prev.dora || null
+      releases: base.releases || [],
+      dora: base.dora || null
     },
     warnings
   };

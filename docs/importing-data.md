@@ -68,11 +68,9 @@ The recomputed burndown carries **both an item series and a point series**, so t
 
 When you upload a flat file, the **burndown and the current sprint's history row are recomputed from your issues** — they are not carried over from whatever was loaded before. Stale charts sitting under fresh numbers is worse than no charts, and it is the failure mode most import features ship with.
 
-Carried forward from the previous dataset, because no tracker export contains them:
+Under **Replace**, nothing else is carried forward. A flat file has no `releases[]`, no `dora{}`, no earlier sprints and no sprint goal, so the tiles that read those — *Releases & milestones*, *Release quality & speed*, *Can we trust the forecast?*, *Team load* — say the record is absent rather than showing the previously loaded dataset's under your new title. That is what happened before 1.79.25: a fresh export applied over the demo kept the demo's goal, its milestones and its release metrics, each labelled "from the record". A full JSON dataset brings its own blocks and they are used. The only things kept from what was loaded are the organisation's calendar (`orgConfig`) and its currency, because neither is a property of a file.
 
-- `releases[]` and `dora{}`. Everything else on the history row — including work in progress and unplanned counts — is recomputed from your issues.
-
-Kept from the previous dataset unless your file overrides them: organisation, team, currency, tracker base URL.
+Under **Merge**, the loaded dataset is the base — goal, history, releases and release metrics included — and your rows are layered onto it.
 
 ---
 

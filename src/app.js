@@ -2943,7 +2943,12 @@ function spark(vals, w, h, col, goodUp) {
 }
 function renderDora(m) {
   const d = S.view.dora, host = $("#dora-body");
-  if (!d) { host.innerHTML = '<div class="note">No release metrics in the dataset.</div>'; return; }
+  if (!d) {
+    host.innerHTML = '<div class="fc-refusal"><b>No release record in ' + recordHome() + ".</b> " +
+      "Release metrics come from a CI/CD tool, not from the tracker, so nothing is shown " +
+      "— the evidence is absent, not noisy.</div>";
+    return;
+  }
   const rows = [
     { lab: "Releases per week", v: n1(d.deploymentFrequencyPerWeek), tr: d.deploymentFrequencyTrend, goodUp: true,
       help: "How often work reaches customers. More often, in smaller pieces, is safer — not riskier." },
@@ -3167,9 +3172,10 @@ function renderValue(m) {
 function renderRel(m) {
   const host = $("#rel-body"), rels = S.view.releases || [];
   if (!rels.length) {
-    host.innerHTML = '<div class="note">' + (S.view.ctx.isRollup
-      ? "Release progress is tied to a single sprint's snapshot; pick one sprint above to see it."
-      : "No releases in the dataset.") + "</div>";
+    host.innerHTML = S.view.ctx.isRollup
+      ? '<div class="note">Release progress is tied to a single sprint\'s snapshot; pick one sprint above to see it.</div>'
+      : '<div class="fc-refusal"><b>No release record in ' + recordHome() + ".</b> " +
+        "Nothing is shown — the evidence is absent, not noisy.</div>";
     return;
   }
   const now = asOf();
@@ -3596,11 +3602,17 @@ function seriesRefusalHtml(thin) {
   // Genuinely too few sprints. The only branch entitled to say so — this
   // sentence stood for four causes when the route was first wired, and the one
   // that actually happened was none of them.
-  return '<div class="note">' + esc(thin) +
+  const n = (S.view.history || []).length;
+  return '<div class="fc-refusal"><b>' + esc(thin) + "</b> " +
     (s && s.available && s.offered != null
-      ? " This board offers " + s.offered + (s.offered === 1 ? " sprint." : " sprints.")
-      : "") + "</div>";
+      ? "This board offers " + s.offered + (s.offered === 1 ? " sprint" : " sprints")
+      : "The record in " + recordHome() + " holds " + n + (n === 1 ? " sprint" : " sprints")) +
+    ", so nothing is plotted — the evidence is absent, not noisy.</div>";
 }
+
+/** Where a record-fed tile says its record lives: a reader of a forwarded
+ *  file is holding a file; a reader inside the app is looking at a board. */
+function recordHome() { return LIVE ? "this board's data" : "this file"; }
 
 /** What the page says above a trend, once, from the tool that counted it.
  *  Empty when the series has nothing a chart cannot show for itself. */
