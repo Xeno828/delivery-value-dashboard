@@ -201,6 +201,16 @@ def main():
         if state["refusal"]:
             txt = frame.text_content("#kpis .refusal") or ""
             check("the refusal ends with its clause, untrimmed", CLAUSE in txt, txt[-70:])
+        else:
+            # The tiles agree about what time it is. A not-yet-started sprint
+            # arrived from the bridge without an "active" or "future" state and
+            # the band read "Carried over 13 items" beside "not started · sprint
+            # starts Sep 11" — past tense and future tense on one row. 1.79.41.
+            tiles = frame.eval_on_selector_all("#kpis .kpi", "n => n.map(e => e.innerText.replace(/\\s+/g, ' ').trim())")
+            not_started = any("not started" in t for t in tiles)
+            over = any("Carried over" in t or "sprint over" in t for t in tiles)
+            check("the band's tenses agree: a sprint cannot be both not started and over",
+                  not (not_started and over), [t[:60] for t in tiles if "not started" in t or "Carried over" in t or "sprint over" in t])
         # The footer said "nothing loaded yet" beside "24 issues across 4
         # sprints" on the first run of this check: the seed's label had
         # survived the bridge loading real data.

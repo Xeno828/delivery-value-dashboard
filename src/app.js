@@ -1220,7 +1220,12 @@ function derive(items) {
   /* A sprint that has ended is described in the past tense: "likely to carry
      over" and "behind the clock" are forecasts about a clock that has
      stopped. Closed is what the source says, or an as-of date past the end. */
-  m.sprintOver = !window && !rollup &&
+  /* Never before the clock has started, whatever the source calls the
+     sprint: a tenant's not-yet-started sprint arrived without an "active" or
+     "future" state and the band read "Carried over 13 items" beside "not
+     started · sprint starts Sep 11". Found by the screenshot in
+     tests/forge_smoke.py. */
+  m.sprintOver = !window && !rollup && !m.sprintNotStarted &&
     !!((S.view.ctx && S.view.ctx.sprintState === "closed") || (end && D(now) > D(end)));
   m.isRollup = !!rollup;
   /* A fourth cause, and it is the one that has to be said out loud rather than

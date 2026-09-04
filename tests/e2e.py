@@ -2831,6 +2831,30 @@ def main():
               bool(slack) and max(slack) <= 12,
               "largest gap %spx under a heading, over %d headers" % (max(slack) if slack else None, len(slack)))
 
+        # ---------- a sprint is never over before it has started (1.79.41) ----------
+        # A tenant's not-yet-started sprint came over the bridge with a state
+        # that read as closed, and the band said "Carried over 13 items" beside
+        # "not started · sprint starts Sep 11". Found by the smoke screenshot.
+        import datetime as _dt
+        seedn = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        start, end, asof = _dt.date(2026, 9, 11), _dt.date(2026, 9, 25), "2026-08-31"
+        wdays = [(start + _dt.timedelta(days=i)).isoformat() for i in range((end - start).days + 1)
+                 if (start + _dt.timedelta(days=i)).weekday() < 5]
+        ctx = {"id": "single", "source": "jira", "projectName": "P", "boardName": "B", "team": "B",
+               "sprintName": "Sprint next", "sprintState": "closed", "sprintGoal": "",
+               "startDate": start.isoformat(), "endDate": end.isoformat(), "asOfDate": asof,
+               "workingDays": wdays, "issueCount": len(seedn["issues"])}
+        dsn = {"schemaVersion": "2.0", "meta": dict(seedn["meta"], startDate=start.isoformat(), endDate=end.isoformat(), asOfDate=asof, workingDays=wdays),
+               "issues": [dict(i, contextId="single") for i in seedn["issues"]],
+               "contexts": [ctx], "defaultContextId": "single",
+               "byContext": {"single": {"burndown": [], "history": [], "releases": [], "dora": None}}}
+        page.evaluate("d => window.DVD.applyDataset(d)", dsn); page.wait_for_timeout(700)
+        t2 = " ".join((page.text_content("#kpis .kpi:nth-child(2)") or "").split())
+        t6 = " ".join((page.text_content("#kpis .kpi:nth-child(6)") or "").split())
+        check("a sprint the source calls closed but whose clock has not started is not over",
+              "not started" in t2 and t6.startswith("Likely to carry over") and "sprint over" not in t2, (t2, t6))
+        page.click("#btn-import"); page.click("#m-sample"); page.wait_for_timeout(500)
+
         # ---------- the band's head says what it reads (1.79.40) ----------
         page.set_viewport_size({"width": 1500, "height": 1000})
         page.wait_for_timeout(300)
