@@ -891,6 +891,25 @@ function rollupCovers(ctx) {
     : (ctx.members || []).length + " sprints";
 }
 
+/** What to pick to leave a roll-up: a sprint on a board's roll-up, a board on
+ *  a cross-team one — where the third picker says "Covering", not "Sprint". */
+function rollupPick(ctx) {
+  return ctx && ctx.isCrossTeam ? "pick one board above" : "pick one sprint above";
+}
+
+/** A record — commitment history, team load, releases, release metrics, the
+ *  burndown — belongs to one board and one sprint. A roll-up used to show the
+ *  last member's record under the roll-up's name: one board's DORA and load
+ *  trend under "Portfolio health", with no board named. Null off a roll-up;
+ *  the refusal callout on one. */
+function rollupRecordRefusal(what) {
+  const c = S.view.ctx;
+  if (!c || !c.isRollup) return null;
+  return '<div class="fc-refusal"><b>' + esc(what) + " belongs to one board and one sprint.</b> This view rolls up " +
+    esc(rollupCovers(c)) + ", so there is no single record to read — " + rollupPick(c) +
+    " to see it — the evidence is absent, not noisy.</div>";
+}
+
 /** Members whose issues have never been fetched.
  *
  *  A roll-up is assembled on this page from issues already loaded, and in live
@@ -1034,10 +1053,11 @@ function buildView() {
     // the one that says where each row came from. A saved copy has no server
     // to ask and keeps the rows it was built with — unlabelled, which is
     // honest: nothing in a file can say whether a row was recorded.
-    history: (S.series && S.series.available && (S.series.rows || []).length)
+    history: ctx.isRollup ? []
+      : (S.series && S.series.available && (S.series.rows || []).length)
       ? S.series.rows : (last.history || []),
     releases: ctx.isRollup ? [] : (last.releases || []),
-    dora: last.dora || null,
+    dora: ctx.isRollup ? null : (last.dora || null),
     meta: Object.assign({}, S.data.meta, {
       sprintName: ctx.sprintName, sprintGoal: ctx.sprintGoal,
       team: ctx.team || ctx.boardName, organisation: ctx.projectName || S.data.meta.organisation,
@@ -1246,7 +1266,7 @@ function derive(items) {
     : m.timeElapsed == null
     ? (rollup
         ? "this view rolls up " + rollupCovers(S.view.ctx) + ", so there is no single " +
-          "clock to measure against — pick one sprint above"
+          "clock to measure against — " + rollupPick(S.view.ctx)
         : "this sprint's start and end dates are not in the data, so there is no clock to measure against")
     : (!m.totalU ? noVolume : null);
   /* The same fact in the width of a KPI sub-label. It used to read "no
@@ -2018,7 +2038,8 @@ function renderExec(m) {
       { title: "Completed work with an estimated value", items: m.valueItems });
   }
   const hist = S.view.history || [];
-  if (hist.length >= 4 && m.recentAvg) {
+  // Both read one board's history; a roll-up has none it can call its own.
+  if (hist.length >= 4 && m.recentAvg && !m.isRollup) {
     const commit = m.cur ? (m.cur[U().hist("committed")] != null ? m.cur[U().hist("committed")] : m.cur.committedSP) : m.totalU;
     if (commit > m.recentAvg * 1.25)
       add("warning", "This sprint committed " + U().fmt(commit) + " " + U().n(commit) +
@@ -2267,13 +2288,8 @@ function renderBurn(m) {
        transport had never built — the sentence blamed the tenant's data for a
        gap in the product, and the two have entirely different fixes. */
     const why = (S.view.ctx || {}).burndownNote;
-    host.innerHTML = '<div class="note">' + (S.view.ctx.isRollup
-      ? "A burndown describes one sprint. This view rolls up " + esc(rollupCovers(S.view.ctx)) +
-        ", so there is no single line to draw — pick an individual sprint above. " +
-        "Everything else on this page is valid across the rollup."
-      : why
-      ? esc(why)
-      : "No burndown series in the dataset.") + "</div>";
+    host.innerHTML = rollupRecordRefusal("A burndown") ||
+      ('<div class="note">' + (why ? esc(why) : "No burndown series in the dataset.") + "</div>");
     return;
   }
   if (u.isItems && !bd.some(d => d[F.rem] != null)) {
@@ -2952,6 +2968,8 @@ function sprintsBasis(n) {
    ================================================================== */
 function renderPred(m) {
   const host = $("#pred-chart"), h = S.view.history || [];
+  const rr = rollupRecordRefusal("Commitment history");
+  if (rr) { host.innerHTML = rr; return; }
   // The served reason first, where there is one. Below it, thin data is the
   // honest sentence — but only once nothing else has explained the absence.
   if (h.length < 2) {
@@ -3078,6 +3096,8 @@ function spark(vals, w, h, col, goodUp) {
 }
 function renderDora(m) {
   const d = S.view.dora, host = $("#dora-body");
+  const rr = rollupRecordRefusal("A release record");
+  if (rr) { host.innerHTML = rr; return; }
   if (!d) {
     host.innerHTML = '<div class="fc-refusal"><b>No release record in ' + recordHome() + ".</b> " +
       "Release metrics come from a CI/CD tool, not from the tracker, so nothing is shown " +
@@ -3128,6 +3148,8 @@ function renderDora(m) {
    ================================================================== */
 function renderLoad() {
   const h = S.view.history || [], host = $("#load-body");
+  const rr = rollupRecordRefusal("A team's load history");
+  if (rr) { host.innerHTML = rr; return; }
   if (h.length < 2) {
     host.innerHTML = seriesRefusalHtml("Needs sprint history.");
     return;
@@ -3321,10 +3343,9 @@ function renderValue(m) {
 function renderRel(m) {
   const host = $("#rel-body"), rels = S.view.releases || [];
   if (!rels.length) {
-    host.innerHTML = S.view.ctx.isRollup
-      ? '<div class="note">Release progress is tied to a single sprint\'s snapshot; pick one sprint above to see it.</div>'
-      : '<div class="fc-refusal"><b>No release record in ' + recordHome() + ".</b> " +
-        "Nothing is shown — the evidence is absent, not noisy.</div>";
+    host.innerHTML = rollupRecordRefusal("A release record") ||
+      ('<div class="fc-refusal"><b>No release record in ' + recordHome() + ".</b> " +
+        "Nothing is shown — the evidence is absent, not noisy.</div>");
     return;
   }
   const now = asOf();

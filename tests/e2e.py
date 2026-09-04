@@ -2834,6 +2834,32 @@ def main():
               bool(slack) and max(slack) <= 12,
               "largest gap %spx under a heading, over %d headers" % (max(slack) if slack else None, len(slack)))
 
+        # ---------- a record belongs to one board and one sprint (1.79.43) ----------
+        # A roll-up used to show the last member's history, load, releases and
+        # DORA under the roll-up's name — one board's figures, unnamed, under
+        # "Portfolio health".
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(300)
+        bundle = json.loads((ROOT / "data" / "sample-bundle.json").read_text())
+        page.evaluate("d => window.DVD.applyDataset(d)", bundle); page.wait_for_timeout(700)
+        for kind, sel, pick in (("board", "c => c.isRollup && !c.isCrossTeam", "pick one sprint above"),
+                                ("cross-team", "c => c.isCrossTeam", "pick one board above")):
+            page.evaluate("f => window.DVD.debug.selectContext(window.DVD.debug.view().contexts.find(eval(f)).id)", sel)
+            page.wait_for_timeout(900)
+            hosts = ["#burn-chart", "#pred-chart", "#load-body", "#dora-body", "#rel-body"]
+            texts = {h: " ".join((page.text_content(h) or "").split()) for h in hosts}
+            check("on a %s roll-up every record-fed tile refuses in the callout" % kind,
+                  all(page.eval_on_selector_all(h + " .fc-refusal", "n => n.length") == 1 for h in hosts) and
+                  all("belongs to one board and one sprint" in t and "absent, not noisy" in t for t in texts.values()),
+                  {h: t[:70] for h, t in texts.items()})
+            check("and says what to pick to leave the %s roll-up" % kind, all(pick in t for t in texts.values()), pick)
+            check("and no bar, spark or release row is drawn from a member's record on the %s roll-up" % kind,
+                  page.eval_on_selector_all("#pred-chart rect, #load-body svg, #dora-body svg, #rel-body .rel", "n => n.length") == 0)
+            ex = page.text_content("#exec-list") or ""
+            check("and the verdict carries no finding read from one member's history (%s)" % kind,
+                  "Work in progress has risen" not in ex and "committed" not in ex, ex[:120])
+        page.click("#btn-import"); page.click("#m-sample"); page.wait_for_timeout(500)
+
         # ---------- the same file gives the same verdict by either route (1.79.42) ----------
         # sample-sprint.json through Load data used to come out as "Imported
         # 2026-08-03, as at 2026-08-14": -45 pp and Off track (15/100) where

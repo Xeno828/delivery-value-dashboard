@@ -125,3 +125,7 @@ items 4 or 5, and it is still not. What remains missing is the *ask* — nothing
 in a Jira site marks an issue as a request being weighed against others, and the
 problem, the success measure and the needed-by date have no field either. That
 is still a product question, and this record still does not answer it.
+
+## Amendment, 2026-09-04
+
+A record — commitment history, team load, releases, release metrics, the burndown — belongs to one board and one sprint. Until 1.79.43 a roll-up showed the last member's record under the roll-up's name, so the cross-team view carried one board's DORA and load trend, unnamed, under *Portfolio health*. On any roll-up those five tiles now refuse in the callout and say what to pick to read the record: a sprint on a board's roll-up, a board on a cross-team one. The verdict's two history-read findings are not raised on a roll-up. Everything counted from the issues on screen still rolls up.
