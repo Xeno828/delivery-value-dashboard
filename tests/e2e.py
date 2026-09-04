@@ -2814,6 +2814,37 @@ def main():
               bool(slack) and max(slack) <= 12,
               "largest gap %spx under a heading, over %d headers" % (max(slack) if slack else None, len(slack)))
 
+        # ---------- small things the fourth critique read (1.79.30) ----------
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        page.wait_for_timeout(300)
+        levels = page.eval_on_selector_all("h1,h2,h3,h4,h5,h6", "n => n.map(e => +e.tagName[1])")
+        check("heading levels never skip in document order, popovers included",
+              levels and levels[0] == 1 and all(b <= a + 1 for a, b in zip(levels, levels[1:])), levels[:8])
+        check("the Types filter label is set like its neighbours",
+              page.eval_on_selector("#f-types-lab", "e => getComputedStyle(e).textTransform") == "uppercase")
+        pl = page.eval_on_selector_all("#pred-chart text.axis-lab", "n => n.map(e => e.textContent)")
+        check("the predictability axis names sprints the way the context bar does",
+              any(t.startswith("Sprint ") for t in pl) and not any(re.fullmatch(r"S\d+", t) for t in pl), pl[:6])
+        page.set_viewport_size({"width": 1280, "height": 800})
+        page.wait_for_timeout(300)
+        tb = page.eval_on_selector(".topbar", "e => Math.round(e.getBoundingClientRect().height)")
+        check("at 1280 wide the toolbar is one row too", tb < 110, "%spx" % tb)
+        # A preset that shows one tile of a shared row without the other still
+        # sums every row to twelve — the Executive preset stranded DORA.
+        sums = """() => { const rows = {};
+          [...document.querySelectorAll('#grid > *')].filter(c => !c.classList.contains('hidden')).forEach(c => {
+            const t = Math.round(c.offsetTop), m = /span (\\d+)/.exec(getComputedStyle(c).gridColumnStart || '');
+            rows[t] = (rows[t] || 0) + (m ? +m[1] : 12); });
+          return Object.values(rows); }"""
+        page.set_viewport_size({"width": 1500, "height": 1000})
+        for v in ("exec", "team"):
+            page.goto(DIST.as_uri() + "?view=" + v); page.wait_for_timeout(700)
+            rs = page.evaluate(sums)
+            check("the %s preset leaves no short row" % v, rs and all(r == 12 for r in rs), rs)
+        page.goto(DIST.as_uri()); page.wait_for_timeout(700)
+        page.set_viewport_size({"width": 375, "height": 812})
+        page.wait_for_timeout(300)
+
         # ---------- the first figure is on a phone's first screen (1.79.29) ----------
         page.evaluate("() => window.scrollTo(0, 0)")
         first = page.eval_on_selector("#kpis .kpi", "e => Math.round(e.getBoundingClientRect().top)")

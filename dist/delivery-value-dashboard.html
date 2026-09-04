@@ -50,6 +50,11 @@ a{color:var(--link)}
 .topbar{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;justify-content:space-between;
   padding:14px 18px;background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);
   box-shadow:var(--shadow);margin-bottom:12px}
+/* The title block yields before the actions wrap: its sub-line, not the
+   heading, set a 439px width at 1280 and pushed six controls onto a second
+   row. It shrinks to 300px and lets the sub-line wrap instead. */
+.title{flex:1 1 300px;min-width:0}
+.topbar-actions{flex:0 1 auto;min-width:0}
 .title h1{margin:0;font-size:20px;letter-spacing:-.01em}
 .title .sub{color:var(--text-secondary);font-size:12.5px;margin-top:3px}
 /* The sprint goal is context for the verdict, not for the toolbar: it sits
@@ -76,7 +81,7 @@ a{color:var(--link)}
 /* ---------- filter row ---------- */
 .filters{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 14px;background:var(--surface-1);
   border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;box-shadow:var(--shadow)}
-.filters label{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;
+.filters label,.filters .flab{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;
   font-weight:600;margin-right:4px}
 .filters select,.filters input[type=search]{font:inherit;font-size:12.5px;padding:6px 9px;border-radius:8px;
   border:1px solid var(--border);background:var(--plane);color:var(--text-primary);max-width:190px}
@@ -394,7 +399,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
   max-width:calc(100vw - 40px);max-height:calc(100vh - 120px);overflow:auto;
   background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);
   box-shadow:var(--shadow);padding:13px 14px}
-.vp-pop h4{margin:0 0 2px;font-size:13px;font-weight:650}
+.vp-pop h2{margin:0 0 2px;font-size:13px;font-weight:650}
 .vp-pop .note{font-size:11.5px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5}
 .vp-presets{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:11px}
 .vp-presets button{background:var(--surface-1);border:1px solid var(--border);border-radius:8px;
@@ -1367,7 +1372,7 @@ function paintWorkflow() {
   rows.forEach(r => { inferredOf[normStatus(r.status)] = r; });
 
   pop.innerHTML =
-    '<h4 id="wf-h">What each status means on this board</h4>' +
+    '<h2 id="wf-h">What each status means on this board</h2>' +
     "<p class='note'>Every figure on this page depends on it. Change anything " +
     "that is wrong and the numbers re-derive from the issues underneath.</p>" +
     "<table><thead><tr><th scope='col'>Status</th><th scope='col'>Means</th></tr></thead><tbody>" +
@@ -3921,7 +3926,10 @@ function renderPred(m) {
       '" rx="3" fill="' + commitCol + '" data-tt="' + esc(tt) + '"/>');
     s.add('<rect' + mark + doneCol + '" x="' + (cx + 1) + '" y="' + y(cp(d)) + '" width="' + bw + '" height="' + (y(0) - y(cp(d))) +
       '" rx="3" fill="' + doneCol + '" data-tt="' + esc(tt) + '"/>');
-    s.add('<text class="axis-lab" x="' + cx + '" y="' + (H - 28) + '" text-anchor="middle">' + esc(d.sprint.replace("Sprint ", "S")) + "</text>");
+    // The context bar says "Sprint 24"; the axis said "S24". The name where
+    // the band is wide enough for it, the abbreviation only where it is not.
+    s.add('<text class="axis-lab" x="' + cx + '" y="' + (H - 28) + '" text-anchor="middle">' +
+      esc(bandW >= 64 ? d.sprint : d.sprint.replace("Sprint ", "S")) + "</text>");
     s.add('<text class="axis-lab" x="' + cx + '" y="' + (H - 15) + '" text-anchor="middle" style="font-weight:650;fill:' +
       (rel >= 0.9 ? CSSV("--good-ink") : rel >= 0.75 ? CSSV("--warn-ink") : CSSV("--crit-ink")) + '">' + Math.round(rel * 100) + "%</text>");
   });
@@ -6048,18 +6056,23 @@ function setShown(ids) {
 
 /** Show or hide each tile. Nothing here recomputes — render() has already
  *  produced every tile's content whether it is on screen or not. */
+const ROW_PAIRS = [["c-pred", "c-forecast"], ["c-dora", "c-load"]];
 function applyTiles() {
   const on = shownTiles(), off = unavailableTiles();
   TILE_IDS.forEach(id => {
     const el = $("#" + id);
     if (el) el.classList.toggle("hidden", on.indexOf(id) < 0);
   });
-  /* The predictability chart and the forecast share a row at 7 + 5. A saved
-     copy hides the forecast in every preset, which left the chart alone in an
-     eleven-column row — the hole the grid rule forbids at every breakpoint.
+  /* Tiles that share a row in the default order: 5 + 7 and 6 + 6. A preset
+     or a saved copy that shows one without the other left it alone in a
+     short row — the hole the grid rule forbids at every breakpoint. The
+     Executive preset did this to the DORA tile on the product's own view.
      The tile left alone takes the row. */
-  const pred = $("#c-pred");
-  if (pred) pred.classList.toggle("span-full", on.indexOf("c-pred") >= 0 && on.indexOf("c-forecast") < 0);
+  ROW_PAIRS.forEach(([a, b]) => {
+    const A = $("#" + a), B = $("#" + b), onA = on.indexOf(a) >= 0, onB = on.indexOf(b) >= 0;
+    if (A) A.classList.toggle("span-full", onA && !onB);
+    if (B) B.classList.toggle("span-full", onB && !onA);
+  });
   const name = presetOf(S.shown), hidden = TILE_IDS.length - on.length;
   const btn = $("#btn-view");
   // The count travels with the name whenever anything is hidden, whoever hid it.
@@ -6093,7 +6106,7 @@ function syncTileUrl() {
 function buildPicker() {
   const pop = $("#view-pop");
   pop.innerHTML =
-    '<h4 id="vp-h">Tiles in this view</h4>' +
+    '<h2 id="vp-h">Tiles in this view</h2>' +
     '<div class="note">Hiding a tile changes what is shown, never what is counted. ' +
     'Both presets keep the narrative. Each row\u2019s Move menu reorders the page; tiles keep their ' +
     'widths as they move, so an order of your own can leave a row short.</div>' +

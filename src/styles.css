@@ -43,6 +43,11 @@ a{color:var(--link)}
 .topbar{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;justify-content:space-between;
   padding:14px 18px;background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);
   box-shadow:var(--shadow);margin-bottom:12px}
+/* The title block yields before the actions wrap: its sub-line, not the
+   heading, set a 439px width at 1280 and pushed six controls onto a second
+   row. It shrinks to 300px and lets the sub-line wrap instead. */
+.title{flex:1 1 300px;min-width:0}
+.topbar-actions{flex:0 1 auto;min-width:0}
 .title h1{margin:0;font-size:20px;letter-spacing:-.01em}
 .title .sub{color:var(--text-secondary);font-size:12.5px;margin-top:3px}
 /* The sprint goal is context for the verdict, not for the toolbar: it sits
@@ -69,7 +74,7 @@ a{color:var(--link)}
 /* ---------- filter row ---------- */
 .filters{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 14px;background:var(--surface-1);
   border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;box-shadow:var(--shadow)}
-.filters label{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;
+.filters label,.filters .flab{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;
   font-weight:600;margin-right:4px}
 .filters select,.filters input[type=search]{font:inherit;font-size:12.5px;padding:6px 9px;border-radius:8px;
   border:1px solid var(--border);background:var(--plane);color:var(--text-primary);max-width:190px}
@@ -387,7 +392,7 @@ pre{background:var(--plane);border:1px solid var(--border);border-radius:9px;pad
   max-width:calc(100vw - 40px);max-height:calc(100vh - 120px);overflow:auto;
   background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);
   box-shadow:var(--shadow);padding:13px 14px}
-.vp-pop h4{margin:0 0 2px;font-size:13px;font-weight:650}
+.vp-pop h2{margin:0 0 2px;font-size:13px;font-weight:650}
 .vp-pop .note{font-size:11.5px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5}
 .vp-presets{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:11px}
 .vp-presets button{background:var(--surface-1);border:1px solid var(--border);border-radius:8px;
