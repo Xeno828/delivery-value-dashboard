@@ -5060,7 +5060,9 @@ def business_value_checks():
     value_tile = app_js.split("function renderValue", 1)[1].split("\n}", 1)[0]
     for phrase, why in (
             ("below the level value is", "value sits under the line"),
-            ("carries a value estimate yet", "the field is there and empty"),
+            # "yet" only while the sprint is running (1.79.48); the case is
+            # named by the sentence, not its tense word.
+            ("carries a value estimate", "the field is there and empty"),
             ("add it to a screen", "the field is not on a screen yet")):
         check("the value tile names the case: %s" % why,
               phrase in value_tile, phrase)
