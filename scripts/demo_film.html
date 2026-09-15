@@ -1,0 +1,263 @@
+<!doctype html>
+<!--
+  demo_film.html — the demo as a web page, not a screen recording.
+
+  record_demo.py fills the two placeholders below with the scene list and the
+  pictures capture_screens.py just took, then steps the page one frame at a
+  time — FILM.seek(t) is a pure function of t — and hands each frame to ffmpeg.
+  A frame is rendered by the browser from real screenshots and real text, so
+  nothing in it is generated, guessed or blurred: the words on screen are the
+  words in the scene list and the figures are the product's own.
+
+  Opened in a browser on its own it plays itself; click to pause.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Delivery Value Dashboard — demo</title>
+<style>
+  html, body { margin: 0; background: #000; }
+  #stage {
+    position: relative; width: 1920px; height: 1080px; overflow: hidden;
+    background: #0b0b0d; color: #fff;
+    font-family: "Liberation Sans", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  #stage::before {
+    /* a faint vignette so the frame reads as a stage rather than a slide */
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(ellipse at 50% 42%, rgba(57,135,229,.10), rgba(0,0,0,0) 62%);
+  }
+  #wrap {
+    position: absolute; left: 0; top: 0; width: 1600px; height: 1000px;
+    transform-origin: 0 0; border-radius: 14px; overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.06);
+    background: #f3f3f0;
+  }
+  #wrap img { position: absolute; left: 0; top: 0; width: 1600px; height: 1000px; display: block; }
+  #ring {
+    position: absolute; border: 3px solid #3987e5; border-radius: 10px; opacity: 0;
+    box-shadow: 0 0 0 9999px rgba(10,10,14,.38);
+  }
+  #cur { position: absolute; width: 26px; height: 34px; opacity: 0; filter: drop-shadow(0 2px 3px rgba(0,0,0,.45)); }
+  #pulse {
+    position: absolute; width: 44px; height: 44px; border-radius: 50%; opacity: 0;
+    border: 3px solid #3987e5; transform: translate(-50%, -50%);
+  }
+  #cap {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 28px 64px 38px;
+    background: linear-gradient(to top, rgba(8,8,10,.95) 58%, rgba(8,8,10,0));
+    opacity: 0;
+  }
+  #cap .tag {
+    display: inline-block; font-size: 15px; font-weight: 700; letter-spacing: .1em;
+    text-transform: uppercase; color: #7fb2f0; margin-bottom: 8px;
+  }
+  #cap h2 { margin: 0; font-size: 38px; font-weight: 700; letter-spacing: -.015em; line-height: 1.16; }
+  #cap p { margin: 9px 0 0; font-size: 22.5px; line-height: 1.42; color: #d7d7d2; max-width: 1560px; }
+  #card {
+    position: absolute; inset: 0; background: #0b0b0d; opacity: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #card .inner { max-width: 1420px; padding: 0 80px; }
+  #card .inner > * { opacity: 0; transform: translateY(18px); }
+  #card .kicker { font-size: 18px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #7fb2f0; margin: 0 0 22px; }
+  #card h1 { margin: 0; font-size: 66px; font-weight: 700; letter-spacing: -.028em; line-height: 1.08; }
+  #card h1 em { font-style: normal; color: #7fb2f0; }
+  #card p { margin: 24px 0 0; font-size: 27px; line-height: 1.48; color: #c9c9c3; }
+  #card ul { margin: 30px 0 0; padding: 0; list-style: none; display: grid; gap: 15px; }
+  #card li { font-size: 24px; line-height: 1.4; color: #e9e9e4; display: grid; grid-template-columns: 34px 1fr; gap: 12px; }
+  #card li b { color: #fff; }
+  #card li .k { color: #7fb2f0; font-weight: 700; }
+  #card .foot { margin-top: 30px; font-size: 20px; color: #8f8f89; }
+  #prog { position: absolute; top: 0; left: 0; height: 5px; background: #3987e5; width: 0; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="wrap">
+    <img id="shotA" alt="">
+    <img id="shotB" alt="">
+    <div id="ring"></div>
+    <div id="pulse"></div>
+    <svg id="cur" viewBox="0 0 26 34"><path d="M2 2 L2 27 L8.5 21 L13 32 L18 30 L13.5 19.5 L22 19 Z" fill="#fff" stroke="#111" stroke-width="2" stroke-linejoin="round"/></svg>
+  </div>
+  <div id="cap"></div>
+  <div id="card"><div class="inner"></div></div>
+  <div id="prog"></div>
+</div>
+<script>
+const SCENES = /*SCENES*/[];
+const IMAGES = /*IMAGES*/{};
+const RECTS = /*RECTS*/{};
+
+const SW = 1920, SH = 1080, IW = 1600, IH = 1000;
+const CY = 478;             // the camera aims here, not the stage's centre: the caption sits below
+const FIT = 0.9;            // the picture at zoom 1 fills 90% of the stage width
+const XF = 650;             // cross-fade between pictures, ms
+const CAPF = 380;           // caption fade, ms
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const ease = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const lerp = (a, b, t) => a + (b - a) * t;
+
+/* A camera is [fx, fy, z]: the point of the picture (as fractions) that sits
+   at the stage's centre, and the zoom. rectFocus() turns a recorded element
+   rectangle into a camera that frames it with some air around it. */
+function rectFocus(shot, sel, pad) {
+  const r = RECTS[shot] && RECTS[shot][sel];
+  if (!r) return [0.5, 0.5, 1];
+  pad = pad == null ? 0.06 : pad;
+  const w = r[2] + pad * 2, h = r[3] + pad * 2;
+  const z = Math.min((SW / (IW * FIT)) / w, ((SH - 200) / (IH * FIT)) / h, 1.9);
+  return [r[0] + r[2] / 2, r[1] + r[3] / 2, z];
+}
+
+/* Resolve every scene once: absolute start times, cameras that default to
+   where the previous scene left the camera, cursors that start where the
+   previous cursor was. Done here so seek() is a pure function of t. */
+let t0 = 0, prevCam = [0.5, 0.5, 1], prevCur = null, prevShot = null;
+for (const s of SCENES) {
+  s.t0 = t0; t0 += s.dur;
+  if (s.focus) s.to = rectFocus(s.shot, s.focus, s.pad);
+  if (!s.to) s.to = s.card ? [0.5, 0.5, 1] : prevCam.slice();
+  if (!s.from) s.from = prevCam.slice();
+  if (s.move == null) s.move = Math.min(1400, s.dur * 0.5);
+  if (s.ringSel) s.ring = RECTS[s.shot] && RECTS[s.shot][s.ringSel];
+  if (s.cursorSel) { const r = RECTS[s.shot] && RECTS[s.shot][s.cursorSel]; if (r) s.cursor = [r[0] + r[2] / 2, r[1] + r[3] * 0.55]; }
+  if (s.cursor) { s.curFrom = prevCur || [s.cursor[0] + 0.14, s.cursor[1] + 0.22]; prevCur = s.cursor; }
+  s.prevShot = prevShot;
+  if (s.shot) prevShot = s.shot;
+  prevCam = s.to.slice();
+}
+const TOTAL = t0;
+
+function sceneAt(t) {
+  let i = 0;
+  while (i + 1 < SCENES.length && t >= SCENES[i + 1].t0) i++;
+  return SCENES[i];
+}
+
+function camAt(s, t) {
+  const p = ease(clamp((t - s.t0) / s.move, 0, 1));
+  let fx = lerp(s.from[0], s.to[0], p), fy = lerp(s.from[1], s.to[1], p), z = lerp(s.from[2], s.to[2], p);
+  // An optional slow push after the move. Off unless a scene asks: a frame
+  // that changes everywhere every frame defeats the encoder, and the first
+  // cut with it on everywhere weighed five times what a held frame costs.
+  if (s.drift) {
+    const rest = clamp((t - s.t0 - s.move) / Math.max(1, s.dur - s.move), 0, 1);
+    z *= 1 + s.drift * rest;
+  }
+  return [fx, fy, z];
+}
+
+let lastCap = "";
+function seek(t) {
+  t = clamp(t, 0, TOTAL - 1);
+  const s = sceneAt(t), dt = t - s.t0;
+
+  // camera
+  const [fx, fy, z] = camAt(s, t);
+  const S = FIT * z;
+  const px = SW / 2 - fx * IW * S, py = CY - fy * IH * S;
+  $("wrap").style.transform = "translate(" + px.toFixed(2) + "px," + py.toFixed(2) + "px) scale(" + S.toFixed(4) + ")";
+
+  // pictures, with a cross-fade at a change of picture
+  const shot = s.shot || s.prevShot, prev = s.prevShot;
+  const A = $("shotA"), B = $("shotB");
+  if (shot && A.dataset.k !== shot) { A.src = IMAGES[shot]; A.dataset.k = shot; }
+  if (s.shot && prev && prev !== shot && dt < XF) {
+    if (B.dataset.k !== prev) { B.src = IMAGES[prev]; B.dataset.k = prev; }
+    B.style.opacity = (1 - ease(dt / XF)).toFixed(3);
+  } else {
+    B.style.opacity = 0;
+  }
+
+  // ring, once the camera has arrived
+  const ring = $("ring");
+  if (s.ring) {
+    const r = s.ring, pad = 6;
+    ring.style.left = (r[0] * IW - pad) + "px"; ring.style.top = (r[1] * IH - pad) + "px";
+    ring.style.width = (r[2] * IW + pad * 2) + "px"; ring.style.height = (r[3] * IH + pad * 2) + "px";
+    ring.style.opacity = clamp((dt - s.move + 200) / 400, 0, 1).toFixed(3);
+  } else {
+    ring.style.opacity = 0;
+  }
+
+  // cursor: travels for the first 55% of the scene, clicks, and the click
+  // pulse rings out; the next scene's picture is the consequence
+  const cur = $("cur"), pulse = $("pulse");
+  if (s.cursor) {
+    const travel = s.dur * 0.55, p = ease(clamp(dt / travel, 0, 1));
+    const cx = lerp(s.curFrom[0], s.cursor[0], p) * IW, cy = lerp(s.curFrom[1], s.cursor[1], p) * IH;
+    cur.style.left = cx + "px"; cur.style.top = cy + "px";
+    cur.style.opacity = clamp(dt / 250, 0, 1).toFixed(3);
+    const q = clamp((dt - travel - 120) / 520, 0, 1);
+    pulse.style.left = cx + "px"; pulse.style.top = cy + "px";
+    pulse.style.opacity = q > 0 && q < 1 ? (1 - q).toFixed(3) : 0;
+    pulse.style.transform = "translate(-50%,-50%) scale(" + (0.4 + 1.6 * q).toFixed(3) + ")";
+  } else {
+    cur.style.opacity = 0; pulse.style.opacity = 0;
+  }
+
+  // caption: fades in at the start, out at the end unless the next scene
+  // carries the same words
+  const cap = $("cap");
+  const html = s.title ? ((s.tag ? '<span class="tag">' + s.tag + '</span>' : '') +
+               '<h2>' + s.title + '</h2>' + (s.body ? '<p>' + s.body + '</p>' : '')) : "";
+  if (html !== lastCap) { cap.innerHTML = html; lastCap = html; }
+  if (!html || s.card) {
+    cap.style.opacity = 0;
+  } else {
+    const nxt = SCENES[SCENES.indexOf(s) + 1];
+    const sameNext = nxt && nxt.title === s.title && nxt.body === s.body;
+    const prv = SCENES[SCENES.indexOf(s) - 1];
+    const samePrev = prv && prv.title === s.title && prv.body === s.body;
+    const fin = samePrev ? 1 : clamp(dt / CAPF, 0, 1);
+    const fout = sameNext ? 1 : clamp((s.dur - dt) / CAPF, 0, 1);
+    cap.style.opacity = Math.min(fin, fout).toFixed(3);
+  }
+
+  // title cards: lines rise in one after another; the card fades at its end
+  const card = $("card");
+  if (s.card) {
+    if (card.dataset.k !== String(s.t0)) { card.querySelector(".inner").innerHTML = s.card; card.dataset.k = String(s.t0); }
+    const kids = card.querySelectorAll(".inner > *");
+    kids.forEach((k, i) => {
+      const p = ease(clamp((dt - 150 - i * 260) / 650, 0, 1));
+      k.style.opacity = p.toFixed(3); k.style.transform = "translateY(" + (18 * (1 - p)).toFixed(1) + "px)";
+    });
+    const fin = s.t0 === 0 ? 1 : clamp(dt / 500, 0, 1);
+    const fout = clamp((s.dur - dt) / 550, 0, 1);
+    card.style.opacity = Math.min(fin, fout).toFixed(3);
+  } else {
+    card.style.opacity = 0;
+  }
+
+  $("prog").style.width = (100 * t / TOTAL).toFixed(2) + "%";
+}
+
+window.FILM = {
+  total: TOTAL,
+  seek,
+  // seek, then wait for both pictures to be decoded, so a frame taken right
+  // after a change of picture never catches the browser mid-decode
+  frame: t => { seek(t); return Promise.all([$("shotA"), $("shotB")].map(i => i.src ? i.decode().catch(() => {}) : null)); },
+  ready: Promise.all(Object.values(IMAGES).map(src => new Promise(res => {
+    const im = new Image(); im.onload = im.onerror = res; im.src = src;
+  }))),
+  script: () => SCENES.filter(s => s.title || s.card).map(s => ({
+    at: s.t0, dur: s.dur, tag: s.tag || "", title: s.title || "", body: s.body || "", card: !!s.card
+  })),
+};
+
+// On its own in a browser: play, click to pause.
+if (!navigator.webdriver) {
+  let playing = true, start = performance.now();
+  const tick = now => { if (playing) seek((now - start) % TOTAL); requestAnimationFrame(tick); };
+  document.body.addEventListener("click", () => { if (playing) { playing = false; } else { playing = true; start = performance.now(); } });
+  FILM.ready.then(() => requestAnimationFrame(tick));
+}
+</script>
+</body>
+</html>

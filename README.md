@@ -4,12 +4,16 @@ A single self-contained HTML file that turns Jira or Asana data into a report an
 
 No install, no build step, no server, no internet connection, no runtime dependencies. Open the file.
 
+One page, two homes. The same `src/` also builds the Forge app in `forge/`, which renders the page inside Jira over the tenant's own boards and computes every figure inside the Forge function — no remote, no egress ([ADR 0031](docs/adr/0031-the-forecast-runs-inside-the-forge-function.md)).
+
 ```bash
 git clone <your-fork-url> && cd delivery-value-dashboard
 make build && open dist/delivery-value-dashboard.html
 ```
 
-**[▶ Watch the 3-minute demo](docs/demo.mp4)** ([lighter 3.7 MB version](docs/demo-small.mp4)) · **[Executive summary of the agent](docs/agent-executive-summary.md)**
+**[▶ Watch the two-minute demo](docs/demo.mp4)** ([lighter version for email](docs/demo-small.mp4) · [the script](docs/demo-script.md)) · **[Executive summary of the agent](docs/agent-executive-summary.md)**
+
+The demo is cut from screenshots of the current build by `make demo`, and the pictures below come from the same pass, so neither can show an older page than the other.
 
 ---
 
@@ -38,6 +42,8 @@ The dashboard holds many sprints at once. A context bar above the filters gives 
 
 The page never talks to Jira itself — it cannot; MCP has no browser client and both APIs block cross-origin requests. Instead the sprints are bundled into the file up front, by the fetcher or by Claude through the Atlassian/Asana connectors. If you additionally run `make serve-live`, the page finds the local server and can pull sprints the bundle does not contain, on demand.
 
+![The toolbar and the context bar](docs/screenshots/context-picker.png)
+
 Full detail: [docs/contexts-and-live-mode.md](docs/contexts-and-live-mode.md).
 
 ### 1. Upload a file — works immediately
@@ -47,6 +53,8 @@ Full detail: [docs/contexts-and-live-mode.md](docs/contexts-and-live-mode.md).
 The wizard is three steps: choose → map → preview. The preview shows counts, the first rows as the dashboard will read them, and warnings for duplicate keys, ambiguous date formats, and each missing field with its consequence stated. Burndown and sprint history are **recalculated** from what you upload rather than inherited, so you never get fresh numbers under a stale chart.
 
 ![Column mapping step](docs/screenshots/import-mapping.png)
+
+![Preview step](docs/screenshots/import-preview.png)
 
 Full detail: [docs/importing-data.md](docs/importing-data.md).
 
@@ -94,12 +102,14 @@ Full detail: [docs/connecting-jira-asana.md](docs/connecting-jira-asana.md).
 
 ## Monte Carlo forecasting, in the page
 
-With `make serve-live` running, a **Monte Carlo forecast** tile answers two questions for whichever team, board and sprint is selected, and re-runs when you change that selection:
+With `make serve-live` running — or inside Jira, where the Forge function runs the same Python under WebAssembly — a **Monte Carlo forecast** tile answers two questions for whichever team, board and sprint is selected, and re-runs when you change that selection:
 
 - **When will it finish** — percentile completion dates for the work outstanding in the selected sprint.
 - **How many by the date** — how much lands by the sprint end, plus what to commit to next sprint.
 
 The simulation is run by `agent/tools/forecast.py` over the connection, not reimplemented in the page. That is the point: a second Monte Carlo would be a second set of numbers, and the tile and a written brief would eventually disagree about the same sprint.
+
+![The forecast tile beside the commitment history](docs/screenshots/forecast.png)
 
 It samples **the whole recorded history of that team**, not just the sprint on screen — one sprint offers too few observations and the tool refuses. Only the outstanding count comes from the selected sprint. The tile names the slice, the date span and the observation count so the basis is auditable, and prints refusals verbatim when the evidence is thin.
 
@@ -118,6 +128,10 @@ Because it needs the local server, this tile is off by default in an emailed cop
 
 ```
 ├── CLAUDE.md             the constraints, for any agent working in here
+├── CONTEXT.md            the glossary — what a term means, and which words to avoid
+├── DESIGN.md             the design system: tokens, type, the rules colour follows
+├── PRODUCT.md            who it is for, what it refuses, what evidence exists
+├── CONTRIBUTING.md       the mechanics: build, layout, the rules the suites enforce
 ├── src/
 │   ├── index.html        page structure + build placeholders
 │   ├── styles.css        all styling, both colour themes
@@ -137,7 +151,10 @@ Because it needs the local server, this tile is off by default in an emailed cop
 │   ├── rebuild_burndown.py              recompute a burndown in both units
 │   ├── make_sample_bundle.py            random bundle, for load testing
 │   ├── make_demo_bundle.py              authored bundle, for the demo
-│   ├── record_demo.py                   records both demo videos
+│   ├── make_intake_demo.py              the intake reference class, for the demo
+│   ├── capture_screens.py               every screenshot, from one pass over the built file
+│   ├── demo_film.html                   the demo as a web page: scenes, captions, camera
+│   ├── record_demo.py                   fills the film with the pictures and renders it frame by frame
 │   ├── serve_live.py                    optional live-mode server
 │   ├── refresh.sh                       cron-friendly wrapper
 │   └── requirements.txt
@@ -147,7 +164,10 @@ Because it needs the local server, this tile is off by default in an emailed cop
 ├── forge/                               the Forge app — deployed, no remote, no egress
 │   ├── manifest.yml                     scopes, the consumer, the functions
 │   ├── src/index.js                     projects, hands to the Python in-function, re-attaches
+│   ├── src/jira.js                      the shaping, as pure functions of a Jira response
 │   ├── src/runtime.js                   loads Pyodide from the generated bundle
+│   ├── bridge/bridge.js                 the transport adapter the split build links in
+│   ├── build-assets.mjs                 packs the runtime, the tools and routes.py at deploy
 │   └── README.md                        how it is built and deployed
 ├── docs/
 │   ├── dashboard-review.md              why it is built this way
@@ -155,30 +175,36 @@ Because it needs the local server, this tile is off by default in an emailed cop
 │   ├── data-format.md                   every field and what it drives
 │   ├── connecting-jira-asana.md         live data, OAuth, and why not from the page
 │   ├── organisation-config.md           what "done" means, and which days count
-│   ├── forge-deployment.md              runbooks for the three unfinished pieces
-│   ├── adr/                             eight decision records, indexed in adr/README.md
+│   ├── forge-deployment.md              the Forge runbooks: register, deploy, check from inside the tenant
+│   ├── kanban-boards.md                 what the page says about a board with no sprints
+│   ├── roadmap.md                       the commercial roadmap, numbered, and what is done
+│   ├── adr/                             thirty-two decision records, indexed in adr/README.md
 │   ├── contexts-and-live-mode.md        project/board/sprint filtering
 │   ├── product-intake.md                forecasting an ask before it exists
 │   ├── agent-executive-summary.md       the agent, for a leadership audience
-│   ├── demo.mp4                         captioned walkthrough, 2m50s (11 MB)
-│   ├── demo-small.mp4                   same, 1200px / 3.7 MB, for email
+│   ├── screenshots/                     the pictures this file shows, refreshed by `make demo`
+│   ├── demo.mp4                         captioned walkthrough, about two minutes
+│   ├── demo-small.mp4                   same, 1200px wide, for email
+│   ├── demo-script.md                   the captions with their timings, for a voice-over
 │   └── forecasting-agent.md             the agent's design outline
 ├── agent/                               reporting & forecasting agent
 │   ├── SKILL.md                         the agent definition — runnable
 │   ├── tools/metrics.py                 deterministic facts pack
 │   ├── tools/forecast.py                Monte Carlo forecasting
 │   ├── tools/intake.py                  product-intake sizing and forecasting
+│   ├── tools/selection.py               which issues a forecast reads, and what it is told about them
 │   ├── tools/orgconfig.py               the per-organisation assumptions
 │   ├── templates/                       exec brief + team report + intake brief
 │   └── snapshots/                       facts packs, scope history, forecast log
 ├── tests/
-│   ├── e2e.py                           browser suite, 101 checks
+│   ├── e2e.py                           browser suite: import, contexts, units, drill-downs, tiles
 │   ├── test_agent.py                    facts, forecast, intake, org config
 │   ├── test_service.py                  the routes and the resolver: projection, refusals, jobs
 │   ├── test_wasm.py                     the same Python under WebAssembly, byte for byte
 │   ├── perf.py                          timing harness, four bundle sizes
 │   ├── a11y.py                          WCAG 2.2 AA, both themes
 │   ├── security.py                      hostile-data, secrets and server checks
+│   ├── forge_smoke.py                   opens the deployed app inside the dev site and checks the frame
 │   └── fixtures/                        realistic Jira/Asana/XLSX exports
 ├── build.py                             the whole build, ~80 lines
 └── Makefile
@@ -191,11 +217,13 @@ Because it needs the local server, this tile is off by default in an emailed cop
 | Command | Does |
 |---|---|
 | `make build` | Assemble `src/` into `dist/delivery-value-dashboard.html` |
-| `make test` | Build, then run the browser end-to-end suite |
+| `make test` | Build, then run all six suites |
 | `make serve` | Preview on `localhost:8000` |
 | `make check` | Fail if `dist/` is stale (what CI runs) |
 | `make fetch` | Pull live data using `.env` |
 | `make test-agent` | Agent tools only — facts, forecast, refusals, backtest |
+| `make test-service` | The routes and the Forge resolver — projection, refusals, jobs, no arithmetic |
+| `make test-wasm` | The same Python under WebAssembly, byte for byte (needs node and `make forge-deps`) |
 | `make report` | Print the facts pack and forecast for the sample data |
 | `make serve-live` | Serve with the live-mode API, backed by the demo bundle |
 | `make bundle` | Regenerate the demo bundles, including the intake reference class |
@@ -203,7 +231,9 @@ Because it needs the local server, this tile is off by default in an emailed cop
 | `make intake-scale` | Print what S/M/L/XL mean on a board, in items |
 | `make intake-sequence` | What each ordering of the outstanding asks costs the others |
 | `make perf` | Measure load and interaction cost at four bundle sizes |
-| `make demo` | Rebuild the story bundle and re-record the demo video |
+| `make demo` | Re-author the story bundle, take the screenshots, render both demo videos and the script |
+| `make screenshots` | Refresh `docs/screenshots/` from the built file, without the film |
+| `make forge-deploy` | Stage, install, generate the assets bundle, deploy to development; `make forge-smoke` checks it from inside the tenant |
 | `make test-a11y` | Accessibility only — WCAG 2.2 AA, both themes |
 | `make test-security` | Security only — XSS, pollution, traversal, secrets, deps |
 
@@ -242,15 +272,16 @@ Design outline, question inventory, guardrails, failure modes and rollout: [docs
 - **Shared drive.** Drop `dist/delivery-value-dashboard.html` next to `dashboard-data.json`.
 - **GitHub Pages.** `.github/workflows/pages.yml` publishes the built file and the whole of `data/`. It never runs on its own — it is `workflow_dispatch` only, so you start it from the Actions tab and it publishes at no other time. Do not run it on a repository where the fetcher has written real issue titles unless your plan supports private Pages. CI itself needs nothing configured: no secrets, no environment.
 - **Board pack.** The **Print** button lays the page out cleanly to PDF.
+- **Inside Jira.** `make forge-deploy` builds the split page, packs the Python runtime and the tools into the function, and deploys the Forge app; the tenant's own boards arrive over the bridge and no figure leaves the site. Runbooks: [docs/forge-deployment.md](docs/forge-deployment.md), [forge/README.md](forge/README.md).
 
 ### Sending one audience their own view
 
-The **Tiles** button chooses which of the thirteen tiles a view contains, and what order they appear in. Two presets are built in, and both keep *What this sprint means* — a view without the narrative is the wall of charts this page exists to replace.
+The **Tiles** button chooses which tiles a view contains, and what order they appear in. There are eighteen: fourteen for a sprint board, and four flow tiles that a board without sprints shows instead of the three that need a commitment ([docs/kanban-boards.md](docs/kanban-boards.md)). The Monte Carlo and brief tiles are off in an emailed copy, and say why. Two presets are built in, and both keep *What this sprint means* — a view without the narrative is the wall of charts this page exists to replace.
 
 | Preset | Tiles | Shaped after |
 |---|---|---|
-| **Executive** | narrative, headline numbers, forecast trust, release quality, value, releases, risks | `agent/templates/exec-brief.md` |
-| **Team** | narrative, headline numbers, burndown, per-person work, flow time, ageing, forecast trust, team load, risks | `agent/templates/team-report.md` |
+| **Executive** | headline numbers, narrative, forecast trust, Monte Carlo forecast, release quality, value, releases, risks | `agent/templates/exec-brief.md` |
+| **Team** | headline numbers, narrative, burndown, per-person work, flow time, ageing, forecast trust, Monte Carlo forecast, team load, risks | `agent/templates/team-report.md` |
 
 The presets deliberately match the two reports the agent already writes. A printed view and the agent's brief for the same audience disagreeing about what matters is worse than either being slightly wrong alone.
 
@@ -280,13 +311,13 @@ Single-file HTML sits on the right rung: no infrastructure, no licences, works o
 
 ## Security & accessibility
 
-Both are tested, not asserted. `make test` runs all five suites; `make test-a11y` and `make test-security` run them individually. Every one of them runs on every push.
+Both are tested, not asserted. `make test` runs all six suites; `make test-a11y` and `make test-security` run them individually. Every one of them runs on every push.
 
 **Accessibility** — WCAG 2.2 AA against the rendered page in both themes, including states a static scan misses (the drill-down panel, the import wizard). Covers accessible names, heading order, form labels, table twins for every chart, colour-never-alone, computed text contrast, keyboard operation, focus order and return, focus visibility, reduced motion, and reflow at 380px.
 
 **Security** — the threat model is that this file gets emailed, and that its data comes from a tracker where any user can write an issue summary. The suite feeds it a dataset with an injection attempt in every string field and asserts nothing executes; checks prototype pollution, `javascript:` URLs, zero network calls, zero persistence; probes the live server for path traversal and non-loopback reachability; feeds the XLSX reader a workbook carrying an XXE, an entity-expansion bomb and a zip-slip filename; and scans the tree for committed credentials.
 
-**Credentials and egress** — the OAuth grant is git-ignored, created mode 0600 rather than widened afterwards, and never printed; the redirect listener verifies its `state` parameter and binds to loopback only; the requested scopes are asserted read-only, so adding a write scope fails the build. The hosted calculator is covered separately: it refuses free text rather than discarding it, and its field list is compared against the Forge resolver's so the side that decides what leaves a tenant and the side that decides what is accepted cannot drift apart.
+**Credentials and egress** — the OAuth grant is git-ignored, created mode 0600 rather than widened afterwards, and never printed; the redirect listener verifies its `state` parameter and binds to loopback only; the requested scopes are asserted read-only, so adding a write scope fails the build. The Forge app is covered by `tests/test_service.py`: every scope must be read-only or allow-listed beside a written reason, the manifest declares no remote and no egress permission, and each route's answer is held byte for byte against the tool called directly — and again under WebAssembly by `tests/test_wasm.py`, so nothing between the tools and a reader can do arithmetic of its own.
 
 Both suites found real bugs on their first run. See the changelog.
 

@@ -1,7 +1,7 @@
 BUNDLE ?= data/demo-intake-bundle.json
 BOARD  ?= 42
 
-.PHONY: build check test test-agent test-a11y test-security test-service test-wasm perf report intake intake-scale intake-sequence demo serve serve-live forge-static forge-deps forge-assets forge-lint forge-deploy forge-install forge-upgrade forge-uninstall forge-smoke bundle fetch clean
+.PHONY: build check test test-agent test-a11y test-security test-service test-wasm perf report intake intake-scale intake-sequence demo screenshots serve serve-live forge-static forge-deps forge-assets forge-lint forge-deploy forge-install forge-upgrade forge-uninstall forge-smoke bundle fetch clean
 
 build:            ## assemble dist/delivery-value-dashboard.html from src/
 	python3 build.py
@@ -39,14 +39,15 @@ perf: build       ## measure load and interaction cost at four bundle sizes
 	@python3 scripts/make_sample_bundle.py --scale 22 --out /tmp/bundle-22.json >/dev/null
 	python3 tests/perf.py
 
-demo: build       ## rebuild the story bundle and record both demo videos
+demo: build       ## re-author the story bundle, then the pictures, both demo videos and the script
 	python3 scripts/make_demo_bundle.py
-	python3 scripts/record_demo.py --out docs/demo.mp4
-	@# The small cut is what people email. Produced here rather than by hand so
-	@# the two videos cannot end up showing different versions of the product.
-	ffmpeg -y -loglevel error -i docs/demo.mp4 -vf scale=1200:-2 -c:v libx264 \
-	  -preset slow -crf 30 -pix_fmt yuv420p -movflags +faststart docs/demo-small.mp4
-	@ls -lh docs/demo.mp4 docs/demo-small.mp4 | awk '{print "  " $$9 "  " $$5}'
+	@# One pass: the README's screenshots, the film cut from those same
+	@# pictures, the emailable cut of it and the voice-over script. Produced
+	@# together so none of them can show a different build from the others.
+	python3 scripts/record_demo.py
+
+screenshots: build ## refresh docs/screenshots/ from the built file, without the film
+	python3 scripts/capture_screens.py
 
 report:           ## print the facts pack and forecast for the sample data
 	python3 agent/tools/metrics.py data/sample-sprint.json --out agent/snapshots/facts-latest.json > /dev/null
