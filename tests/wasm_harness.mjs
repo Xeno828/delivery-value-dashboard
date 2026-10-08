@@ -12,9 +12,12 @@
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
-const HERE = path.dirname(new URL(import.meta.url).pathname);
+// fileURLToPath, not .pathname: on Windows the pathname is "/C:/..." with
+// spaces left as %20. Same fix as forge/build-assets.mjs.
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 const runtime = require(path.join(HERE, '..', 'forge', 'src', 'runtime.js'));
 const assets = require(path.join(HERE, '..', 'forge', 'src', 'assets.js'));
 

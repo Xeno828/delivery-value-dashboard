@@ -93,7 +93,9 @@ def build_split(data_path: pathlib.Path, out_dir: pathlib.Path, bridge: str = No
         html, n = re.subn(pattern, replacement, html, count=1)
         if n != 1:
             sys.exit("src/index.html no longer matches the %s placeholder element" % name)
-        written.append((name, source.read_text(encoding="utf-8")))
+        # Bytes, not text: a text round trip rewrites line endings on Windows,
+        # and these are moved, not transformed.
+        written.append((name, source.read_bytes()))
 
     data = json.loads(data_path.read_text(encoding="utf-8"))
     html = html.replace("/* @@SEED@@ */", json.dumps(data, separators=(",", ":")))
@@ -120,9 +122,9 @@ def build_split(data_path: pathlib.Path, out_dir: pathlib.Path, bridge: str = No
         html = html.replace(tag, '<script src="%s"></script>\n  %s' % (bridge, tag), 1)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "index.html").write_text(html, encoding="utf-8")
+    (out_dir / "index.html").write_text(html, encoding="utf-8", newline="\n")
     for name, body in written:
-        (out_dir / name).write_text(body, encoding="utf-8")
+        (out_dir / name).write_bytes(body)
 
     total = len(html) + sum(len(b) for _, b in written)
     print("Split build -> %s — %d files, %d KB, %d issues baked in%s"
@@ -166,9 +168,11 @@ def main():
         return
 
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(html, encoding="utf-8")
+    # LF on every platform, so a build on Windows matches the committed file.
+    out.write_text(html, encoding="utf-8", newline="\n")
     print("Built %s — %d KB, %d issues baked in"
-          % (out, len(html) / 1024, len(json.loads((ROOT / args.data).read_text())["issues"])))
+          % (out, len(html) / 1024,
+             len(json.loads((ROOT / args.data).read_text(encoding="utf-8"))["issues"])))
 
 
 if __name__ == "__main__":

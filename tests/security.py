@@ -484,7 +484,9 @@ def server_checks():
         # both a browser and a live server, so the check belongs here.
         with sync_playwright() as pw2:
             br = pw2.chromium.launch()
-            pg = br.new_page()
+            # Pinned: the page formats dates in the browser's locale, and the
+            # check below spells the date the en-US way ("Aug 31").
+            pg = br.new_page(locale="en-US")
             pg.goto("http://127.0.0.1:%d/dist/delivery-value-dashboard.html" % port)
             pg.wait_for_timeout(1500)
             badge = (pg.text_content("#t-src") or "").strip()
