@@ -19,13 +19,16 @@ import { createRequire } from 'node:module';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 import { loadPyodide } from 'pyodide';
 
 const require = createRequire(import.meta.url);
 const { BOOT, writeSources } = require('./src/runtime.js');
 
-const HERE = path.dirname(new URL(import.meta.url).pathname);
+// fileURLToPath, not .pathname: on Windows the pathname is "/C:/..." with
+// spaces left as %20, which path.resolve turns into C:\C:\...
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
 const PYODIDE = path.join(HERE, 'node_modules', 'pyodide');
 const OUT = path.join(HERE, 'src', 'assets.js');

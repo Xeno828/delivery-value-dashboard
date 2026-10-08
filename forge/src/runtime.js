@@ -122,7 +122,9 @@ const sourcesFrom = (base) => {
     for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
       const p = path.join(d, entry.name);
       if (entry.isDirectory()) walk(p);
-      else out[path.relative(dir, p)] = fs.readFileSync(p, 'utf8');
+      // Keyed with '/', which is all Pyodide's filesystem knows: on Windows
+      // path.relative() separates with '\', and the module is not found.
+      else out[path.relative(dir, p).split(path.sep).join('/')] = fs.readFileSync(p, 'utf8');
     }
   };
   walk(dir);
