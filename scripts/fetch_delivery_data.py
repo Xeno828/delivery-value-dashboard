@@ -252,6 +252,25 @@ class Jira:
                 sprint = f["id"]
         return sp, sprint
 
+    #: The type Jira's own Flagged field is created with.
+    FLAG_TYPE = "com.atlassian.jira.plugin.system.customfieldtypes:multicheckboxes"
+
+    def find_flag_field(self, fields=None):
+        """Jira's flag: a custom field named Flagged, with a per-site id.
+
+        There is no system field called `flagged`, and asking for one returned
+        nothing for every issue — five flagged items on a real sprint read as
+        *0 flagged as impeded*. Matched by type and name together, so a site's
+        own *Flagged for review* checkbox is not read as an impediment; by name
+        alone only when nothing of Jira's type is called that.
+        """
+        if fields is None:
+            fields = self.get("/rest/api/3/field")
+        named = [f for f in fields or [] if (f.get("name") or "").strip().lower() == "flagged"]
+        typed = [f for f in named if (f.get("schema") or {}).get("custom") == self.FLAG_TYPE]
+        pick = (typed or named or [None])[0]
+        return pick.get("id") if pick else None
+
     #: The module keys the Forge app declares its own fields under. Mirrors
     #: BUSINESS_VALUE_KEY and VALUE_BASIS_KEY in `forge/src/jira.js`; ADR 0025
     #: and ADR 0027. Change one, change both.
@@ -530,9 +549,14 @@ def jira_pull(args):
     else:
         jql = args.jira_jql
 
+    flag_field = j.find_flag_field()
+    if not flag_field:
+        print("  note: no Flagged field on this site, so nothing reads as blocked.",
+              file=sys.stderr)
+
     fields = ["summary", "issuetype", "status", "assignee", "priority", "parent",
-              "created", "resolutiondate", "duedate", "labels", "flagged"]
-    for f in (sp_field, sprint_field):
+              "created", "resolutiondate", "duedate", "labels"]
+    for f in (sp_field, sprint_field, flag_field):
         if f:
             fields.append(f)
 
@@ -689,7 +713,8 @@ def jira_pull(args):
             "started": started,
             "resolved": resolved,
             "dueDate": d(f.get("duedate")),
-            "flagged": bool(f.get("flagged")),
+            # A list holding "Impediment" when flagged, null when not.
+            "flagged": bool(f.get(flag_field)) if flag_field else False,
             "addedMidSprint": mid,
             "labels": f.get("labels") or [],
             "url": "%s/browse/%s" % (j.url, it["key"]),
@@ -932,7 +957,11 @@ def jira_bundle(args):
             # As of the sprint's own end, never as of this fetch. `asOfDate` is
             # today for the active sprint and the completion date for a closed
             # one, which is exactly the boundary each row is a statement about.
-            board_history.append(history_row(iss, ctx["sprintName"], ctx["asOfDate"]))
+            # With its dates, so sprints that ran side by side are not later
+            # compared as if one followed the other.
+            board_history.append(history_row(iss, ctx["sprintName"], ctx["asOfDate"],
+                                             start_date=ctx.get("startDate"),
+                                             end_date=ctx.get("endDate")))
             by_ctx[cid] = {"burndown": build_burndown(iss, ctx),
                            "history": [], "releases": [], "dora": None}
 
@@ -984,7 +1013,8 @@ def build_history(issues, meta, previous, cfg=None):
     """
     hist = list((previous or {}).get("history") or [])
     row = history_row(issues, meta.get("sprintName") or date.today().isoformat(),
-                      meta.get("asOfDate") or date.today().isoformat())
+                      meta.get("asOfDate") or date.today().isoformat(),
+                      start_date=meta.get("startDate"), end_date=meta.get("endDate"))
     hist = [h for h in hist if h.get("sprint") != row["sprint"]]
     hist.append(row)
     # The window the config states, not a constant. Six was hardcoded here and

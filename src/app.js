@@ -307,6 +307,26 @@ function liveIssues(raw, id) {
   });
 }
 
+/** Where the issues on screen came from, as words for a basis line.
+ *
+ *  `meta.sourceLabel` is the *file's* own description, and the bundled demo
+ *  calls itself "Demo data (no live connection)" — so a sprint the server had
+ *  just handed over was said to come from no live connection, under a badge
+ *  reading Live. The connection is named when every issue in view came from
+ *  it, the file's label when none did, and both when the view mixes them. */
+function viewSource() {
+  const file = (S.data.meta || {}).sourceLabel || "the loaded dataset";
+  // An empty seed the connection replaced (the Forge build) is labelled for
+  // that connection on purpose — "this site's Jira" — so its label stands.
+  if (!S.live || LIVE_LAYER.dropPlaceholders) return file;
+  const fromLive = new Set(LIVE_LAYER.contexts.map(c => c.id).concat(Object.keys(LIVE_LAYER.issues)));
+  const issues = (S.view && S.view.issues) || [];
+  const live = issues.filter(i => fromLive.has(i.contextId)).length;
+  const conn = "the live connection (" + (S.live.label || S.live.source) + ")";
+  if (!issues.length || !live) return file;
+  return live === issues.length ? conn : file + " and " + conn;
+}
+
 /** Put what the connection added back onto a dataset rebuilt from the file. */
 function reapplyLive() {
   const L = LIVE_LAYER, d = S.data;
@@ -1180,6 +1200,32 @@ const FLOW_EFF_TARGET = 0.4;
 const noItems = what =>
   "No issues in this selection, so " + what + " — the evidence is absent, not noisy.";
 
+/** Said when a comparison between sprints is withheld because they overlapped.
+ *  `metrics.SIDE_BY_SIDE` is the same sentence; change one, change both. */
+const SIDE_BY_SIDE = "Sprints on this board ran side by side, so a sprint-to-sprint " +
+  "comparison would set one squad's sprint against another's — none is made, and " +
+  "the evidence is absent, not noisy.";
+
+/** Whether any two of these history rows' sprints overlapped in time.
+ *
+ *  Two squads on one board run sprints in parallel, and their rows sit in the
+ *  series one after another as if consecutive. "Last sprint" was then the
+ *  other squad's, and the three-sprint average was three squads' sprints of
+ *  about 9 items each — so the merged sprint that followed, both squads' work
+ *  in one, read as *292% above recent actuals*. Strict overlap: a sprint that
+ *  starts the day another ends follows it. Undated rows never overlap.
+ *  Mirrors `metrics.ran_side_by_side`; change one, change both. */
+function ranSideBySide(rows) {
+  const dated = (rows || []).filter(r => r && r.startDate && r.endDate)
+    .map(r => [r.startDate, r.endDate]).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  let latest = null;
+  for (const [s, e] of dated) {
+    if (latest !== null && s < latest) return true;
+    if (latest === null || e > latest) latest = e;
+  }
+  return false;
+}
+
 function derive(items) {
   const now = asOf(), end = S.view.meta.endDate;
   /* A filter is a filter when it narrows the selection. Find = "BLC-4" matched
@@ -1193,7 +1239,11 @@ function derive(items) {
   const cycle = closedTimed.map(i => days(i.started, i.resolved));
   const lead = closedTimed.map(i => days(i.created, i.resolved));
   const hist = S.view.history || [];
-  const prev = hist.length > 1 ? hist[hist.length - 2] : null;
+  // No "last sprint" and no trailing average when the sprints compared ran
+  // side by side: the delta and the average both set one squad against
+  // another. Withheld and named, like any figure that could not be measured.
+  const sideBySide = ranSideBySide(hist.slice(-4));
+  const prev = hist.length > 1 && !sideBySide ? hist[hist.length - 2] : null;
   const cur = hist.length ? hist[hist.length - 1] : null;
   const hk = U().hist("completed");
   // The completed sprints before this one, at most three. `slice(-4, -1)` yields
@@ -1203,7 +1253,8 @@ function derive(items) {
   // presented the average of a single sprint as a three-sprint average. A
   // figure with a false basis is this repository's worst failure mode: it does
   // not fail, it reads as computed.
-  const recent = hist.slice(-4, -1).map(h => (h[hk] != null ? h[hk] : h.completedSP)).filter(v => v != null);
+  const recent = sideBySide ? []
+    : hist.slice(-4, -1).map(h => (h[hk] != null ? h[hk] : h.completedSP)).filter(v => v != null);
   const recentAvg = recent.length ? sum(recent) / recent.length : null;
   const recentAvgN = recent.length;
 
@@ -1238,7 +1289,7 @@ function derive(items) {
        value into a sprint whose own items were all still open. Two sets, one
        subtraction, no meaning. */
     valueDone: (S.view.valuePool || []).filter(i => i.statusCategory === "Done"),
-    prev, cur, recentAvg, recentAvgN
+    prev, cur, recentAvg, recentAvgN, sideBySide
   };
   /* An empty selection is a refusal, not a zero. Everything downstream that
      would state a figure over these items checks this rather than printing the
@@ -2017,7 +2068,7 @@ function renderExec(m) {
        fix is one click away in the filter row. A basis that names the wrong
        cause is the failure ADR 0010 describes for the health score's
        disclosure, one card up. */
-    const loaded = S.view.issues.length, src = esc(meta.sourceLabel || "the loaded dataset");
+    const loaded = S.view.issues.length, src = esc(viewSource());
     $("#exec-basis").innerHTML = (loaded && Object.values(S.filters).some(Boolean)
       ? "No issues match the current filters among the " + loaded + " loaded from " + src +
         ", as at " + fmtD(asOf()) + ". Clear a filter to bring them back. "
@@ -2081,7 +2132,7 @@ function renderExec(m) {
 
   $("#exec-basis").innerHTML = "Based on " + m.total + " issues" +
     (Object.values(S.filters).some(Boolean) ? " <b>matching the current filters</b>" : "") +
-    " from " + esc(meta.sourceLabel || "the loaded dataset") + ", as at " + fmtD(asOf()) +
+    " from " + esc(viewSource()) + ", as at " + fmtD(asOf()) +
     ". Percentages are of " + U().label + " — switch the measure in the filter row to read them the other way.";
 
   const pts = [];
@@ -2143,7 +2194,11 @@ function renderExec(m) {
         " against a " + sprintsWord(m.recentAvgN) + " average delivery of " + U().fmt(m.recentAvg) + " " + U().n(m.recentAvg) + ".",
         "A commitment " + Math.round((commit / m.recentAvg - 1) * 100) + "% above recent actuals is a forecasting problem, not a work-rate problem. It will read as failure whatever the team does.", null);
   }
-  const wipSeries = hist.slice(-3).map(h => h.wipItems).filter(v => v != null);
+  if (m.sideBySide && !m.isRollup)
+    add("info", "No sprint-to-sprint comparison is made for this board.", SIDE_BY_SIDE, null);
+  // The same three rows, so the same rule: one squad's WIP rising against
+  // another's is not a trend.
+  const wipSeries = m.sideBySide ? [] : hist.slice(-3).map(h => h.wipItems).filter(v => v != null);
   const thrSeries = hist.slice(-3).map(h => (h.completedItems != null ? h.completedItems : h.throughput))
     .filter(v => v != null);
   if (wipSeries.length === 3 && thrSeries.length === 3 &&
@@ -3168,7 +3223,11 @@ function renderPred(m) {
     '<div class="note" style="margin-top:8px">Average hit rate <b>' + (avg == null ? "—" : pct(avg)) + "</b> over " +
     finished.length + " finished sprint" + (finished.length === 1 ? "" : "s") +
     (running ? ", the running one left out" : "") + "; completed output swings by <b>" +
-    U().fmt(spread) + " " + U().n(spread) + "</b> between the best and worst sprint. A commitment set from " + sprintsBasis(m.recentAvgN) + " (<b>" +
+    U().fmt(spread) + " " + U().n(spread) + "</b> between the best and worst sprint." +
+    // Withheld, not "(—)": a sentence recommending an average the page refused
+    // to compute recommends nothing and reads as a missing number.
+    (m.sideBySide ? " " + esc(SIDE_BY_SIDE) :
+    " A commitment set from " + sprintsBasis(m.recentAvgN) + " (<b>" +
     (m.recentAvg ? U().fmt(m.recentAvg) + " " + U().label : "—") + "</b>) would be met far more often than one set from ambition." +
     // The same count again, in the clause that describes the same average. This
     // said "a mean of three numbers" beside a figure the line above had just
@@ -3176,7 +3235,7 @@ function renderPred(m) {
     // half of a sentence and left standing in the other.
     (U().isItems ? " The forecasting agent sizes this properly — a distribution over simulated sprints rather than " +
       (m.recentAvgN === 1 ? "the mean of a single sprint"
-        : "a mean of " + (m.recentAvgN === 2 ? "two" : "three") + " numbers") + "." : "") + "</div>" +
+        : "a mean of " + (m.recentAvgN === 2 ? "two" : "three") + " numbers") + "." : "")) + "</div>" +
     seriesNoteHtml();
   S.tables.pred = { cols: ["Sprint", "Committed items", "Completed items", "Committed pts", "Completed pts",
       "Hit rate (" + U().short + ")", "Flow efficiency"],
@@ -5639,7 +5698,7 @@ function render() {
      not printing it — at 0.45 the refusals were the only text on screen and
      the only text failing AA contrast. */
   const nctx = (S.data.contexts || []).length;
-  $("#foot").innerHTML = "Generated from " + esc(S.data.meta.sourceLabel || "loaded data") + " · " +
+  $("#foot").innerHTML = "Generated from " + esc(viewSource()) + " · " +
     S.data.issues.length + " issues across " + nctx + " sprint" + (nctx === 1 ? "" : "s") +
     // The filtered count against the loaded one. "showing 22" beside a
     // selection a search had emptied was a count of what the filter had

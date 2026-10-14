@@ -1142,6 +1142,12 @@ def transports(b):
         n_ctx = page.evaluate("() => window.DVD.data.contexts.length")
         CAT = ("([id, s]) => window.DVD.data.issues.filter(i => i.contextId === id && i.status === s)"
                ".map(i => i.statusCategory)")
+        # The narrative's basis line read the *baked file's* label, so a sprint
+        # the server had just handed over was described as coming from "Demo
+        # data (no live connection)" — under a badge that said Live.
+        basis = page.inner_text("#exec-basis")
+        check("the narrative names the connection a live sprint came from",
+              "no live connection" not in basis and "live connection" in basis, basis[:160])
         check("the live sprint carries a status the server calls In Progress",
               set(page.evaluate(CAT, [cid, "In Progress"])) == {"In Progress"},
               page.evaluate(CAT, [cid, "In Progress"]))
@@ -2826,6 +2832,33 @@ def main():
               [r["status"] for r in page.evaluate("() => window.DVD.inferredStatuses()")]
               == ["Accepted", "Peer read", "Ready to Deploy"],
               page.evaluate("() => window.DVD.inferredStatuses()"))
+
+        # ---------- sprints that ran side by side are not a sequence ----------
+        #
+        # Two squads' sprints sat in the series as if one followed the other, so
+        # a merged sprint (34 items, both squads' work) was set against three
+        # separate squads' sprints of about 9: "292% above recent actuals", and
+        # "14 done vs 10 last sprint" against one squad's sprint alone.
+        sbs = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        dates = [("2026-09-09", "2026-09-21"), ("2026-09-09", "2026-09-21"),
+                 ("2026-09-23", "2026-10-05"), ("2026-09-23", "2026-10-05"),
+                 ("2026-10-07", "2026-10-20")]
+        sbs["history"] = [{"sprint": "S%d" % n, "committedItems": 34 if n == 4 else 20,
+                           "completedItems": 9, "throughput": 9, "committedSP": 80,
+                           "completedSP": 20, "wipItems": 5 + n, "unplannedItems": 0,
+                           "startDate": s, "endDate": e} for n, (s, e) in enumerate(dates)]
+        page.evaluate("d => window.DVD.applyDataset(d)", sbs)
+        page.wait_for_timeout(700)
+        kpis, verdict = page.inner_text("#kpis"), page.inner_text("#c-exec")
+        pred = page.inner_text("#c-pred")
+        check("side-by-side sprints get no 'vs last sprint' delta",
+              "last sprint" not in kpis, kpis[:160])
+        check("and no commitment set against their average",
+              "above recent actuals" not in verdict, verdict[:200])
+        check("and the narrative says why rather than going quiet",
+              "side by side" in verdict, verdict[:200])
+        check("the predictability tile says the same instead of recommending a dash",
+              "side by side" in pred and "(—)" not in pred, pred[-220:])
 
         # The checks below were written against `ds` and read the page's live
         # config, and every block since has loaded a dataset of its own. Put it

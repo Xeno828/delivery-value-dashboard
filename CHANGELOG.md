@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.79.52
+
+**Three more, found preparing a recording on the same board.** Two of them would have put a wrong sentence in front of the business, and one a reassuring zero.
+
+**The flag is read from the site's Flagged field.** The fetcher asked Jira for `fields.flagged`, and no Jira has a system field by that name: the flag is a custom field called *Flagged* whose id differs per site, like story points. Every issue therefore read as unflagged, and a sprint with five flagged items said *0 flagged as impeded*. `Jira.find_flag_field()` finds it by Jira's own field type and the name together, so a site's *Flagged for review* checkbox is not read as an impediment, and by name alone only when nothing of Jira's type is called that. A site with no such field is told so at the end of the run. `forge/src/jira.js` reads `f.flagged` too and is not changed here.
+
+**Sprints that ran side by side are not compared as a sequence.** Two squads on one board ran sprints in parallel until they merged, and their rows sat in the trend series one after another as if one followed the other. So *vs last sprint* was the other squad's sprint — *14 done vs 10 last sprint* against one squad when both had finished 20 — and the three-sprint average was three separate squads' sprints of about 9 items, against which the merged sprint, both squads' work in one, read *292% above recent actuals*: an over-commitment that was two squads becoming one. History rows now carry their sprint's dates (`metrics.history_row(start_date=, end_date=)`, passed by the fetcher and by `history_series`), and where any of the last four overlapped, the delta, the trailing average, the commitment warning and the work-in-progress trend are withheld and the narrative and the predictability tile say why, in one sentence held in `metrics.SIDE_BY_SIDE` and its mirror in `src/app.js`. Overlap is strict — a sprint starting the day another ends follows it — and rows without dates are compared exactly as before, because nothing says they overlapped. Summing concurrent sprints into periods would answer the question rather than withhold it; it is not done here, because it changes what "this sprint" means on a squad's own view.
+
+**The narrative names the source of the issues on screen.** Its basis line and the footer read the baked file's `meta.sourceLabel`, and the bundled demo calls itself *Demo data (no live connection)* — so a sprint the server had just handed over was said to come from no live connection, under a badge reading Live. `viewSource()` names the connection when every issue in view came from it, the file's label when none did, and both when the view mixes them; an empty seed the connection replaced keeps its own label, since the Forge build labels it for that connection on purpose.
+
 ## 1.79.51
 
 **Four plausible wrong numbers, found by pointing the fetcher at a real board.** Every one of them returned a figure rather than failing, which is the class `CLAUDE.md` asks to be said loudly.
