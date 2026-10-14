@@ -361,9 +361,9 @@ class JiraBackend:
                 # how a 403 from a missing scope once presented as "this board
                 # has no sprints", which the Forge resolver paid a deploy cycle
                 # for. See `sprintsFor()` in forge/src/index.js.
+                # Every page: one page is the board's oldest fifty sprints.
                 try:
-                    data = self.j.get("/rest/agile/1.0/board/%s/sprint" % b,
-                                      state="active,closed")
+                    listed = self.j.board_sprints(b, "active,closed")
                 except Exception as err:            # noqa: BLE001 — re-raised below
                     if getattr(getattr(err, "response", None), "status_code", None) != 400:
                         raise
@@ -371,7 +371,7 @@ class JiraBackend:
                                             proj.get("projectName"), days, as_of)
                                for days in WINDOW_DAYS)
                     continue
-                sprints = sorted(data.get("values") or [],
+                sprints = sorted(listed,
                                  key=lambda s: s.get("startDate") or "", reverse=True)[:self.sprints]
                 for sp in sprints:
                     out.append({

@@ -1124,6 +1124,68 @@ def transports(b):
               not missing, missing)
         page.close()
 
+        # ---------- a workflow change keeps what the connection added ----------
+        #
+        # applyWorkflow re-derived from S.pristine, the file as it arrived, and
+        # everything the connection had added since — its sprints, their issues,
+        # the config it handed over — lived only in S.data. So setting the
+        # workflow on a live sprint threw the sprint away and landed on the
+        # baked demo, and a reload to get it back lost the mapping. And a sprint
+        # loaded *after* the mapping kept the server's own categories, because
+        # normaliseIssue keeps a category the producer resolved.
+        cid2 = contexts_body["contexts"][1]["id"]
+        page = b.new_page(viewport={"width": 1500, "height": 1000})
+        page.goto(url)
+        page.wait_for_timeout(1200)
+        page.evaluate("id => window.DVD.debug.selectContext(id)", cid)
+        page.wait_for_timeout(1500)
+        n_ctx = page.evaluate("() => window.DVD.data.contexts.length")
+        CAT = ("([id, s]) => window.DVD.data.issues.filter(i => i.contextId === id && i.status === s)"
+               ".map(i => i.statusCategory)")
+        # The narrative's basis line read the *baked file's* label, so a sprint
+        # the server had just handed over was described as coming from "Demo
+        # data (no live connection)" — under a badge that said Live.
+        basis = page.inner_text("#exec-basis")
+        check("the narrative names the connection a live sprint came from",
+              "no live connection" not in basis and "live connection" in basis, basis[:160])
+        check("the live sprint carries a status the server calls In Progress",
+              set(page.evaluate(CAT, [cid, "In Progress"])) == {"In Progress"},
+              page.evaluate(CAT, [cid, "In Progress"]))
+
+        page.click("#btn-workflow")
+        page.wait_for_timeout(250)
+        page.select_option("#wf-pop select[data-wf='In Progress']", "Done")
+        page.click("#wf-apply")
+        page.wait_for_timeout(1000)
+        check("applying a workflow stays on the live sprint it was set on",
+              page.evaluate("() => window.DVD.debug.view().ctx.id") == cid,
+              page.evaluate("() => window.DVD.debug.view().ctx.id"))
+        check("and keeps every sprint the connection offered",
+              page.evaluate("() => window.DVD.data.contexts.length") == n_ctx,
+              (n_ctx, page.evaluate("() => window.DVD.data.contexts.length")))
+        check("and re-derives the live sprint's issues under the reader's mapping",
+              set(page.evaluate(CAT, [cid, "In Progress"])) == {"Done"},
+              page.evaluate(CAT, [cid, "In Progress"]))
+
+        page.evaluate("id => window.DVD.debug.selectContext(id)", cid2)
+        page.wait_for_timeout(1500)
+        check("a sprint loaded after the mapping is read under it, not the server's",
+              set(page.evaluate(CAT, [cid2, "In Progress"])) == {"Done"},
+              page.evaluate(CAT, [cid2, "In Progress"]))
+
+        page.click("#btn-workflow")
+        page.wait_for_timeout(250)
+        page.click("#wf-reset")
+        page.wait_for_timeout(1000)
+        check("reset stays on the live sprint too",
+              page.evaluate("() => window.DVD.debug.view().ctx.id") == cid2,
+              page.evaluate("() => window.DVD.debug.view().ctx.id"))
+        check("and puts the server's own categories back",
+              set(page.evaluate(CAT, [cid2, "In Progress"])) == {"In Progress"}
+              and set(page.evaluate(CAT, [cid, "In Progress"])) == {"In Progress"},
+              (page.evaluate(CAT, [cid, "In Progress"]), page.evaluate(CAT, [cid2, "In Progress"])))
+        page.close()
+
         # ---------- the value tile counts against its own pool ----------
         #
         # Items and value are counted from two different sets (ADR 0026), and
@@ -2686,12 +2748,18 @@ def main():
         # prevent — and it has nowhere to live, since this page may use no
         # browser storage.
         ed = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        # "Ready to Deploy" is the producer's: the tracker calls it In Progress,
+        # and the words in its name read as To Do. The popover offered the name.
         ed["orgConfig"] = OC.merge(OC.DEFAULTS, {
-            "statuses": {"done": ["Done"], "inProgress": ["In Progress"]}})
+            "statuses": {"done": ["Done"], "inProgress": ["In Progress"]},
+            "inferredStatuses": [{"status": "Ready to Deploy", "readAs": "In Progress",
+                                  "from": "the tracker's own category"}]})
         ed["issues"] = [
             dict(ed["issues"][0], key="ED-1", status="Accepted", statusCategory="In Progress",
                  statusTransitions=[{"to": "Peer read", "at": "2026-08-04"}]),
             dict(ed["issues"][0], key="ED-2", status="In Progress", statusCategory="In Progress",
+                 statusTransitions=[]),
+            dict(ed["issues"][0], key="ED-3", status="Ready to Deploy", statusCategory="In Progress",
                  statusTransitions=[]),
         ]
         page.evaluate("d => window.DVD.applyDataset(d)", ed)
@@ -2712,10 +2780,21 @@ def main():
         # a reader came to check.
         check("and generic config defaults this board never uses are not",
               "Doing" not in offered and "Shipped" not in offered, offered)
+        # The popover's starting answer is what the issues already say. It used
+        # the words in the name, so applying one change moved every status whose
+        # name read differently from the tracker's category — figures nobody had
+        # touched, changed by an Apply about something else.
+        rtd = page.eval_on_selector("#wf-pop select[data-wf='Ready to Deploy']", "s => s.value")
+        check("each status starts as the category the data gave it, not its name's",
+              rtd == "In Progress", rtd)
 
         page.select_option("#wf-pop select[data-wf='Accepted']", "Done")
         page.click("#wf-apply")
         page.wait_for_timeout(800)
+        cat3 = page.evaluate(
+            "() => window.DVD.data.issues.filter(i => i.key === 'ED-3')[0].statusCategory")
+        check("so applying one change leaves the statuses nobody changed where they were",
+              cat3 == "In Progress", cat3)
 
         cfg_after = page.evaluate("() => window.DVD.orgConfig()")
         check("the reader's answer goes into the dataset's own config",
@@ -2751,8 +2830,35 @@ def main():
               back["statuses"])
         check("and the inferred disclosure comes back with it",
               [r["status"] for r in page.evaluate("() => window.DVD.inferredStatuses()")]
-              == ["Accepted", "Peer read"],
+              == ["Accepted", "Peer read", "Ready to Deploy"],
               page.evaluate("() => window.DVD.inferredStatuses()"))
+
+        # ---------- sprints that ran side by side are not a sequence ----------
+        #
+        # Two squads' sprints sat in the series as if one followed the other, so
+        # a merged sprint (34 items, both squads' work) was set against three
+        # separate squads' sprints of about 9: "292% above recent actuals", and
+        # "14 done vs 10 last sprint" against one squad's sprint alone.
+        sbs = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        dates = [("2026-09-09", "2026-09-21"), ("2026-09-09", "2026-09-21"),
+                 ("2026-09-23", "2026-10-05"), ("2026-09-23", "2026-10-05"),
+                 ("2026-10-07", "2026-10-20")]
+        sbs["history"] = [{"sprint": "S%d" % n, "committedItems": 34 if n == 4 else 20,
+                           "completedItems": 9, "throughput": 9, "committedSP": 80,
+                           "completedSP": 20, "wipItems": 5 + n, "unplannedItems": 0,
+                           "startDate": s, "endDate": e} for n, (s, e) in enumerate(dates)]
+        page.evaluate("d => window.DVD.applyDataset(d)", sbs)
+        page.wait_for_timeout(700)
+        kpis, verdict = page.inner_text("#kpis"), page.inner_text("#c-exec")
+        pred = page.inner_text("#c-pred")
+        check("side-by-side sprints get no 'vs last sprint' delta",
+              "last sprint" not in kpis, kpis[:160])
+        check("and no commitment set against their average",
+              "above recent actuals" not in verdict, verdict[:200])
+        check("and the narrative says why rather than going quiet",
+              "side by side" in verdict, verdict[:200])
+        check("the predictability tile says the same instead of recommending a dash",
+              "side by side" in pred and "(—)" not in pred, pred[-220:])
 
         # The checks below were written against `ds` and read the page's live
         # config, and every block since has loaded a dataset of its own. Put it

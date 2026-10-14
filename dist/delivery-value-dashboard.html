@@ -1324,6 +1324,82 @@ function inferredStatuses() {
  */
 let EDITING = false;
 
+/** What the connection added on top of the file, kept so a rebuild can put it
+ *  back.
+ *
+ *  `S.pristine` is the file as it arrived, and the connection never touches it:
+ *  `probeLive` and `loadContext` add their sprints, issues and config to
+ *  `S.data` alone. Re-deriving from the pristine copy alone threw all of that
+ *  away — set the workflow on a live sprint and the page landed on the baked
+ *  demo, and the reload that brought the sprint back lost the mapping. Raw
+ *  issues are kept, not normalised ones, because a rebuild re-reads them under
+ *  whichever mapping is now in force. Cleared with every new dataset, so an
+ *  upload still replaces what was on screen. */
+const LIVE_LAYER = { orgConfig: null, contexts: [], patches: {}, byContext: {},
+                     issues: {}, dropPlaceholders: false };
+
+function resetLiveLayer() {
+  Object.assign(LIVE_LAYER, { orgConfig: null, contexts: [], patches: {}, byContext: {},
+                              issues: {}, dropPlaceholders: false });
+}
+
+/** One live context's raw issues, read under the config now in force.
+ *
+ *  Under a reader's mapping the producer's category goes, here as in
+ *  `applyWorkflow`: a sprint loaded *after* the mapping kept the server's own
+ *  answer otherwise, and the mapping held only for what was on screen when it
+ *  was set. */
+function liveIssues(raw, id) {
+  const stated = workflowIsReaders();
+  return (raw || []).map(i => {
+    const src = JSON.parse(JSON.stringify(i));
+    if (stated) delete src.statusCategory;
+    const o = normaliseIssue(src, S.data.meta, S.data.orgConfig);
+    o.contextId = id;                         // never let normalise() re-tag these
+    return o;
+  });
+}
+
+/** Where the issues on screen came from, as words for a basis line.
+ *
+ *  `meta.sourceLabel` is the *file's* own description, and the bundled demo
+ *  calls itself "Demo data (no live connection)" — so a sprint the server had
+ *  just handed over was said to come from no live connection, under a badge
+ *  reading Live. The connection is named when every issue in view came from
+ *  it, the file's label when none did, and both when the view mixes them. */
+function viewSource() {
+  const file = (S.data.meta || {}).sourceLabel || "the loaded dataset";
+  // An empty seed the connection replaced (the Forge build) is labelled for
+  // that connection on purpose — "this site's Jira" — so its label stands.
+  if (!S.live || LIVE_LAYER.dropPlaceholders) return file;
+  const fromLive = new Set(LIVE_LAYER.contexts.map(c => c.id).concat(Object.keys(LIVE_LAYER.issues)));
+  const issues = (S.view && S.view.issues) || [];
+  const live = issues.filter(i => fromLive.has(i.contextId)).length;
+  const conn = "the live connection (" + (S.live.label || S.live.source) + ")";
+  if (!issues.length || !live) return file;
+  return live === issues.length ? conn : file + " and " + conn;
+}
+
+/** Put what the connection added back onto a dataset rebuilt from the file. */
+function reapplyLive() {
+  const L = LIVE_LAYER, d = S.data;
+  if (L.dropPlaceholders) {
+    d.contexts.filter(c => c.placeholder).forEach(c => { delete d.byContext[c.id]; });
+    d.contexts = d.contexts.filter(c => !c.placeholder);
+  }
+  L.contexts.forEach(c => {
+    if (!d.contexts.some(x => x.id === c.id)) d.contexts.push(c);
+    if (!d.byContext[c.id]) d.byContext[c.id] = { burndown: [], history: [], releases: [], dora: null };
+  });
+  Object.keys(L.issues).forEach(id => {
+    const fresh = liveIssues(L.issues[id], id);
+    d.issues = d.issues.filter(i => i.contextId !== id).concat(fresh);
+    const c = d.contexts.find(x => x.id === id);
+    if (c) { Object.assign(c, L.patches[id] || {}); delete c.stub; c.issueCount = fresh.length; }
+    d.byContext[id] = L.byContext[id];
+  });
+}
+
 /** Every status this board's data mentions.
  *
  *  Read off the data rather than the config, the same way the type filter is.
@@ -1361,8 +1437,9 @@ function applyWorkflow(mapping) {
   });
   // No `toDo` list: To Do is the residual, here and in orgconfig.py. A status
   // the reader marked To Do is named by being in neither list, which is the
-  // same statement the config file makes.
-  src.orgConfig = Object.assign({}, src.orgConfig || {}, {
+  // same statement the config file makes. The base is the server's config
+  // where the page adopted one (probeLive), not the file's.
+  src.orgConfig = Object.assign({}, LIVE_LAYER.orgConfig || src.orgConfig || {}, {
     statuses: { done: done, inProgress: wip },
     // Nothing is inferred once a person has said what each status means, and
     // saying "inferred" over a stated mapping would be false. What replaces it
@@ -1372,15 +1449,17 @@ function applyWorkflow(mapping) {
   });
   (src.issues || []).forEach(i => { delete i.statusCategory; });
   EDITING = true;
-  try { S.data = normalise(src); } finally { EDITING = false; }
+  try { S.data = normalise(src); reapplyLive(); } finally { EDITING = false; }
   render();
 }
 
-/** Back to the file as received, mapping and all. */
+/** Back to the file as received, mapping and all — and to the connection's
+ *  config and sprints, where it handed some over. */
 function resetWorkflow() {
   const src = JSON.parse(JSON.stringify(S.pristine));
+  if (LIVE_LAYER.orgConfig) src.orgConfig = JSON.parse(JSON.stringify(LIVE_LAYER.orgConfig));
   EDITING = true;
-  try { S.data = normalise(src); } finally { EDITING = false; }
+  try { S.data = normalise(src); reapplyLive(); } finally { EDITING = false; }
   render();
 }
 
@@ -1399,10 +1478,18 @@ function paintWorkflow() {
         " this board uses " + (rows.length === 1 ? "is" : "are") + " not named in the organisation config"
       : "What each status on this board means";
 
-  const cat = {};
-  boardStatuses().forEach(n => { cat[n] = statusCategoryOf(n, ORG()); });
   const inferredOf = {};
   rows.forEach(r => { inferredOf[normStatus(r.status)] = r; });
+  // Each row starts as what the issues already say. For a status the config
+  // does not name that is the producer's reading — often the tracker's own
+  // category — and only failing that the words in the name. Starting from the
+  // name made one Apply move every status whose name read differently from its
+  // category: "Ready to Deploy" went from In Progress to To Do, unasked.
+  const cat = {};
+  boardStatuses().forEach(n => {
+    const inf = inferredOf[normStatus(n)];
+    cat[n] = (inf && inf.readAs) || statusCategoryOf(n, ORG());
+  });
 
   pop.innerHTML =
     '<h2 id="wf-h">What each status means on this board</h2>' +
@@ -1767,7 +1854,7 @@ function normalise(d) {
   // The dataset exactly as it arrived, captured before anything below mutates
   // it. A workflow change re-derives from this rather than from figures already
   // computed under the answer it replaces, and "Reset to the file" needs it.
-  if (!EDITING) S.pristine = JSON.parse(JSON.stringify(d));
+  if (!EDITING) { S.pristine = JSON.parse(JSON.stringify(d)); resetLiveLayer(); }
   d.orgConfig = orgConfigOf(d);
   // A fresh record per dataset, the way the Python builds a fresh Statuses per
   // run. Without it a second upload reports the first file's statuses.
@@ -2166,6 +2253,32 @@ const FLOW_EFF_TARGET = 0.4;
 const noItems = what =>
   "No issues in this selection, so " + what + " — the evidence is absent, not noisy.";
 
+/** Said when a comparison between sprints is withheld because they overlapped.
+ *  `metrics.SIDE_BY_SIDE` is the same sentence; change one, change both. */
+const SIDE_BY_SIDE = "Sprints on this board ran side by side, so a sprint-to-sprint " +
+  "comparison would set one squad's sprint against another's — none is made, and " +
+  "the evidence is absent, not noisy.";
+
+/** Whether any two of these history rows' sprints overlapped in time.
+ *
+ *  Two squads on one board run sprints in parallel, and their rows sit in the
+ *  series one after another as if consecutive. "Last sprint" was then the
+ *  other squad's, and the three-sprint average was three squads' sprints of
+ *  about 9 items each — so the merged sprint that followed, both squads' work
+ *  in one, read as *292% above recent actuals*. Strict overlap: a sprint that
+ *  starts the day another ends follows it. Undated rows never overlap.
+ *  Mirrors `metrics.ran_side_by_side`; change one, change both. */
+function ranSideBySide(rows) {
+  const dated = (rows || []).filter(r => r && r.startDate && r.endDate)
+    .map(r => [r.startDate, r.endDate]).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  let latest = null;
+  for (const [s, e] of dated) {
+    if (latest !== null && s < latest) return true;
+    if (latest === null || e > latest) latest = e;
+  }
+  return false;
+}
+
 function derive(items) {
   const now = asOf(), end = S.view.meta.endDate;
   /* A filter is a filter when it narrows the selection. Find = "BLC-4" matched
@@ -2179,7 +2292,11 @@ function derive(items) {
   const cycle = closedTimed.map(i => days(i.started, i.resolved));
   const lead = closedTimed.map(i => days(i.created, i.resolved));
   const hist = S.view.history || [];
-  const prev = hist.length > 1 ? hist[hist.length - 2] : null;
+  // No "last sprint" and no trailing average when the sprints compared ran
+  // side by side: the delta and the average both set one squad against
+  // another. Withheld and named, like any figure that could not be measured.
+  const sideBySide = ranSideBySide(hist.slice(-4));
+  const prev = hist.length > 1 && !sideBySide ? hist[hist.length - 2] : null;
   const cur = hist.length ? hist[hist.length - 1] : null;
   const hk = U().hist("completed");
   // The completed sprints before this one, at most three. `slice(-4, -1)` yields
@@ -2189,7 +2306,8 @@ function derive(items) {
   // presented the average of a single sprint as a three-sprint average. A
   // figure with a false basis is this repository's worst failure mode: it does
   // not fail, it reads as computed.
-  const recent = hist.slice(-4, -1).map(h => (h[hk] != null ? h[hk] : h.completedSP)).filter(v => v != null);
+  const recent = sideBySide ? []
+    : hist.slice(-4, -1).map(h => (h[hk] != null ? h[hk] : h.completedSP)).filter(v => v != null);
   const recentAvg = recent.length ? sum(recent) / recent.length : null;
   const recentAvgN = recent.length;
 
@@ -2224,7 +2342,7 @@ function derive(items) {
        value into a sprint whose own items were all still open. Two sets, one
        subtraction, no meaning. */
     valueDone: (S.view.valuePool || []).filter(i => i.statusCategory === "Done"),
-    prev, cur, recentAvg, recentAvgN
+    prev, cur, recentAvg, recentAvgN, sideBySide
   };
   /* An empty selection is a refusal, not a zero. Everything downstream that
      would state a figure over these items checks this rather than printing the
@@ -3003,7 +3121,7 @@ function renderExec(m) {
        fix is one click away in the filter row. A basis that names the wrong
        cause is the failure ADR 0010 describes for the health score's
        disclosure, one card up. */
-    const loaded = S.view.issues.length, src = esc(meta.sourceLabel || "the loaded dataset");
+    const loaded = S.view.issues.length, src = esc(viewSource());
     $("#exec-basis").innerHTML = (loaded && Object.values(S.filters).some(Boolean)
       ? "No issues match the current filters among the " + loaded + " loaded from " + src +
         ", as at " + fmtD(asOf()) + ". Clear a filter to bring them back. "
@@ -3067,7 +3185,7 @@ function renderExec(m) {
 
   $("#exec-basis").innerHTML = "Based on " + m.total + " issues" +
     (Object.values(S.filters).some(Boolean) ? " <b>matching the current filters</b>" : "") +
-    " from " + esc(meta.sourceLabel || "the loaded dataset") + ", as at " + fmtD(asOf()) +
+    " from " + esc(viewSource()) + ", as at " + fmtD(asOf()) +
     ". Percentages are of " + U().label + " — switch the measure in the filter row to read them the other way.";
 
   const pts = [];
@@ -3129,7 +3247,11 @@ function renderExec(m) {
         " against a " + sprintsWord(m.recentAvgN) + " average delivery of " + U().fmt(m.recentAvg) + " " + U().n(m.recentAvg) + ".",
         "A commitment " + Math.round((commit / m.recentAvg - 1) * 100) + "% above recent actuals is a forecasting problem, not a work-rate problem. It will read as failure whatever the team does.", null);
   }
-  const wipSeries = hist.slice(-3).map(h => h.wipItems).filter(v => v != null);
+  if (m.sideBySide && !m.isRollup)
+    add("info", "No sprint-to-sprint comparison is made for this board.", SIDE_BY_SIDE, null);
+  // The same three rows, so the same rule: one squad's WIP rising against
+  // another's is not a trend.
+  const wipSeries = m.sideBySide ? [] : hist.slice(-3).map(h => h.wipItems).filter(v => v != null);
   const thrSeries = hist.slice(-3).map(h => (h.completedItems != null ? h.completedItems : h.throughput))
     .filter(v => v != null);
   if (wipSeries.length === 3 && thrSeries.length === 3 &&
@@ -4154,7 +4276,11 @@ function renderPred(m) {
     '<div class="note" style="margin-top:8px">Average hit rate <b>' + (avg == null ? "—" : pct(avg)) + "</b> over " +
     finished.length + " finished sprint" + (finished.length === 1 ? "" : "s") +
     (running ? ", the running one left out" : "") + "; completed output swings by <b>" +
-    U().fmt(spread) + " " + U().n(spread) + "</b> between the best and worst sprint. A commitment set from " + sprintsBasis(m.recentAvgN) + " (<b>" +
+    U().fmt(spread) + " " + U().n(spread) + "</b> between the best and worst sprint." +
+    // Withheld, not "(—)": a sentence recommending an average the page refused
+    // to compute recommends nothing and reads as a missing number.
+    (m.sideBySide ? " " + esc(SIDE_BY_SIDE) :
+    " A commitment set from " + sprintsBasis(m.recentAvgN) + " (<b>" +
     (m.recentAvg ? U().fmt(m.recentAvg) + " " + U().label : "—") + "</b>) would be met far more often than one set from ambition." +
     // The same count again, in the clause that describes the same average. This
     // said "a mean of three numbers" beside a figure the line above had just
@@ -4162,7 +4288,7 @@ function renderPred(m) {
     // half of a sentence and left standing in the other.
     (U().isItems ? " The forecasting agent sizes this properly — a distribution over simulated sprints rather than " +
       (m.recentAvgN === 1 ? "the mean of a single sprint"
-        : "a mean of " + (m.recentAvgN === 2 ? "two" : "three") + " numbers") + "." : "") + "</div>" +
+        : "a mean of " + (m.recentAvgN === 2 ? "two" : "three") + " numbers") + "." : "")) + "</div>" +
     seriesNoteHtml();
   S.tables.pred = { cols: ["Sprint", "Committed items", "Completed items", "Committed pts", "Completed pts",
       "Hit rate (" + U().short + ")", "Flow efficiency"],
@@ -6625,7 +6751,7 @@ function render() {
      not printing it — at 0.45 the refusals were the only text on screen and
      the only text failing AA contrast. */
   const nctx = (S.data.contexts || []).length;
-  $("#foot").innerHTML = "Generated from " + esc(S.data.meta.sourceLabel || "loaded data") + " · " +
+  $("#foot").innerHTML = "Generated from " + esc(viewSource()) + " · " +
     S.data.issues.length + " issues across " + nctx + " sprint" + (nctx === 1 ? "" : "s") +
     // The filtered count against the loaded one. "showing 22" beside a
     // selection a search had emptied was a count of what the filter had
@@ -6792,6 +6918,7 @@ async function probeLive() {
       const next = orgConfigOf({ orgConfig: j.orgConfig });
       S.orgFromServer = JSON.stringify(next) !== JSON.stringify(S.data.orgConfig);
       S.data.orgConfig = next;
+      LIVE_LAYER.orgConfig = JSON.parse(JSON.stringify(j.orgConfig));
     }
 
     // Merge in sprints the bundle does not contain, as stubs. Their issues are
@@ -6801,7 +6928,9 @@ async function probeLive() {
     let added = 0;
     j.contexts.forEach(c => {
       if (known.has(c.id)) return;
-      S.data.contexts.push(Object.assign({ stub: true, issueCount: c.issueCount || 0 }, c));
+      const stub = Object.assign({ stub: true, issueCount: c.issueCount || 0 }, c);
+      S.data.contexts.push(stub);
+      LIVE_LAYER.contexts.push(stub);         // the same object, so loads show on both
       S.data.byContext[c.id] = { burndown: [], history: [], releases: [], dora: null };
       added++;
     });
@@ -6811,6 +6940,7 @@ async function probeLive() {
     // sprints one click away and no reason on screen to click.
     const ph = S.data.contexts.filter(c => c.placeholder);
     if (added && ph.length) {
+      LIVE_LAYER.dropPlaceholders = true;
       S.data.contexts = S.data.contexts.filter(c => !c.placeholder);
       ph.forEach(c => { delete S.data.byContext[c.id]; });
       const pick = j.contexts.find(c => c.sprintState === "active") || j.contexts[0];
@@ -6855,23 +6985,17 @@ async function loadContext(id, select = true) {
     // dataset, so switching boards cannot leave a diagnosis from the last one
     // on screen — and dropped silently is exactly what happens to a body key
     // nothing assigns, which this session has now watched happen three times.
-    if (ctx) {
-      Object.assign(ctx, j.context || {});
-      ctx.setup = j.setup || null;
-      // What the value window excluded, where a producer measured it. `null` is
-      // "nobody measured", not "nothing was excluded" — the tile says different
-      // things for those two and a zero would collapse them.
-      ctx.valueWindow = j.valueWindow || null;
-      // Why the burndown is empty, where the producer knows. Four causes, four
-      // fixes, and one sentence between them until now.
-      ctx.burndownNote = j.burndownNote || null;
-      delete ctx.stub;
-    }
-    const fresh = (j.issues || []).map(i => {
-      const o = normaliseIssue(i, S.data.meta, S.data.orgConfig);
-      o.contextId = id;                       // never let normalise() re-tag these
-      return o;
+    // What the value window excluded, where a producer measured it. `null` is
+    // "nobody measured", not "nothing was excluded" — the tile says different
+    // things for those two and a zero would collapse them. Why the burndown is
+    // empty, where the producer knows: four causes, four fixes, and one
+    // sentence between them until now.
+    const patch = Object.assign({}, j.context || {}, {
+      setup: j.setup || null, valueWindow: j.valueWindow || null,
+      burndownNote: j.burndownNote || null
     });
+    if (ctx) { Object.assign(ctx, patch); delete ctx.stub; }
+    const fresh = liveIssues(j.issues, id);
     S.data.issues = S.data.issues.filter(i => i.contextId !== id).concat(fresh);
     const c2 = S.data.contexts.find(c => c.id === id);
     if (c2) c2.issueCount = fresh.length;
@@ -6879,6 +7003,10 @@ async function loadContext(id, select = true) {
       burndown: j.burndown || [], history: j.history || [],
       releases: j.releases || [], dora: j.dora || null
     };
+    // Kept raw, so a workflow change can re-read this sprint under its mapping.
+    LIVE_LAYER.patches[id] = patch;
+    LIVE_LAYER.issues[id] = JSON.parse(JSON.stringify(j.issues || []));
+    LIVE_LAYER.byContext[id] = S.data.byContext[id];
     if (select) S.ctx = id;
     render();
   } catch (e) {

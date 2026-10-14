@@ -182,7 +182,35 @@ def burndown(issues, meta, cfg=None):
     return out
 
 
-def history_row(issues, sprint_name, as_of, cfg=None):
+#: Said when a comparison between sprints is withheld because they overlapped.
+#: The page prints the same sentence; change one, change both.
+SIDE_BY_SIDE = ("Sprints on this board ran side by side, so a sprint-to-sprint "
+                "comparison would set one squad's sprint against another's — none "
+                "is made, and the evidence is absent, not noisy.")
+
+
+def ran_side_by_side(rows):
+    """Whether any two of these history rows' sprints overlapped in time.
+
+    Two squads on one board run sprints in parallel, and their rows sit in the
+    series one after another as if they were consecutive. Averaging the last
+    three then averaged three squads' sprints, and the merged sprint that
+    followed — both squads' work in one — read as *292% above recent actuals*.
+    Overlap is strict: a sprint starting the day another ends follows it. Rows
+    without dates are never called overlapping, because nothing says they were.
+    Mirrored by `ranSideBySide` in `src/app.js`; change one, change both.
+    """
+    dated = sorted((r["startDate"], r["endDate"]) for r in rows
+                   if r.get("startDate") and r.get("endDate"))
+    latest_end = None
+    for start, end in dated:
+        if latest_end is not None and start < latest_end:
+            return True
+        latest_end = end if latest_end is None or end > latest_end else latest_end
+    return False
+
+
+def history_row(issues, sprint_name, as_of, cfg=None, start_date=None, end_date=None):
     """One sprint's row of the trend series, as it stood at `as_of`.
 
     **Every count here is a statement about a moment, and the moment is
@@ -257,7 +285,12 @@ def history_row(issues, sprint_name, as_of, cfg=None):
            for i in done if i.get("resolved") and i.get("started")]
     tot_lead, tot_cyc = sum(lead), sum(cyc)
 
-    return {
+    # The sprint's own dates, where the producer has them, so a consumer can
+    # tell consecutive sprints from ones that ran side by side. Absent, not
+    # null, when not given: older rows simply do not say.
+    dates = {k: v for k, v in (("startDate", start_date), ("endDate", end_date)) if v}
+
+    return dict(dates, **{
         "sprint": sprint_name,
         "committedSP": round(sum(i["storyPoints"] for i in planned), 1),
         "completedSP": round(sum(i["storyPoints"] for i in done), 1),
@@ -287,7 +320,7 @@ def history_row(issues, sprint_name, as_of, cfg=None):
                                      for i in OC.value_issues(issues, cfg)
                                      if resolved_by(i)), 0)
                            if any("businessValue" in i for i in issues) else None),
-    }
+    })
 
 
 def history_series(contexts, issues):
@@ -372,7 +405,8 @@ def history_series(contexts, issues):
             # smaller in exactly the same way. A count, like everything else
             # here; it names no issue.
             "issuesSeen": len(mine),
-            "row": history_row(mine, c.get("sprintName") or cid, as_of),
+            "row": history_row(mine, c.get("sprintName") or cid, as_of,
+                               start_date=c.get("startDate"), end_date=c.get("endDate")),
         })
     return {"rows": out, "skipped": skipped}
 
@@ -856,8 +890,12 @@ def facts(ds, previous=None, scope="sprint"):
         b[k + "Pts"] = round(b[k + "Pts"] + (i.get("storyPoints") or 0), 1)
 
     hist = ds.get("history") or []
-    last3 = [h.get("completedSP") for h in hist[-4:-1] if h.get("completedSP") is not None]
-    last3_items = [h.get("throughput") for h in hist[-4:-1] if h.get("throughput") is not None]
+    # Withheld, and said, when the sprints compared ran side by side.
+    side_by_side = ran_side_by_side(hist[-4:])
+    last3 = [] if side_by_side else \
+        [h.get("completedSP") for h in hist[-4:-1] if h.get("completedSP") is not None]
+    last3_items = [] if side_by_side else \
+        [h.get("throughput") for h in hist[-4:-1] if h.get("throughput") is not None]
     committed = hist[-1].get("committedSP") if hist else sp([i for i in issues if not i.get("addedMidSprint")])
     committed_items = len([i for i in issues if not i.get("addedMidSprint")])
 
@@ -966,6 +1004,7 @@ def facts(ds, previous=None, scope="sprint"):
                 "commitment_vs_trailing_avg": (
                     round(committed_items / (sum(last3_items) / len(last3_items)) - 1, 3)
                     if last3_items and committed_items else None),
+                "trailing_withheld": SIDE_BY_SIDE if side_by_side else None,
                 "hit_rates": [
                     {"sprint": h["sprint"], "completed_items": h.get("throughput")}
                     for h in hist if h.get("throughput") is not None],
