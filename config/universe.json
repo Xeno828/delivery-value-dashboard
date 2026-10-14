@@ -1,0 +1,15 @@
+{
+  "version": 1,
+
+  "statuses": {
+    "done": ["Done", "Closed", "Resolved", "Complete", "Completed", "Shipped",
+             "QA Passed", "Prelive Passed", "In Prelive", "Released"],
+    "inProgress": ["In Progress", "In Review", "Review", "Testing", "Test", "QA", "Doing", "Accepted",
+                   "In development", "Code Review", "SQL Review", "Blocked",
+                   "Ready for QA", "In QA", "QA Failed", "Ready for UAT5", "In UAT5", "Ready to Deploy"]
+  },
+
+  "workingWeek": ["mon", "tue", "wed", "thu", "fri"],
+  "holidays": [],
+  "sprintLengthDays": 14
+}

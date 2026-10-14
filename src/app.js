@@ -271,6 +271,62 @@ function inferredStatuses() {
  */
 let EDITING = false;
 
+/** What the connection added on top of the file, kept so a rebuild can put it
+ *  back.
+ *
+ *  `S.pristine` is the file as it arrived, and the connection never touches it:
+ *  `probeLive` and `loadContext` add their sprints, issues and config to
+ *  `S.data` alone. Re-deriving from the pristine copy alone threw all of that
+ *  away — set the workflow on a live sprint and the page landed on the baked
+ *  demo, and the reload that brought the sprint back lost the mapping. Raw
+ *  issues are kept, not normalised ones, because a rebuild re-reads them under
+ *  whichever mapping is now in force. Cleared with every new dataset, so an
+ *  upload still replaces what was on screen. */
+const LIVE_LAYER = { orgConfig: null, contexts: [], patches: {}, byContext: {},
+                     issues: {}, dropPlaceholders: false };
+
+function resetLiveLayer() {
+  Object.assign(LIVE_LAYER, { orgConfig: null, contexts: [], patches: {}, byContext: {},
+                              issues: {}, dropPlaceholders: false });
+}
+
+/** One live context's raw issues, read under the config now in force.
+ *
+ *  Under a reader's mapping the producer's category goes, here as in
+ *  `applyWorkflow`: a sprint loaded *after* the mapping kept the server's own
+ *  answer otherwise, and the mapping held only for what was on screen when it
+ *  was set. */
+function liveIssues(raw, id) {
+  const stated = workflowIsReaders();
+  return (raw || []).map(i => {
+    const src = JSON.parse(JSON.stringify(i));
+    if (stated) delete src.statusCategory;
+    const o = normaliseIssue(src, S.data.meta, S.data.orgConfig);
+    o.contextId = id;                         // never let normalise() re-tag these
+    return o;
+  });
+}
+
+/** Put what the connection added back onto a dataset rebuilt from the file. */
+function reapplyLive() {
+  const L = LIVE_LAYER, d = S.data;
+  if (L.dropPlaceholders) {
+    d.contexts.filter(c => c.placeholder).forEach(c => { delete d.byContext[c.id]; });
+    d.contexts = d.contexts.filter(c => !c.placeholder);
+  }
+  L.contexts.forEach(c => {
+    if (!d.contexts.some(x => x.id === c.id)) d.contexts.push(c);
+    if (!d.byContext[c.id]) d.byContext[c.id] = { burndown: [], history: [], releases: [], dora: null };
+  });
+  Object.keys(L.issues).forEach(id => {
+    const fresh = liveIssues(L.issues[id], id);
+    d.issues = d.issues.filter(i => i.contextId !== id).concat(fresh);
+    const c = d.contexts.find(x => x.id === id);
+    if (c) { Object.assign(c, L.patches[id] || {}); delete c.stub; c.issueCount = fresh.length; }
+    d.byContext[id] = L.byContext[id];
+  });
+}
+
 /** Every status this board's data mentions.
  *
  *  Read off the data rather than the config, the same way the type filter is.
@@ -308,8 +364,9 @@ function applyWorkflow(mapping) {
   });
   // No `toDo` list: To Do is the residual, here and in orgconfig.py. A status
   // the reader marked To Do is named by being in neither list, which is the
-  // same statement the config file makes.
-  src.orgConfig = Object.assign({}, src.orgConfig || {}, {
+  // same statement the config file makes. The base is the server's config
+  // where the page adopted one (probeLive), not the file's.
+  src.orgConfig = Object.assign({}, LIVE_LAYER.orgConfig || src.orgConfig || {}, {
     statuses: { done: done, inProgress: wip },
     // Nothing is inferred once a person has said what each status means, and
     // saying "inferred" over a stated mapping would be false. What replaces it
@@ -319,15 +376,17 @@ function applyWorkflow(mapping) {
   });
   (src.issues || []).forEach(i => { delete i.statusCategory; });
   EDITING = true;
-  try { S.data = normalise(src); } finally { EDITING = false; }
+  try { S.data = normalise(src); reapplyLive(); } finally { EDITING = false; }
   render();
 }
 
-/** Back to the file as received, mapping and all. */
+/** Back to the file as received, mapping and all — and to the connection's
+ *  config and sprints, where it handed some over. */
 function resetWorkflow() {
   const src = JSON.parse(JSON.stringify(S.pristine));
+  if (LIVE_LAYER.orgConfig) src.orgConfig = JSON.parse(JSON.stringify(LIVE_LAYER.orgConfig));
   EDITING = true;
-  try { S.data = normalise(src); } finally { EDITING = false; }
+  try { S.data = normalise(src); reapplyLive(); } finally { EDITING = false; }
   render();
 }
 
@@ -346,10 +405,18 @@ function paintWorkflow() {
         " this board uses " + (rows.length === 1 ? "is" : "are") + " not named in the organisation config"
       : "What each status on this board means";
 
-  const cat = {};
-  boardStatuses().forEach(n => { cat[n] = statusCategoryOf(n, ORG()); });
   const inferredOf = {};
   rows.forEach(r => { inferredOf[normStatus(r.status)] = r; });
+  // Each row starts as what the issues already say. For a status the config
+  // does not name that is the producer's reading — often the tracker's own
+  // category — and only failing that the words in the name. Starting from the
+  // name made one Apply move every status whose name read differently from its
+  // category: "Ready to Deploy" went from In Progress to To Do, unasked.
+  const cat = {};
+  boardStatuses().forEach(n => {
+    const inf = inferredOf[normStatus(n)];
+    cat[n] = (inf && inf.readAs) || statusCategoryOf(n, ORG());
+  });
 
   pop.innerHTML =
     '<h2 id="wf-h">What each status means on this board</h2>' +
@@ -714,7 +781,7 @@ function normalise(d) {
   // The dataset exactly as it arrived, captured before anything below mutates
   // it. A workflow change re-derives from this rather than from figures already
   // computed under the answer it replaces, and "Reset to the file" needs it.
-  if (!EDITING) S.pristine = JSON.parse(JSON.stringify(d));
+  if (!EDITING) { S.pristine = JSON.parse(JSON.stringify(d)); resetLiveLayer(); }
   d.orgConfig = orgConfigOf(d);
   // A fresh record per dataset, the way the Python builds a fresh Statuses per
   // run. Without it a second upload reports the first file's statuses.
@@ -5739,6 +5806,7 @@ async function probeLive() {
       const next = orgConfigOf({ orgConfig: j.orgConfig });
       S.orgFromServer = JSON.stringify(next) !== JSON.stringify(S.data.orgConfig);
       S.data.orgConfig = next;
+      LIVE_LAYER.orgConfig = JSON.parse(JSON.stringify(j.orgConfig));
     }
 
     // Merge in sprints the bundle does not contain, as stubs. Their issues are
@@ -5748,7 +5816,9 @@ async function probeLive() {
     let added = 0;
     j.contexts.forEach(c => {
       if (known.has(c.id)) return;
-      S.data.contexts.push(Object.assign({ stub: true, issueCount: c.issueCount || 0 }, c));
+      const stub = Object.assign({ stub: true, issueCount: c.issueCount || 0 }, c);
+      S.data.contexts.push(stub);
+      LIVE_LAYER.contexts.push(stub);         // the same object, so loads show on both
       S.data.byContext[c.id] = { burndown: [], history: [], releases: [], dora: null };
       added++;
     });
@@ -5758,6 +5828,7 @@ async function probeLive() {
     // sprints one click away and no reason on screen to click.
     const ph = S.data.contexts.filter(c => c.placeholder);
     if (added && ph.length) {
+      LIVE_LAYER.dropPlaceholders = true;
       S.data.contexts = S.data.contexts.filter(c => !c.placeholder);
       ph.forEach(c => { delete S.data.byContext[c.id]; });
       const pick = j.contexts.find(c => c.sprintState === "active") || j.contexts[0];
@@ -5802,23 +5873,17 @@ async function loadContext(id, select = true) {
     // dataset, so switching boards cannot leave a diagnosis from the last one
     // on screen — and dropped silently is exactly what happens to a body key
     // nothing assigns, which this session has now watched happen three times.
-    if (ctx) {
-      Object.assign(ctx, j.context || {});
-      ctx.setup = j.setup || null;
-      // What the value window excluded, where a producer measured it. `null` is
-      // "nobody measured", not "nothing was excluded" — the tile says different
-      // things for those two and a zero would collapse them.
-      ctx.valueWindow = j.valueWindow || null;
-      // Why the burndown is empty, where the producer knows. Four causes, four
-      // fixes, and one sentence between them until now.
-      ctx.burndownNote = j.burndownNote || null;
-      delete ctx.stub;
-    }
-    const fresh = (j.issues || []).map(i => {
-      const o = normaliseIssue(i, S.data.meta, S.data.orgConfig);
-      o.contextId = id;                       // never let normalise() re-tag these
-      return o;
+    // What the value window excluded, where a producer measured it. `null` is
+    // "nobody measured", not "nothing was excluded" — the tile says different
+    // things for those two and a zero would collapse them. Why the burndown is
+    // empty, where the producer knows: four causes, four fixes, and one
+    // sentence between them until now.
+    const patch = Object.assign({}, j.context || {}, {
+      setup: j.setup || null, valueWindow: j.valueWindow || null,
+      burndownNote: j.burndownNote || null
     });
+    if (ctx) { Object.assign(ctx, patch); delete ctx.stub; }
+    const fresh = liveIssues(j.issues, id);
     S.data.issues = S.data.issues.filter(i => i.contextId !== id).concat(fresh);
     const c2 = S.data.contexts.find(c => c.id === id);
     if (c2) c2.issueCount = fresh.length;
@@ -5826,6 +5891,10 @@ async function loadContext(id, select = true) {
       burndown: j.burndown || [], history: j.history || [],
       releases: j.releases || [], dora: j.dora || null
     };
+    // Kept raw, so a workflow change can re-read this sprint under its mapping.
+    LIVE_LAYER.patches[id] = patch;
+    LIVE_LAYER.issues[id] = JSON.parse(JSON.stringify(j.issues || []));
+    LIVE_LAYER.byContext[id] = S.data.byContext[id];
     if (select) S.ctx = id;
     render();
   } catch (e) {

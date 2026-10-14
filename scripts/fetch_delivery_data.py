@@ -374,14 +374,43 @@ class Jira:
                 pass          # one unreadable epic is not a reason to report no value
         return out, max(len(listed) - cap, 0)
 
+    #: Same reasoning as MAX_SEARCH_PAGES: no real board has this many sprints.
+    MAX_SPRINT_PAGES = 100
+
+    def board_sprints(self, board_id, state):
+        """Every sprint on the board in `state`, oldest first, paged.
+
+        The endpoint answers fifty at a time in creation order. Reading one page
+        and sorting it handed a board with more than fifty sprints the newest
+        six *of its oldest fifty* — months out of date, current sprint absent,
+        and nothing saying so. Raises past the page cap rather than returning a
+        short list, for the same reason `search` does.
+        """
+        out, start = [], 0
+        for _ in range(self.MAX_SPRINT_PAGES):
+            page = self.get("/rest/agile/1.0/board/%s/sprint" % board_id,
+                            state=state, startAt=start, maxResults=50)
+            vals = page.get("values") or []
+            out.extend(vals)
+            start += len(vals)
+            # `isLast` is the end marker; a short page is the fallback for a
+            # server that leaves it out.
+            if not vals or page.get("isLast") is True or \
+                    ("isLast" not in page and len(vals) < 50):
+                return out
+        raise RuntimeError(
+            "board %s listed more than %d pages of sprints. %d were read and none "
+            "are used: a short list picks the wrong sprints and looks right."
+            % (board_id, self.MAX_SPRINT_PAGES, len(out)))
+
     def active_sprint(self, board_id):
-        data = self.get("/rest/agile/1.0/board/%s/sprint" % board_id, state="active")
-        vals = data.get("values") or []
-        if not vals:
-            data = self.get("/rest/agile/1.0/board/%s/sprint" % board_id,
-                            state="closed", maxResults=1)
-            vals = data.get("values") or []
-        return vals[0] if vals else None
+        vals = self.board_sprints(board_id, "active")
+        if vals:
+            return vals[0]
+        # The latest closed sprint — the list is oldest first, so not vals[0].
+        closed = self.board_sprints(board_id, "closed")
+        return max(enumerate(closed), key=lambda p: (p[1].get("startDate") or "", p[0]))[1] \
+            if closed else None
 
     #: A page count no real board reaches, so a server that kept handing back a
     #: token stops this rather than looping for ever. Community reports of
@@ -609,6 +638,27 @@ def jira_pull(args):
                     cand = d(h.get("created"))
                     if not started or cand < started:
                         started = cand
+        # Completion, where Jira has no date for it. A workflow that never sets
+        # Resolution leaves `resolutiondate` empty on every issue — on one site,
+        # all 1,431 Done issues — and every figure that asks *when* something
+        # finished then read zero beside a Delivered tile that read 41%. The
+        # **last** move into a Done status, so a reopened item counts from when
+        # it was finished again; only for an item that is Done now, so one that
+        # left Done is not completed by its history. Jira's own date wins.
+        status = f.get("status") or {}
+        category = status_category(status.get("name"),
+                                   (status.get("statusCategory") or {}).get("name"))
+        resolved = d(f.get("resolutiondate"))
+        if not resolved and category == "Done":
+            for h in (it.get("changelog", {}).get("histories") or []):
+                for item in h.get("items", []):
+                    if item.get("field") == "status" and \
+                       status_category(item.get("toString")) == "Done":
+                        cand = d(h.get("created"))
+                        if not resolved or cand > resolved:
+                            resolved = cand
+            if resolved:
+                dated_from_log.append(it["key"])
         # added mid-sprint = the sprint field was set after the sprint began
         mid = False
         if sprint_start:
@@ -617,7 +667,6 @@ def jira_pull(args):
                     if item.get("field", "").lower() == "sprint" and \
                        d(h.get("created")) > sprint_start:
                         mid = True
-        status = f.get("status") or {}
         out = {
             "key": it["key"],
             "summary": f.get("summary") or "",
@@ -631,15 +680,14 @@ def jira_pull(args):
             # value is counted at one level and not several. ADR 0025.
             "hierarchyLevel": (f.get("issuetype") or {}).get("hierarchyLevel"),
             "status": status.get("name"),
-            "statusCategory": status_category(status.get("name"),
-                                              (status.get("statusCategory") or {}).get("name")),
+            "statusCategory": category,
             "assignee": (f.get("assignee") or {}).get("displayName") or "Unassigned",
             "storyPoints": (f.get(sp_field) if sp_field else 0) or 0,
             "priority": (f.get("priority") or {}).get("name"),
             "epic": (f.get("parent") or {}).get("fields", {}).get("summary"),
             "created": d(f.get("created")),
             "started": started,
-            "resolved": d(f.get("resolutiondate")),
+            "resolved": resolved,
             "dueDate": d(f.get("duedate")),
             "flagged": bool(f.get("flagged")),
             "addedMidSprint": mid,
@@ -663,8 +711,15 @@ def jira_pull(args):
         return out
 
     sprint_start = d(sprint.get("startDate")) if sprint else None
+    dated_from_log = []   # filled by build(): Done items Jira gave no date
     raw = j.search(jql, fields)
     issues = [build(it, sprint_start) for it in raw]
+    # Said, not done quietly: the date is the workflow's, not Jira's, and a
+    # reader comparing with Jira's own reports should know why they differ.
+    if dated_from_log:
+        print("  note: %d done item%s had no resolution date in Jira; completion "
+              "is dated by the last move into a Done status"
+              % (len(dated_from_log), "" if len(dated_from_log) == 1 else "s"), file=sys.stderr)
 
     # The epics that *finished* inside this sprint — ADR 0026. A `sprint = N`
     # search never returns an epic, so the issue carrying the value is the one
@@ -834,8 +889,7 @@ def jira_bundle(args):
     for b in boards:
         info = j.get("/rest/agile/1.0/board/%s" % b)
         loc = info.get("location") or {}
-        data = j.get("/rest/agile/1.0/board/%s/sprint" % b, state="active,closed")
-        sprints = sorted(data.get("values") or [],
+        sprints = sorted(j.board_sprints(b, "active,closed"),
                          key=lambda s: s.get("startDate") or "", reverse=True)[:args.sprints]
         sprints.reverse()                                  # oldest first, for history
         board_history = []

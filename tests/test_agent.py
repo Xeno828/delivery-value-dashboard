@@ -1174,6 +1174,141 @@ def test_a_bad_credential_fails_before_it_can_flatten_a_burndown():
           "A Person" in err.getvalue(), err.getvalue().strip())
 
 
+def test_a_board_s_sprints_are_read_to_the_last_page():
+    """`/board/{id}/sprint` pages by index, fifty at a time, oldest first.
+
+    The bundle read one page, sorted it newest first and took six — so a board
+    with more than fifty sprints was handed the six newest *of its oldest
+    fifty*. On a real board that was six sprints from February offered as the
+    last six in October, with the current sprint absent: not an error, a
+    dashboard about the wrong months that looks exactly like the right one.
+    `active_sprint`'s fallback asked for one closed sprint and so got the
+    oldest, not the latest. Driven through a stub transport.
+    """
+    class Stub:
+        """A board of `n` sprints, served `per` to a page with `isLast`."""
+
+        def __init__(self, n, per=50, active=False):
+            self.per, self.asked = per, []
+            self.sprints = [{"id": i, "name": "S%d" % i, "state": "closed",
+                             "startDate": "2026-%02d-%02dT09:00:00.000Z" % (1 + i // 28, 1 + i % 28)}
+                            for i in range(1, n + 1)]
+            if active:
+                self.sprints[-1]["state"] = "active"
+
+        def get(self, path, **params):
+            self.asked.append(params)
+            want = set((params.get("state") or "active,closed").split(","))
+            rows = [s for s in self.sprints if s["state"] in want]
+            start = int(params.get("startAt", 0))
+            size = min(int(params.get("maxResults", self.per)), self.per)
+            page = rows[start:start + size]
+            return {"values": page, "startAt": start, "maxResults": size,
+                    "isLast": start + size >= len(rows)}
+
+    j = FD.Jira(Stub(120), "https://x.atlassian.net")
+    got = j.board_sprints(42, "active,closed")
+    check("every page of a board's sprints is read, not just the first",
+          [s["id"] for s in got] == list(range(1, 121)), (len(got), got[-1]["id"] if got else None))
+    check("and the pages are asked for by index",
+          [p.get("startAt") for p in j.t.asked] == [0, 50, 100],
+          [p.get("startAt") for p in j.t.asked])
+
+    newest = sorted(got, key=lambda s: s.get("startDate") or "", reverse=True)[:6]
+    check("so the six newest are the board's newest, not its oldest page's",
+          sorted(s["id"] for s in newest) == list(range(115, 121)),
+          sorted(s["id"] for s in newest))
+
+    j = FD.Jira(Stub(120), "https://x.atlassian.net")
+    check("with no active sprint, the fallback is the latest closed one, not the first",
+          (j.active_sprint(42) or {}).get("id") == 120, (j.active_sprint(42) or {}).get("id"))
+    j = FD.Jira(Stub(120, active=True), "https://x.atlassian.net")
+    check("and an active sprint is still preferred",
+          (j.active_sprint(42) or {}).get("id") == 120, (j.active_sprint(42) or {}).get("id"))
+
+    class Endless(Stub):
+        def get(self, path, **params):
+            return {"values": [self.sprints[0]], "isLast": False}
+
+    j = FD.Jira(Endless(1), "https://x.atlassian.net")
+    try:
+        j.board_sprints(42, "closed")
+        raised = False
+    except RuntimeError:
+        raised = True
+    check("a list that never ends raises rather than returning a short one", raised)
+
+
+def test_completion_is_dated_from_the_changelog_when_jira_has_no_resolution():
+    """A workflow that never sets Resolution leaves `resolutiondate` empty.
+
+    On a real site 1,431 of 1,431 Done issues had none, so every figure that
+    asks *when* an item finished read zero: the trend series said 0 completed
+    in every sprint, the burndown never fell, throughput and cycle time were
+    empty, and the forecaster sampled a team that never finishes anything —
+    beside a Delivered tile, read from status, that said 41%. `started` already
+    came from the changelog; completion now does too, as the **last** move into
+    a Done status, so a reopened item counts when it was finished again. Jira's
+    own date wins where there is one. Driven through a stub transport.
+    """
+    def move(to, at):
+        return {"created": at + "T10:00:00.000+0100",
+                "items": [{"field": "status", "toString": to}]}
+
+    def issue(key, status, resolved, moves):
+        return {"key": key, "fields": {
+            "summary": key, "issuetype": {"name": "Story", "subtask": False, "hierarchyLevel": 0},
+            "status": {"name": status, "statusCategory": {"name": "Done" if status == "Closed" else "In Progress"}},
+            "created": "2026-08-01", "resolutiondate": resolved, "labels": []},
+            "changelog": {"histories": moves}}
+
+    ISSUES = [
+        issue("A-1", "Closed", None, [move("In Progress", "2026-08-03"), move("Closed", "2026-08-06")]),
+        issue("A-2", "Closed", None, [move("Closed", "2026-08-04"), move("In Progress", "2026-08-05"),
+                                      move("Closed", "2026-08-09")]),
+        issue("A-3", "Closed", "2026-08-07T09:00:00.000+0100", [move("Closed", "2026-08-08")]),
+        issue("A-4", "In Progress", None, [move("Closed", "2026-08-04"), move("In Progress", "2026-08-05")]),
+        issue("A-5", "Closed", None, []),
+    ]
+
+    class Stub:
+        def get(self, path, **params):
+            if path == "/rest/api/3/field":
+                return [{"id": "customfield_10016", "key": "com.pyxis:sp", "name": "Story Points"}]
+            if path.endswith("/sprint"):
+                return {"values": [{"id": 7, "name": "S1", "startDate": "2026-08-01",
+                                    "endDate": "2026-08-14"}]}
+            if path.endswith("/epic"):
+                return {"values": [], "isLast": True}
+            raise AssertionError("unexpected GET %s" % path)
+
+        def post(self, path, json=None):
+            class R:
+                def raise_for_status(self): return None
+                def json(self): return {"issues": ISSUES}
+            return R()
+
+    j = FD.Jira(Stub(), "https://x.atlassian.net")
+    args = argparse.Namespace(jira_board=2, jira_jql=None, sp_field=None, sprint_field=None)
+    keep, FD.connect_jira = FD.connect_jira, lambda a=None: j
+    try:
+        issues, _ = FD.jira_pull(args)
+    finally:
+        FD.connect_jira = keep
+    by = {i["key"]: i.get("resolved") for i in issues}
+
+    check("a Done item with no resolution date is dated by its move into Done",
+          by["A-1"] == "2026-08-06", by["A-1"])
+    check("a reopened item counts from when it was finished again, not first",
+          by["A-2"] == "2026-08-09", by["A-2"])
+    check("Jira's own resolution date wins where there is one",
+          by["A-3"] == "2026-08-07", by["A-3"])
+    check("an item that left Done is not completed, whatever its history says",
+          by["A-4"] is None, by["A-4"])
+    check("and a Done item with no history at all stays undated, not guessed",
+          by["A-5"] is None, by["A-5"])
+
+
 def test_search_pages_by_token():
     """`/rest/api/3/search` was removed; `/search/jql` pages by token.
 
@@ -1862,6 +1997,10 @@ if __name__ == "__main__":
     test_a_bad_credential_fails_before_it_can_flatten_a_burndown()
     print("the search endpoint")
     test_search_pages_by_token()
+    print("a board's sprint list")
+    test_a_board_s_sprints_are_read_to_the_last_page()
+    print("completion without a resolution date")
+    test_completion_is_dated_from_the_changelog_when_jira_has_no_resolution()
     print("intake — sizing")
     test_intake_sizing()
     print("intake — scope")
