@@ -163,11 +163,17 @@ def window_membership_jql(start_date, end_date):
     date against midnight — `<= end` silently drops everything finished during
     the window's last day, which is a throughput series quietly missing its
     most recent day rather than an error.
+
+    An unresolved issue that is Done is a member only if it was updated inside
+    the window: on a site that never sets Resolution, "or not resolved at all"
+    otherwise took in everything the board had ever finished. The reasoning is
+    in full on `windowMembershipJql`.
     """
     end = datetime.date.fromisoformat(str(end_date)[:10])
     after = (end + datetime.timedelta(days=1)).isoformat()
     return ('(resolutiondate >= "%s" AND resolutiondate < "%s")'
-            ' OR resolutiondate IS EMPTY' % (start_date, after))
+            ' OR (resolutiondate IS EMPTY AND (statusCategory != Done OR updated >= "%s"))'
+            % (start_date, after, start_date))
 
 
 def window_entry(board_id, board_name, project_key, project_name, days, as_of):
@@ -773,7 +779,7 @@ def series_for(backend, cid):
         got = backend.context(c["id"]) or {}
         issues.extend(got.get("issues") or [])
     cfg = backend.org_config()
-    got = MT.history_series(mine, issues)
+    got = MT.history_series(mine, issues, cfg)
     rows, skipped = got["rows"], got["skipped"]
 
     stored = read_series(board)

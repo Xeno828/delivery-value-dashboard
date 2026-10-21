@@ -1416,6 +1416,50 @@ def test_sprints_that_ran_side_by_side_are_not_compared_as_a_sequence():
           (row.get("startDate"), row.get("endDate")) == ("2026-09-23", "2026-10-05"), row)
 
 
+def test_the_tools_date_completion_from_transitions_when_nothing_else_does():
+    """The Forge resolver sends `resolutiondate` and the raw transitions.
+
+    On a site that never sets Resolution every Done issue arrives undated, and
+    the tools — the forecast, the trend series, the burndown, sequencing — read
+    `resolved` and nothing else, so each of them saw a team that never finishes.
+    `orgconfig.complete` dates completion as the fetcher does: the last move
+    into a Done status under the dataset's own config, for an item Done now,
+    and never over a producer's date. One Python implementation, which the
+    fetcher now uses too; the page's `normaliseIssue` is its mirror.
+    """
+    cfg = OC.merge(OC.DEFAULTS, {"statuses": {"done": ["Done", "Released"],
+                                               "inProgress": ["In Progress"]}})
+
+    def iss(key, status, moves, resolved=None):
+        return {"key": key, "status": status, "created": "2026-08-01", "resolved": resolved,
+                "contextId": "B/1/7", "storyPoints": 1,
+                "statusTransitions": [{"to": t, "at": a} for t, a in moves]}
+
+    raw = [
+        iss("A-1", "Released", [("In Progress", "2026-08-03"), ("Released", "2026-08-06")]),
+        iss("A-2", "Released", [("Released", "2026-08-04"), ("In Progress", "2026-08-05"),
+                                ("Released", "2026-08-09")]),
+        iss("A-3", "Released", [("Released", "2026-08-08")], resolved="2026-08-07"),
+        iss("A-4", "In Progress", [("Released", "2026-08-04"), ("In Progress", "2026-08-05")]),
+        iss("A-5", "Released", []),
+    ]
+    got = {i["key"]: i.get("resolved") for i in OC.complete(raw, cfg)}
+    check("a Done issue with no date is dated by its last move into Done",
+          (got["A-1"], got["A-2"]) == ("2026-08-06", "2026-08-09"), got)
+    check("a producer's date wins, a reopened item is not done, and no history is no date",
+          (got["A-3"], got["A-4"], got["A-5"]) == ("2026-08-07", None, None), got)
+    check("and the issues passed in are not changed underneath their owner",
+          raw[0]["resolved"] is None, raw[0]["resolved"])
+    ctx =[{"id": "B/1/7", "sprintName": "S7", "startDate": "2026-08-01",
+            "endDate": "2026-08-14", "asOfDate": "2026-08-14", "boardId": "1"}]
+    rows = M.history_series(ctx, raw, cfg)["rows"]
+    # Three: the two the transitions date and the one the producer dated. Before
+    # the transitions were read it was one.
+    check("the trend series counts the completions the transitions date",
+          rows and rows[0]["row"]["completedItems"] == 3,
+          rows[0]["row"]["completedItems"] if rows else rows)
+
+
 def test_search_pages_by_token():
     """`/rest/api/3/search` was removed; `/search/jql` pages by token.
 
@@ -2112,6 +2156,8 @@ if __name__ == "__main__":
     test_the_flag_is_read_from_the_site_s_flagged_field()
     print("sprints side by side")
     test_sprints_that_ran_side_by_side_are_not_compared_as_a_sequence()
+    print("completion from transitions, in the tools")
+    test_the_tools_date_completion_from_transitions_when_nothing_else_does()
     print("intake — sizing")
     test_intake_sizing()
     print("intake — scope")

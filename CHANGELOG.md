@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.79.53
+
+**The Forge route reads the flag and dates completion, and a window stops taking in everything ever finished.** 1.79.51 and 1.79.52 fixed both in the fetcher and named `forge/src/jira.js` as having the same gaps; this closes them there and in everything downstream of it.
+
+**The flag.** The resolver read `f.flagged`, which no Jira has, exactly as the fetcher did. `findFlagField` finds the site's *Flagged* field by Jira's own type and the name together — the rule `Jira.find_flag_field` follows, and `tests/test_service.py` runs both over one field list and requires the same pick — and the resolver asks for it by id. An empty list is not a flag, though `Boolean([])` says it is, so the read checks the length.
+
+**Completion, on the page.** The resolver sends `resolutiondate` and the raw transitions and leaves deciding which status is Done to the page, as it does for `started`. A workflow that never sets Resolution left every Done item undated there. `normaliseIssue` now dates completion from the transitions under the page's config — the last move into a Done status, for an item Done now, never over a producer's date — beside the `started` derivation that already read them.
+
+**Completion, in the tools.** The forecast, the facts pack, the trend series, the burndown, sizing and sequencing read `resolved` and nothing else, so over a Forge dataset from such a site each of them saw a team that never finishes. `orgconfig.completed_on` is the rule and `orgconfig.complete` applies it, copying rather than changing what it is handed; every tool entry point that reads completion calls it on its own issues, so a route's answer is still the tool's answer byte for byte and the same Python under WebAssembly agrees. The fetcher now calls `completed_on` too, so the rule has one Python implementation and one JavaScript mirror. `statusTransitions` — status names and dates, no free text — joins `CALC_FIELDS` on both sides. `history_series` takes the dataset's config for this alone; the row is built as it was.
+
+**A window's membership.** A flow board's window was *resolved inside it, or not resolved at all*, and on a site that never sets Resolution "not resolved" is everything the board ever finished: on a real project a 14-day window matched 1,227 issues. An unresolved issue now joins only if Jira's category says it is not Done or it was updated inside the window — anything that moved into Done in the window was updated in it, so no completion is missed. The same project's window now matches 198. The cost is stated on `windowMembershipJql`: an issue finished long ago and commented on this week comes back. Jira's category chooses what to fetch and nothing more; what Done means is still the config's. `scripts/serve_live.py` builds the identical string and the parity check holds them together.
+
+Not changed: the resolver still sends Python no `statusCategory` and no `started`, so the tools read status through their default config and have no cycle time on Forge. That gap predates this and is the same shape; it is named here so it is not mistaken for closed.
+
 ## 1.79.52
 
 **Three more, found preparing a recording on the same board.** Two of them would have put a wrong sentence in front of the business, and one a reassuring zero.

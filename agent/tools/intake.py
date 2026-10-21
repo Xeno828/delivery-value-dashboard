@@ -114,10 +114,14 @@ def _pct(vals, p):
 
 
 def board_issues(dataset, board=None):
-    """Every issue belonging to one board, across every sprint in the file."""
+    """Every issue belonging to one board, across every sprint in the file.
+
+    With completion dated from the transitions where a producer could not:
+    sizing and capacity both read finished work by its date."""
     ctxs = dataset.get("contexts") or []
+    all_issues = OC.complete(dataset["issues"], OC.from_dataset(dataset))
     if not ctxs:
-        return dataset["issues"], None
+        return all_issues, None
     if board is None:
         active = next((c for c in ctxs if c.get("sprintState") == "active"), ctxs[-1])
         board = active.get("boardId")
@@ -131,7 +135,7 @@ def board_issues(dataset, board=None):
     if mine:
         meta = next((c for c in mine if c.get("sprintState") == "active"), None) \
             or max(mine, key=lambda c: (c.get("endDate") or c.get("startDate") or ""))
-    return [i for i in dataset["issues"] if i.get("contextId") in ids], meta
+    return [i for i in all_issues if i.get("contextId") in ids], meta
 
 
 # =====================================================================

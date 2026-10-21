@@ -27,6 +27,7 @@ So: one implementation, three callers. `scripts/serve_live.py` imports it,
 """
 
 import forecast as FC
+import orgconfig as OC
 
 
 #: A roll-up across every board in a project, rather than across one board's
@@ -300,6 +301,9 @@ def forecast_for(contexts, issues, byContext, cid, items=None, target=None,
         # rather than a silent fall back to everything — ADR 0010.
         eff_cfg["countedTypes"] = asked or ["\u0000none"]
 
+    # Dated where only the transitions can date it, so the span reported in
+    # `sampled_from` below describes the same completions the forecast sampled.
+    team_issues = OC.complete(team_issues, OC.from_dataset({"orgConfig": eff_cfg}))
     ds = {"issues": team_issues, "meta": meta,
           "orgConfig": eff_cfg,
           "releases": (byContext.get(cid) or {}).get("releases", [])}

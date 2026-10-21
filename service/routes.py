@@ -87,6 +87,12 @@ CALC_FIELDS = frozenset((
     # amount with no issue key beside it and no basis is not something a reader
     # of this service could act on, and the calculator stores nothing.
     "businessValue", "hierarchyLevel",
+    # The status moves the Forge resolver reads off the changelog: status names
+    # and dates, nothing else. A workflow that never sets Resolution leaves
+    # `resolved` empty, and `orgconfig.complete` dates completion from these
+    # under the dataset's own config — without them every tool here saw a team
+    # that never finishes. Status names are configuration labels like `status`.
+    "statusTransitions",
 ))
 
 #: Fields refused outright if they arrive. A caller sending issue summaries to
@@ -425,7 +431,7 @@ def route_history(body):
         raise Refused('send {"dataset": {"contexts": [...], "issues": [...]}} — '
                       "a row is per sprint, and the sprints come from the contexts. "
                       "Nothing was calculated.")
-    got = MT.history_series(contexts, ds.get("issues") or [])
+    got = MT.history_series(contexts, ds.get("issues") or [], OC.from_dataset(ds))
     rows, skipped = got["rows"], got["skipped"]
 
     # Every row is returned to the caller, because what may be *recorded* is
