@@ -907,7 +907,9 @@ def build(dataset, as_of=None, remaining=None, target=None, snapshots=None,
     # forecast samples *item* throughput, so counting a parent and its three
     # subtasks as four would make a team that breaks work down finely forecast
     # several times faster than one that does not.
-    issues, excluded_from_count = OC.counted_issues(dataset["issues"], cfg)
+    # Completion dated from the transitions where a producer could not —
+    # throughput is a count of dates, and an undated finish is no sample.
+    issues, excluded_from_count = OC.counted_issues(OC.complete(dataset["issues"], cfg), cfg)
     as_of = as_of or meta.get("asOfDate") or date.today().isoformat()
     target = target or meta.get("endDate")
     open_items = [i for i in issues if (i.get("statusCategory") or "") != "Done"]

@@ -672,15 +672,15 @@ def jira_pull(args):
         status = f.get("status") or {}
         category = status_category(status.get("name"),
                                    (status.get("statusCategory") or {}).get("name"))
+        # The rule is `orgconfig.completed_on`, shared with every tool that
+        # reads the Forge resolver's transitions; this only hands it the changelog.
         resolved = d(f.get("resolutiondate"))
         if not resolved and category == "Done":
-            for h in (it.get("changelog", {}).get("histories") or []):
-                for item in h.get("items", []):
-                    if item.get("field") == "status" and \
-                       status_category(item.get("toString")) == "Done":
-                        cand = d(h.get("created"))
-                        if not resolved or cand > resolved:
-                            resolved = cand
+            moves = [{"to": item.get("toString"), "at": d(h.get("created"))}
+                     for h in (it.get("changelog", {}).get("histories") or [])
+                     for item in h.get("items", []) if item.get("field") == "status"]
+            resolved = OC.completed_on({"statusCategory": category, "statusTransitions": moves},
+                                       statuses=STATUSES)
             if resolved:
                 dated_from_log.append(it["key"])
         # added mid-sprint = the sprint field was set after the sprint began

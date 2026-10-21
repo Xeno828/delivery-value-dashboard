@@ -250,6 +250,18 @@ export const windowEntry = (board, days, asOf, fallbackProjectKey) => {
  * wrong number — a throughput series quietly missing its most recent day —
  * rather than a failure, so it is stated here and pinned by a test.
  *
+ * **Unresolved is not the same as open.** A workflow that never sets
+ * Resolution leaves `resolutiondate` empty on every issue it finishes, so "or
+ * not resolved at all" took in everything the board had ever completed — two
+ * years of work in a 14-day window, every one of them dated from its
+ * transitions by the page and the tools. An unresolved issue joins the window
+ * if Jira's own category says it is not Done, or if it was updated inside the
+ * window: anything that moved into Done during the window was updated during
+ * it, so no completion is missed. The cost is the converse — an issue
+ * finished long ago and commented on this week comes back — which is a
+ * handful of rows, stated here, against all of them. Jira's category is used
+ * only to choose what to fetch; what Done *means* is still the page's config.
+ *
  * Returns the predicate alone, with no ordering and no board scoping. Each
  * transport reaches a board its own way — the resolver through
  * `/board/{id}/issue`, the loopback through the board's own filter — and the
@@ -265,7 +277,7 @@ export const windowEntry = (board, days, asOf, fallbackProjectKey) => {
 export const windowMembershipJql = (startDate, endDate) => {
   const after = shiftDays(endDate, 1);
   return `(resolutiondate >= "${startDate}" AND resolutiondate < "${after}")`
-    + ' OR resolutiondate IS EMPTY';
+    + ` OR (resolutiondate IS EMPTY AND (statusCategory != Done OR updated >= "${startDate}"))`;
 };
 
 /** Newest first, then the same cap the live server applies — and the cap is
@@ -311,6 +323,37 @@ export const findStoryPointField = (fields) => {
     if (STORY_POINT_FIELD_NAMES.includes(name)) return f.id ?? null;
   }
   return null;
+};
+
+/** The type Jira's own Flagged field is created with. */
+export const FLAG_FIELD_TYPE = 'com.atlassian.jira.plugin.system.customfieldtypes:multicheckboxes';
+
+/**
+ * Jira's flag: a custom field named Flagged, with a per-site id.
+ *
+ * There is no system field called `flagged`. This read `f.flagged`, got
+ * undefined for every issue, and a sprint with five flagged items said
+ * *0 flagged as impeded* — the same bug the Python fetcher had. Matched by
+ * Jira's own type and the name together, so a site's *Flagged for review*
+ * checkbox is not read as an impediment; by name alone only when nothing of
+ * Jira's type is called that. Mirrors `Jira.find_flag_field` in
+ * `scripts/fetch_delivery_data.py`, and `tests/test_service.py` runs both over
+ * one list; change one, change both.
+ */
+export const findFlagField = (fields) => {
+  const named = (fields || []).filter((f) => String(f.name ?? '').trim().toLowerCase() === 'flagged');
+  const typed = named.filter((f) => (f.schema || {}).custom === FLAG_FIELD_TYPE);
+  const pick = typed[0] || named[0];
+  return pick ? (pick.id ?? null) : null;
+};
+
+/** Whether the flag field holds anything. A list holding "Impediment" when
+ *  flagged, null when not — and an empty list is not a flag, though
+ *  `Boolean([])` would say it was. */
+const flagOf = (fields, fieldId) => {
+  if (!fieldId) return false;
+  const v = fields[fieldId];
+  return Array.isArray(v) ? v.length > 0 : Boolean(v);
 };
 
 /** One issue's business value, or null when nobody has recorded one.
@@ -913,7 +956,8 @@ export const issueFrom = (raw, opts) => {
     created: (f.created || '').slice(0, 10) || null,
     resolved: (f.resolutiondate || '').slice(0, 10) || null,
     dueDate: f.duedate ?? null,
-    flagged: Boolean(f.flagged),
+    // From the site's own Flagged field, found by `findFlagField`.
+    flagged: flagOf(f, o.flagField),
     addedMidSprint: addedMidSprint(raw, o.sprintStart),
     statusTransitions: statusTransitions(raw),
     // This app's own Business Value field, where the site has it on a screen and

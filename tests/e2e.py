@@ -2833,6 +2833,41 @@ def main():
               == ["Accepted", "Peer read", "Ready to Deploy"],
               page.evaluate("() => window.DVD.inferredStatuses()"))
 
+        # ---------- completion from the transitions, where Jira has no date ----------
+        #
+        # The Forge resolver sends `resolutiondate` and the raw transitions, and
+        # leaves deciding which status is done to the page. A workflow that never
+        # sets Resolution left every Done item undated there, as it did in the
+        # fetcher: burndown, cycle time and throughput read nothing. The page now
+        # dates completion as the fetcher does — the last move into a Done
+        # status, for an item that is Done now — under the config it is running.
+        tr = json.loads((ROOT / "data" / "sample-sprint.json").read_text())
+        tr["orgConfig"] = OC.merge(OC.DEFAULTS, {
+            "statuses": {"done": ["Done", "Released"], "inProgress": ["In Progress"]}})
+        base = dict(tr["issues"][0], statusCategory=None, started=None, resolved=None)
+        tr["issues"] = [
+            dict(base, key="TR-1", status="Released", statusTransitions=[
+                {"to": "In Progress", "at": "2026-08-03"}, {"to": "Released", "at": "2026-08-06"}]),
+            dict(base, key="TR-2", status="Released", statusTransitions=[
+                {"to": "Released", "at": "2026-08-04"}, {"to": "In Progress", "at": "2026-08-05"},
+                {"to": "Released", "at": "2026-08-09"}]),
+            dict(base, key="TR-3", status="Released", resolved="2026-08-07",
+                 statusTransitions=[{"to": "Released", "at": "2026-08-08"}]),
+            dict(base, key="TR-4", status="In Progress", statusTransitions=[
+                {"to": "Released", "at": "2026-08-04"}, {"to": "In Progress", "at": "2026-08-05"}]),
+        ]
+        page.evaluate("d => window.DVD.applyDataset(d)", tr)
+        page.wait_for_timeout(700)
+        got = page.evaluate("() => Object.fromEntries(window.DVD.data.issues.map(i => [i.key, i.resolved]))")
+        check("a Done item with no resolution date is dated by its move into Done",
+              got.get("TR-1") == "2026-08-06", got)
+        check("a reopened one from when it was finished again",
+              got.get("TR-2") == "2026-08-09", got)
+        check("a producer's own date still wins",
+              got.get("TR-3") == "2026-08-07", got)
+        check("and an item that left Done is not completed by its history",
+              not got.get("TR-4"), got)
+
         # ---------- sprints that ran side by side are not a sequence ----------
         #
         # Two squads' sprints sat in the series as if one followed the other, so

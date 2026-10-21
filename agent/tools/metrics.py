@@ -138,6 +138,8 @@ def burndown(issues, meta, cfg=None):
         meta.get("startDate"), meta.get("endDate"), cfg or OC.DEFAULTS)
     if not days:
         return []
+    # A burndown falls on completion dates; undated ones would never fall.
+    issues = OC.complete(issues, cfg)
     sp = lambda i: (i.get("storyPoints") or 0)
     planned = [i for i in issues if not i.get("addedMidSprint")]
     base_p = sum(sp(i) for i in planned)
@@ -323,7 +325,7 @@ def history_row(issues, sprint_name, as_of, cfg=None, start_date=None, end_date=
     })
 
 
-def history_series(contexts, issues):
+def history_series(contexts, issues, cfg=None):
     """One row per sprint context, in the order the board runs them.
 
     The loop lives here rather than in whatever calls it, for the same reason
@@ -371,7 +373,9 @@ def history_series(contexts, issues):
                             "why": "it has no id, so nothing could be lined up "
                                    "against it"})
             continue
-        mine = [i for i in issues or [] if i.get("contextId") == cid]
+        # Completion dated from the transitions under the dataset's config —
+        # `cfg` is used for that alone; the row is built as it always was.
+        mine = OC.complete([i for i in issues or [] if i.get("contextId") == cid], cfg)
         as_of = c.get("asOfDate") or c.get("endDate")
         if not as_of:
             # No moment to be a statement about, so no row — and **named**, not
@@ -736,6 +740,8 @@ def facts(ds, previous=None, scope="sprint"):
     # and every figure below is a count of items. What was left out is reported
     # in `counting` rather than dropped, because a smaller number with no reason
     # beside it is the silent cap this repository forbids.
+    # Completion dated from the transitions where a producer could not.
+    ds = dict(ds, issues=OC.complete(ds["issues"], cfg))
     all_issues, not_counted = OC.counted_issues(ds["issues"], cfg)
     issues = ([i for i in all_issues if in_sprint(i, start)]
               if scope == "sprint" else list(all_issues))

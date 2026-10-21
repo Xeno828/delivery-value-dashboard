@@ -1060,6 +1060,62 @@ def test_forge_manifest_matches_the_code():
           "answerHere(" in idx_js and "NO_CALCULATOR" not in idx_js)
 
 
+def test_forge_reads_the_site_s_flagged_field():
+    """The resolver read `f.flagged`, which no Jira has — the fetcher's bug, again.
+
+    Jira's flag is a custom field called *Flagged* with a per-site id, set to a
+    list holding *Impediment* when an issue is flagged. Both producers now find
+    it by Jira's own field type and the name together, and must pick the same
+    field from the same list, or one board reports two Blocked counts. An empty
+    list is not a flag, and in JavaScript `Boolean([])` is true — so the read
+    is checked here, not assumed from the Python half.
+    """
+    import fetch_delivery_data as FD
+    TYPE = "com.atlassian.jira.plugin.system.customfieldtypes:multicheckboxes"
+    cases = {
+        "typed": [{"id": "customfield_10099", "name": "Flagged for review", "schema": {"custom": "acme:x"}},
+                  {"id": "customfield_10050", "name": "Flagged", "schema": {"custom": "acme:x"}},
+                  {"id": "customfield_10021", "name": "Flagged", "schema": {"custom": TYPE}}],
+        "name only": [{"id": "customfield_10050", "name": "Flagged", "schema": {"custom": "acme:x"}}],
+        "none": [{"id": "customfield_10016", "name": "Story Points"}],
+    }
+    jira_url = (ROOT / "forge" / "src" / "jira.js").as_uri()
+    script = """
+    import { findFlagField, issueFrom } from %s;
+    const cases = %s;
+    const out = { picked: {}, flagged: {} };
+    for (const [k, v] of Object.entries(cases)) out.picked[k] = findFlagField(v);
+    const raw = (flag) => ({ key: 'F-1', fields: { status: { name: 'In Progress' }, customfield_10021: flag } });
+    for (const [k, v] of Object.entries({ set: [{ value: 'Impediment' }], unset: null, empty: [] }))
+      out.flagged[k] = issueFrom(raw(v), { flagField: 'customfield_10021' }).flagged;
+    out.flagged.noField = issueFrom(raw([{ value: 'Impediment' }]), {}).flagged;
+    console.log(JSON.stringify(out));
+    """ % (json.dumps(jira_url), json.dumps(cases))
+    node = subprocess.run(["node", "--input-type=module", "-e", script],
+                          capture_output=True, text=True, cwd=str(ROOT))
+    if node.returncode != 0:
+        check("the Forge flag field can be found under Node", False, (node.stderr or node.stdout)[-300:])
+        return
+    js = json.loads(node.stdout.strip().splitlines()[-1])
+
+    class _NoNet:
+        def get(self, *a, **k):
+            raise AssertionError("no network")
+    py = {k: FD.Jira(_NoNet(), "").find_flag_field(v) for k, v in cases.items()}
+    check("Forge finds Jira's Flagged field by type and name, not a look-alike",
+          js["picked"]["typed"] == "customfield_10021", js["picked"])
+    check("and by name alone only when nothing of Jira's type is called that",
+          js["picked"]["name only"] == "customfield_10050" and js["picked"]["none"] is None, js["picked"])
+    check("and picks the same field as the fetcher from the same list",
+          js["picked"] == py, (js["picked"], py))
+    check("a flagged issue reads as flagged, and an empty or missing flag does not",
+          js["flagged"] == {"set": True, "unset": False, "empty": False, "noField": False}, js["flagged"])
+    idx = (ROOT / "forge" / "src" / "index.js").read_text()
+    fields_fn = re.search(r"const issueFields = .*?\]\.join", idx, re.S).group(0)
+    check("the resolver asks Jira for the site's flag field, not one called 'flagged'",
+          "'flagged'" not in fields_fn and "appFields?.flag" in fields_fn, fields_fn[-260:])
+
+
 def test_split_build_has_no_inline_assets():
     """A Forge Custom UI iframe blocks inline <style> and <script>, silently.
 
@@ -1518,6 +1574,17 @@ def test_the_two_transports_agree_about_windows():
           all("resolution IS EMPTY" not in q and "resolutiondate IS EMPTY" in q
               for _, _, q in forge["jql"]),
           [q for _, _, q in forge["jql"]])
+
+    # On a site whose workflow never sets Resolution every finished issue has
+    # an empty `resolutiondate`, so "or not resolved at all" took in every item
+    # the board had ever finished — two years of work in a 14-day window. An
+    # unresolved issue that is Done now belongs to the window only if it was
+    # touched inside it: anything that moved into Done in the window was
+    # updated in the window, so no completion is missed.
+    for start, end, forge_jql in forge["jql"]:
+        want = '(resolutiondate IS EMPTY AND (statusCategory != Done OR updated >= "%s"))' % start
+        check("an unresolved item that is Done joins a window only if it changed in it (%s)" % start,
+              want in forge_jql, forge_jql)
 
 
     # Every id the picker cannot produce is refused rather than clamped,
@@ -5169,6 +5236,8 @@ if __name__ == "__main__":
     value_basis_checks()
     ask_assembly_checks()
     body_keys_reach_a_reader()
+    print("the flag on Forge")
+    test_forge_reads_the_site_s_flagged_field()
 
     print()
     if failures:

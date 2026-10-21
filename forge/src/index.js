@@ -44,7 +44,7 @@ import {
   noDaysYetNote,
   findStoryPointField, mergeOrgConfig, parseContextId, issueFrom, notFound,
   recentSprints, statusesFromJira, validateOrgConfig, findBusinessValueField,
-  findValueBasisField, findAskField, findSizeField, asksFromIssues,
+  findValueBasisField, findAskField, findSizeField, findFlagField, asksFromIssues,
   WINDOW_DAYS, windowEntry, windowMembershipJql, contextsLabel,
   MAX_TREND_SPRINTS,
 } from './jira.js';
@@ -74,6 +74,12 @@ const resolver = new Resolver();
 // to see both. Neither is free text and neither identifies a person; `type` is
 // a Jira configuration label like `status`, which was already here. ADR 0024.
 //
+// `statusTransitions` is status names and dates, read off the changelog: on a
+// site whose workflow never sets Resolution it is the only record of when work
+// finished, and `orgconfig.complete` dates completion from it under the
+// dataset's own config. Without it every calculation saw a team that never
+// finishes.
+//
 // The reason sits above the array rather than inside it: `tests/test_service.py`
 // compares this list against the service's by pulling quoted strings out of the
 // source, and a comment between the entries put its own words into the set.
@@ -81,7 +87,7 @@ const CALC_FIELDS = [
   'key', 'created', 'started', 'resolved', 'statusCategory', 'status',
   'storyPoints', 'priority', 'dueDate', 'flagged', 'addedMidSprint',
   'contextId', 'epicKey', 'type', 'isSubtask',
-  'businessValue', 'hierarchyLevel',
+  'businessValue', 'hierarchyLevel', 'statusTransitions',
 ];
 
 /** Everything the calculator must never see. Kept here so the two lists can be
@@ -313,8 +319,10 @@ const pagedValues = async (routeAt, what, as) => {
 // would throw and nothing would look wrong.
 const issueFields = (storyPointField, appFields) => [
   'summary', 'issuetype', 'status', 'assignee', 'priority', 'parent',
-  'created', 'resolutiondate', 'duedate', 'labels', 'flagged',
+  'created', 'resolutiondate', 'duedate', 'labels',
   ...(storyPointField ? [storyPointField] : []),
+  // The site's Flagged field by its id; there is no field called `flagged`.
+  ...(appFields?.flag ? [appFields.flag] : []),
   ...(appFields?.value ? [appFields.value] : []),
   ...(appFields?.basis ? [appFields.basis] : []),
   ...(appFields?.candidate ? [appFields.candidate] : []),
@@ -457,6 +465,7 @@ const appFieldsFor = async (as, askField, sizeField) => {
     basis: findValueBasisField(fields),
     candidate: findAskField(fields, askField),
     tshirt: findSizeField(fields, sizeField),
+    flag: findFlagField(fields),
   };
 };
 
@@ -842,7 +851,7 @@ const issuesForEntry = async (entry, spField, siteUrl, as) => {
       // nothing was added. The tile that reads it refuses on a flow board rather
       // than scoring it, which is where that has to be honoured.
       sprintStart: entry.kind === 'window' ? null : entry.startDate,
-      storyPointField: spField,
+      storyPointField: spField, flagField: appFields.flag,
       // This app's own field, so a value somebody typed in Jira reaches the
       // page. Null until the version declaring the module is installed, and
       // `issueFrom` reads that as "nobody has said" rather than as zero.
@@ -882,7 +891,7 @@ const issuesForEntry = async (entry, spField, siteUrl, as) => {
     // finding at the bottom of a disagreement.
     const all = epics.map((raw) => issueFrom(raw, {
       sprintStart: entry.kind === 'window' ? null : entry.startDate,
-      storyPointField: spField,
+      storyPointField: spField, flagField: appFields.flag,
       businessValueField: appFields.value,
       valueBasisField: appFields.basis,
       askFieldId: appFields.candidate,
@@ -1455,7 +1464,7 @@ resolver.define('sequence', answering(async ({ payload, context }) => {
     tshirt: fieldState(appFields.tshirt, onScreen),
   };
   const candidates = epics.map((raw) => issueFrom(raw, {
-    storyPointField: spField,
+    storyPointField: spField, flagField: appFields.flag,
     businessValueField: appFields.value,
     valueBasisField: appFields.basis,
     askFieldId: appFields.candidate,

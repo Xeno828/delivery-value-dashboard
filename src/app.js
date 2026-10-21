@@ -790,6 +790,21 @@ function normaliseIssue(i, meta, cfg) {
       .sort();
     o.started = starts.length ? starts[0] : o.started;
   }
+  /* Completion, the same move again, for a workflow that never sets
+     Resolution: `resolutiondate` is empty on every issue, and the Forge
+     resolver sends it as it finds it. The fetcher already dates these from
+     the changelog (`jira_pull()`'s `dated_from_log`); this is the page doing
+     the same over the raw transitions, under its own config. The **last** move
+     into a Done status, so a reopened item counts from when it was finished
+     again — and only for an item that is Done now, so one that left Done is
+     not completed by its history. A producer's own date always wins. */
+  if (!o.resolved && o.statusCategory === "Done" && Array.isArray(o.statusTransitions)) {
+    const ends = o.statusTransitions
+      .filter(t => t && t.at && statusCategoryOf(t.to, cfg) === "Done")
+      .map(t => String(t.at).slice(0, 10))
+      .sort();
+    if (ends.length) o.resolved = ends[ends.length - 1];
+  }
   o.labels = Array.isArray(o.labels) ? o.labels
     : (typeof o.labels === "string" && o.labels ? o.labels.split(/[;,|]\s*/) : []);
   const base = safeUrl(meta && meta.baseUrl);

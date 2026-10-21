@@ -412,6 +412,52 @@ def is_done(issue, cfg=None):
     return Statuses(cfg or DEFAULTS).category(issue.get("status")) == "Done"
 
 
+def completed_on(issue, cfg=None, statuses=None):
+    """When an issue was finished: the producer's date, else its transitions'.
+
+    A workflow that never sets Resolution leaves `resolutiondate` empty on every
+    issue — on one site, all 1,431 Done issues — and every figure that asks
+    *when* something finished then read zero. Where a producer could not date
+    it, completion is the **last** move into a status this config calls Done,
+    so a reopened item counts from when it was finished again; and only for an
+    issue that is Done now, so one that left Done is not completed by its
+    history. No transitions, no date: absent is not guessed.
+
+    The one Python implementation. The fetcher calls it over the changelog it
+    reads, and `complete` over the transitions the Forge resolver sends;
+    `normaliseIssue` in `src/app.js` mirrors it. Change one, change both.
+    """
+    if issue.get("resolved"):
+        return issue["resolved"]
+    st = statuses or Statuses(cfg or DEFAULTS)
+    if (issue.get("statusCategory") or st.category(issue.get("status"))) != "Done":
+        return None
+    ends = sorted(str(t["at"])[:10] for t in issue.get("statusTransitions") or []
+                  if isinstance(t, dict) and t.get("at") and st.category(t.get("to")) == "Done")
+    return ends[-1] if ends else None
+
+
+def complete(issues, cfg=None):
+    """These issues, with completion dated where only their transitions can.
+
+    Every tool that reads `resolved` calls this on the issues it is handed, so
+    a dataset from the Forge resolver — raw transitions, no producer's date —
+    is read the same way by the forecast, the trend series, the burndown and
+    sequencing. Copies where it fills a date; never changes what it was given.
+    An issue that already carries `resolved`, or carries no transitions, is
+    passed through as it came.
+    """
+    st = Statuses(cfg or DEFAULTS)
+    out = []
+    for i in issues or []:
+        if i.get("resolved") or not i.get("statusTransitions"):
+            out.append(i)
+            continue
+        done = completed_on(i, statuses=st)
+        out.append(dict(i, resolved=done) if done else i)
+    return out
+
+
 # ------------------------------------------------------------------ printing
 def summary(cfg):
     """One line for a basis note, so a figure can name the rules behind it."""
